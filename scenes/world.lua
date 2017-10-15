@@ -1,6 +1,5 @@
 local flux = require 'vendor.flux'
 local tick = require 'vendor.tick'
-local Gamestate = require 'vendor.hump.gamestate'
 local Vector = require 'vendor.hump.vector'
 
 local actors_base = require 'klinklang.actors.base'
@@ -10,8 +9,6 @@ local Object = require 'klinklang.object'
 local BaseScene = require 'klinklang.scenes.base'
 local SceneFader = require 'klinklang.scenes.fader'
 local whammo = require 'klinklang.whammo'
-
-local tiledmap = require 'klinklang.tiledmap'
 
 local CAMERA_MARGIN = 0.33
 -- Sets the maximum length of an actor update.
