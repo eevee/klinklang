@@ -839,43 +839,7 @@ function SentientActor:update(dt)
         end
     end
 
-    -- Jumping
-    -- This uses the Sonic approach: pressing jump immediately sets (not
-    -- increases!) the player's y velocity, and releasing jump lowers the y
-    -- velocity to a threshold
-    if self.decision_jump_mode == 2 then
-        -- You cannot climb while jumping, sorry
-        -- TODO but maybe...  you can hold up + jump, and regrab the ladder only at the apex of the jump?
-        self.decision_jump_mode = 1
-        if self.jump_count == 0 and not self.on_ground then
-            self.jump_count = 1
-        end
-        if self.jump_count < self.max_jumps or (self.decision_climb and not self.xxx_useless_climb) then
-            -- TODO maybe jump away from the ground, not always up?  then could
-            -- allow jumping off of steep slopes
-            local jumped
-            if self.too_steep then
-                self.velocity = self.jumpvel * self.ground_normal
-                jumped = true
-            elseif self.velocity.y > -self.jumpvel then
-                self.velocity.y = -self.jumpvel
-                jumped = true
-            end
-
-            if jumped then
-                self.in_mid_jump = true
-                self.jump_count = self.jump_count + 1
-                self.decision_climb = nil
-                if self.jump_sound then
-                    game.resource_manager:get(self.jump_sound):clone():play()
-                end
-            end
-        end
-    elseif self.decision_jump_mode == 0 then
-        if not self.on_ground and self.in_mid_jump then
-            self.velocity.y = math.max(self.velocity.y, -self.jumpvel * self.jumpcap)
-        end
-    end
+    self:handle_jump(dt)
 
     -- Climbing
     -- Because gravity happens /after/ movement, this completely negates
@@ -976,40 +940,85 @@ function SentientActor:update(dt)
     return movement, hits, last_clock
 end
 
+function SentientActor:handle_jump(dt)
+    -- Jumping
+    -- This uses the Sonic approach: pressing jump immediately sets (not
+    -- increases!) the player's y velocity, and releasing jump lowers the y
+    -- velocity to a threshold
+    if self.decision_jump_mode == 2 then
+        -- You cannot climb while jumping, sorry
+        -- TODO but maybe...  you can hold up + jump, and regrab the ladder only at the apex of the jump?
+        self.decision_jump_mode = 1
+        if self.jump_count == 0 and not self.on_ground then
+            self.jump_count = 1
+        end
+        if self.jump_count < self.max_jumps or (self.decision_climb and not self.xxx_useless_climb) then
+            -- TODO maybe jump away from the ground, not always up?  then could
+            -- allow jumping off of steep slopes
+            local jumped
+            if self.too_steep then
+                self.velocity = self.jumpvel * self.ground_normal
+                jumped = true
+            elseif self.velocity.y > -self.jumpvel then
+                self.velocity.y = -self.jumpvel
+                jumped = true
+            end
+
+            if jumped then
+                self.in_mid_jump = true
+                self.jump_count = self.jump_count + 1
+                self.decision_climb = nil
+                if self.jump_sound then
+                    game.resource_manager:get(self.jump_sound):clone():play()
+                end
+            end
+        end
+    elseif self.decision_jump_mode == 0 then
+        if not self.on_ground and self.in_mid_jump then
+            self.velocity.y = math.max(self.velocity.y, -self.jumpvel * self.jumpcap)
+        end
+    end
+end
+
 -- Figure out a new pose and switch to it.  Default behavior is based on player
 -- logic; feel free to override.
 function SentientActor:update_pose()
     self.sprite:set_facing_left(self.facing_left)
-
-    local pose = 'stand'
+    local pose = self:determine_pose()
+    if pose then
+        self.sprite:set_pose(pose)
+    end
+end
+function SentientActor:determine_pose()
     if self.is_dead then
-        pose = 'die'
+        return 'die'
     elseif self.is_floating then
-        pose = 'fall'
+        return 'fall'
     elseif self.decision_climb then
         if self.decision_climb < 0 then
-            pose = 'climb'
+            self.sprite.anim:resume()
+            return 'climb'
         elseif self.decision_climb > 0 or self.velocity.x ~= 0 then
             -- Include "climbing" sideways
-            pose = 'descend'
+            self.sprite.anim:resume()
+            return 'descend'
         else
             -- Not moving; pause the current pose (which must already be climb
             -- or descend, since getting on a ladder requires movement)
             self.sprite.anim:pause()
             return
         end
-        self.sprite.anim:resume()
     elseif self.on_ground then
         if self.decision_walk ~= 0 then
-            pose = 'walk'
+            return 'walk'
         end
     elseif self.velocity.y < 0 and self.in_mid_jump then
-        pose = 'jump'
+        return 'jump'
     else
-        pose = 'fall'
+        return 'fall'
     end
 
-    self.sprite:set_pose(pose)
+    return 'stand'
 end
 
 
