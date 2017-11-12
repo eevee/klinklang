@@ -926,6 +926,7 @@ function SentientActor:update(dt)
     -- Handle our own passive physics
     if self.on_ground then
         self.jump_count = 0
+        self.in_mid_jump = false
 
         self.too_steep = (
             self.ground_normal * gravity - self.max_slope:normalized() * gravity > 1e-8)
