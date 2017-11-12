@@ -532,7 +532,7 @@ function TiledMap:add_layer(layer)
                     })
                 end
             -- FIXME this should probably be the default case rather than one more exception
-            elseif object.type == 'trigger' or object.type == 'ladder' then
+            elseif object.type == 'trigger' or object.type == 'ladder' or object.type == 'water zone' then
                 table.insert(self.actor_templates, {
                     name = object.type,
                     submap = layer.submap,
