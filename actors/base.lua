@@ -255,6 +255,21 @@ function MobileActor:blocks(actor, d)
     return true
 end
 
+-- Return the relative resistance of whatever fluid the actor is currently
+-- inside.  This doesn't affect the actor's velocity, gravity, or anything
+-- else; it's only applied to how much the actor's velocity contributes to
+-- their movement on this tic, so it effectively applies to walking, jumping,
+-- terminal velocity, etc. all simultaneously.  The default is 1; higher values
+-- mean a more viscous fluid and will slow down movement.
+-- TODO is this a good idea?  now self.velocity is a bit of a fib, since it's
+-- not how fast the actor is actually moving.  think of how this affects e.g.
+-- glass lexy?  or is that correct?
+-- TODO having this as an accessor is annoyingly inconsistent.  probably add
+-- support for properties and change this to an attribute
+function MobileActor:get_fluid_resistance()
+    return 1
+end
+
 -- Lower-level function passed to the collider to determine whether another
 -- object blocks us
 -- FIXME now that they're next to each other, these two methods look positively silly!  and have a bit of a symmetry problem: the other object can override via the simple blocks(), but we have this weird thing
@@ -547,7 +562,7 @@ function MobileActor:update(dt)
     -- and it would be nice to make this work for pushing as well, so you can
     -- push an object down a gap its own size!  the only problem is that it has
     -- a nontrivial impact on overall speed
-    local goalpos = self.pos + self.velocity * dt
+    local goalpos = self.pos + self.velocity * dt / self:get_fluid_resistance()
     if self.velocity.x ~= 0 then
         goalpos.x = math.floor(goalpos.x * 8 + 0.5) / 8
     end
