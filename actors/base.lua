@@ -667,10 +667,12 @@ end
 -- Note that, unlike the classes above, this class changes the actor's pose.  A
 -- sentient actor should have stand, walk, and fall poses at a minimum.
 
+-- Note that this will return the velocity required to EXACTLY reach the given
+-- height, which may not even happen due to the imprecise nature of simulating
+-- physics discretely; you may want to add padding, some fraction of a tile.
 local function get_jump_velocity(height)
     -- Max height of a projectile = vy² / (2g), so vy = √2gh
-    -- Throw in a little margin of error too
-    return math.sqrt(2 * gravity.y * height * 1.125)
+    return math.sqrt(2 * gravity.y * height)
 end
 
 local SentientActor = MobileActor:extend{
@@ -684,7 +686,7 @@ local SentientActor = MobileActor:extend{
     max_speed = 192,
     climb_speed = 128,
     -- Pick a jump velocity that gets us up 2 tiles, plus a margin of error
-    jumpvel = get_jump_velocity(TILE_SIZE * 2),
+    jumpvel = get_jump_velocity(TILE_SIZE * 2.25),
     jumpcap = 0.25,
     -- Multiplier for xaccel while airborne.  MUST be greater than the ratio of
     -- friction to xaccel, or the player won't be able to move while floating!
