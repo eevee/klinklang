@@ -614,7 +614,7 @@ function DialogueScene:_advance_script()
             self.phrase_speaker = self.speakers[step.speaker]
             self:resize()  -- FIXME have to do this after changing speaker but not sure it's always right...?
             local font = self.phrase_speaker.font or self.font
-            _textwidth, self.phrase_lines = font:getWrap(text..text..text, self.text_box.width * (self.phrase_speaker.font_prescale or 1))
+            _textwidth, self.phrase_lines = font:getWrap(text, self.text_box.width * (self.phrase_speaker.font_prescale or 1))
             if self.phrase_speaker.sprite and self.phrase_speaker.sprite.set_talking then
                 self.phrase_speaker.sprite:set_talking(true)
             end
