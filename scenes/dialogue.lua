@@ -140,6 +140,49 @@ function StackedSprite:draw_anchorless(pos)
 end
 
 
+local AABB = Object:extend{}
+
+function AABB:init(x, y, width, height)
+    self.x = x
+    self.y = y
+    self.width = width
+    self.height = height
+end
+
+function AABB.from_screen(class)
+    return class(0, 0, love.graphics.getDimensions())
+end
+
+function AABB.from_drawable(class, drawable)
+    return class(0, 0, drawable:getDimensions())
+end
+
+function AABB:with_margin(dx, dy)
+    return AABB(self.x + dx, self.y + dy, self.width - dx * 2, self.height - dy * 2)
+end
+
+-- TODO hm this could be done by setting y0 = y1 - new_height
+function AABB:get_chunk(dx, dy)
+    local x, y, width, height = self:unpack()
+    if dx > 0 then
+        width = dx
+    elseif dx < 0 then
+        x = x + width + dx
+        width = -dx
+    end
+    if dy > 0 then
+        height = dy
+    elseif dy < 0 then
+        y = y + height + dy
+        height = -dy
+    end
+    return AABB(x, y, width, height)
+end
+
+function AABB:unpack()
+    return self.x, self.y, self.width, self.height
+end
+
 
 
 local DialogueScene = BaseScene:extend{
@@ -171,11 +214,14 @@ function DialogueScene:init(speakers, script)
     -- technically be a different size for each...  but the speaker scale was
     -- computed upfront anyway so that didn't really work and maybe it's a bad
     -- idea anyway
-    self.boxheight = 112
-    self.boxtop = h - self.boxheight
-    local winheight = h
+    local boxheight = 112
+    local screen = AABB:from_screen()
+    self.dialogue_box = screen:get_chunk(0, -boxheight):with_margin(64, 0)
+    self.dialogue_box.y = self.dialogue_box.y - 32
+    self.text_box = self.dialogue_box:with_margin(self.text_margin_x, self.text_margin_y)
     -- FIXME cerise is slightly too big, arrgghhh
-    self.speaker_scale = math.ceil((winheight - self.boxheight) / self.speaker_height)
+    self.speaker_scale = math.ceil((h - boxheight) / self.speaker_height)
+    self.speaker_scale = 2
 
     -- TODO a good start, but
     self.speakers = {}
@@ -296,9 +342,6 @@ function DialogueScene:init(speakers, script)
 
     self.state = 'start'
     self.hesitating = false
-
-    -- TODO magic numbers
-    self.wraplimit = w - self.text_margin_x * 2
 
     self.script_index = 0
 
@@ -517,7 +560,7 @@ function DialogueScene:_advance_script()
             text = text()
         end
         local font = self.phrase_speaker.font or self.font
-        _textwidth, self.phrase_lines = font:getWrap(text, self.wraplimit * (self.phrase_speaker.font_prescale or 1))
+        _textwidth, self.phrase_lines = font:getWrap(text, self.text_box.width * (self.phrase_speaker.font_prescale or 1))
         self.phrase_texts = {}
         self.last_was_space = true
         self.state = 'speaking'
@@ -571,7 +614,7 @@ function DialogueScene:_advance_script()
             self.phrase_speaker = self.speakers[step.speaker]
             self:resize()  -- FIXME have to do this after changing speaker but not sure it's always right...?
             local font = self.phrase_speaker.font or self.font
-            _textwidth, self.phrase_lines = font:getWrap(text, self.wraplimit * (self.phrase_speaker.font_prescale or 1))
+            _textwidth, self.phrase_lines = font:getWrap(text..text..text, self.text_box.width * (self.phrase_speaker.font_prescale or 1))
             if self.phrase_speaker.sprite and self.phrase_speaker.sprite.set_talking then
                 self.phrase_speaker.sprite:set_talking(true)
             end
@@ -594,7 +637,7 @@ function DialogueScene:_advance_script()
             for _, item in ipairs(step.menu) do
                 if _evaluate_condition(item.condition) then
                     local jump = item[1]
-                    local _textwidth, lines = font:getWrap(item[2], self.wraplimit * (self.phrase_speaker.font_prescale or 1))
+                    local _textwidth, lines = font:getWrap(item[2], self.text_box.width * (self.phrase_speaker.font_prescale or 1))
                     local texts = {}
                     for i, line in ipairs(lines) do
                         texts[i] = love.graphics.newText(font, line)
@@ -702,8 +745,8 @@ function DialogueScene:draw()
     love.graphics.setColor(0, 0, 0, self.background_opacity)
     love.graphics.rectangle('fill', 0, 0, game:getDimensions())
     --[[
-    love.graphics.rectangle('fill', 0, self.boxtop, game:getDimensions(), self.boxheight)
-    love.graphics.rectangle('fill', self.text_margin_x, self.boxtop + self.text_margin_y, game:getDimensions() - self.text_margin_x * 2, self.boxheight - self.text_margin_y * 2)
+    love.graphics.rectangle('fill', 0, self.dialogue_box.y, game:getDimensions(), self.dialogue_box.height)
+    love.graphics.rectangle('fill', self.text_box:unpack())
     ]]
     love.graphics.setColor(255, 255, 255)
 
@@ -711,9 +754,8 @@ function DialogueScene:draw()
     -- drawing the ends and then repeating the middle bit to fit the screen
     -- size
     local w, h = game:getDimensions()
-    local boxwidth = w
     local font_height = self.phrase_speaker.font_height or self.font_height
-    self:_draw_background(w, self.boxtop)
+    self:_draw_background(self.dialogue_box)
 
     -- Print the text
     local texts = {}
@@ -731,7 +773,7 @@ function DialogueScene:draw()
                 table.insert(texts, item.texts[l])
                 if m == self.menu_cursor then
                     love.graphics.setColor(255, 255, 255, 64)
-                    love.graphics.rectangle('fill', self.text_margin_x * 3/4, self.boxtop + self.text_margin_y + font_height * lines, boxwidth - self.text_margin_x * 6/4, font_height)
+                    love.graphics.rectangle('fill', self.text_margin_x * 3/4, self.dialogue_box.y + self.text_margin_y + font_height * lines, self.dialogue_box.width - self.text_margin_x * 6/4, font_height)
                 end
                 if m == #self.menu_items and l == #item.lines then
                     is_bottom = true
@@ -750,13 +792,13 @@ function DialogueScene:draw()
         -- FIXME magic numbers here...  should use sprites?  ugh
         love.graphics.setColor(255, 255, 255)
         if not (self.menu_top == 1 and self.menu_top_line == 1) then
-            local x = self.text_margin_x
-            local y = self.boxtop + self.text_margin_y
+            local x = self.text_box.x
+            local y = self.text_box.y
             love.graphics.polygon('fill', x, y - 4, x + 2, y, x - 2, y)
         end
         if not is_bottom then
-            local x = self.text_margin_x
-            local y = h - self.text_margin_y
+            local x = self.text_box.x
+            local y = self.text_box.y + self.text_box.height
             love.graphics.polygon('fill', x, y + 4, x + 2, y, x - 2, y)
         end
     else
@@ -772,15 +814,15 @@ function DialogueScene:draw()
         -- FIXME more magic numbers
         if self.state == 'waiting' then
             local size = 4
-            local x = boxwidth - self.text_margin_x
-            local y = math.floor(self.boxtop + self.boxheight - self.text_margin_y)
+            local x = self.text_box.x + self.text_box.width
+            local y = math.floor(self.text_box.y + self.text_box.height)
             love.graphics.setColor(self.phrase_speaker.color or self.default_color)
             love.graphics.polygon('fill', x, y + size, x - size, y, x + size, y)
         end
     end
 
     -- Center the text within the available space
-    local x, y = self.text_margin_x, self.boxtop + self.text_margin_y + math.floor((self.boxheight - self.text_margin_y * 2 - self.max_lines * font_height) / 2)
+    local x, y = self.text_box.x, self.text_box.y + math.floor((self.text_box.height - self.max_lines * font_height) / 2)
     local scale = 1 / (self.phrase_speaker.font_prescale or 1)
     for _, text in ipairs(texts) do
         -- Draw the text, twice: once for a drop shadow, then the text itself
@@ -813,7 +855,7 @@ function DialogueScene:draw()
                 print("unrecognized speaker position:", speaker.position)
                 x = 0
             end
-            local pos = Vector(math.floor((boxwidth - sw) * x + 0.5), (self.override_sprite_bottom or self.boxtop) - sh)
+            local pos = Vector(math.floor(self.dialogue_box.x + (self.dialogue_box.width - sw) * x + 0.5), (self.override_sprite_bottom or self.dialogue_box.y) - sh)
             if self.phrase_speaker == speaker then
                 love.graphics.setColor(255, 255, 255)
             else
@@ -826,7 +868,7 @@ function DialogueScene:draw()
     love.graphics.pop()
 end
 
-function DialogueScene:_draw_background(w, boxtop)
+function DialogueScene:_draw_background(box)
     -- TODO probably need height in here too.  i wish i had a box type lol
     local background = self.phrase_speaker.background or self.default_background
     if not background then
@@ -836,18 +878,18 @@ function DialogueScene:_draw_background(w, boxtop)
     local BOXSCALE = 1  -- FIXME this was 2 for isaac
     local boxrepeatleft, boxrepeatright = 192, 224
     local boxquadl = love.graphics.newQuad(0, 0, boxrepeatleft, background:getHeight(), background:getDimensions())
-    love.graphics.draw(background, boxquadl, 0, boxtop, 0, BOXSCALE)
+    love.graphics.draw(background, boxquadl, box.x, box.y, 0, BOXSCALE)
     local boxquadm = love.graphics.newQuad(boxrepeatleft, 0, boxrepeatright - boxrepeatleft, background:getHeight(), background:getDimensions())
-    love.graphics.draw(background, boxquadm, boxrepeatleft * BOXSCALE, boxtop, 0, (w - background:getWidth() + (boxrepeatright - boxrepeatleft)) / (boxrepeatright - boxrepeatleft), BOXSCALE)
+    love.graphics.draw(background, boxquadm, box.x + boxrepeatleft * BOXSCALE, box.y, 0, (box.width - background:getWidth()) / (boxrepeatright - boxrepeatleft) + 1, BOXSCALE)
     local boxquadr = love.graphics.newQuad(boxrepeatright, 0, background:getWidth() - boxrepeatright, background:getHeight(), background:getDimensions())
-    love.graphics.draw(background, boxquadr, w - (background:getWidth() - boxrepeatright) * BOXSCALE, boxtop, 0, BOXSCALE)
+    love.graphics.draw(background, boxquadr, box.x + box.width - (background:getWidth() - boxrepeatright) * BOXSCALE, box.y, 0, BOXSCALE)
 end
 
 function DialogueScene:resize(w, h)
     -- FIXME adjust wrap width, reflow current text, etc.
 
     local font_height = (self.phrase_speaker and self.phrase_speaker.font_height) or self.font_height
-    self.max_lines = math.floor((self.boxheight - self.text_margin_y * 2) / font_height)
+    self.max_lines = math.floor(self.text_box.height / font_height)
 
     -- FIXME maybe should have a wrapperscene base class that automatically
     -- passes resize events along?
