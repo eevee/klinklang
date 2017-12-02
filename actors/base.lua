@@ -889,6 +889,10 @@ function SentientActor:update(dt)
     local movement, hits, last_clock = SentientActor.__super.update(self, dt)
 
     -- Ground sticking
+    -- FIXME this is still clearly visible (and annoying), AND it messes with
+    -- attempts to nudge the player upwards artificially, so i'm disabling it
+    -- again.  figure out how to make this actually work.
+    --[[
     -- If we walk up off the top of a slope, our momentum will carry us into
     -- the air, which looks very silly.  A conscious actor would step off the
     -- ramp.  So if we're only a very short distance above the ground, we were
@@ -924,6 +928,7 @@ function SentientActor:update(dt)
         movement = movement + drop_movement
         self:check_for_ground(hits)
     end
+    ]]
 
     -- Handle our own passive physics
     if self.on_ground then
