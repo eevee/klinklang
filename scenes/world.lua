@@ -20,6 +20,24 @@ local MAX_UPDATES = 10
 --------------------------------------------------------------------------------
 -- Layers
 
+local MapLayer = Object:extend{}
+
+function MapLayer:init(map)
+    self.actors = {}
+end
+
+function MapLayer:unload()
+    for i = #self.actors, 1, -1 do
+        local actor = self.actors[i]
+        self.actors[i] = nil
+        if actor then
+            actor:on_leave()
+        end
+    end
+end
+
+
+
 local DebugLayer = Object:extend{}
 
 function DebugLayer:init(world)
@@ -437,8 +455,7 @@ function WorldScene:draw()
 
     love.graphics.pop()
 
-    love.graphics.setCanvas()
-    love.graphics.draw(self.canvas, 0, 0, 0, game.scale, game.scale)
+    self:_draw_final_canvas()
 
     if game.debug and game.debug_twiddles.show_blockmap then
         self:_draw_blockmap()
@@ -507,6 +524,11 @@ function WorldScene:_draw_blockmap()
     end
 
     love.graphics.pop()
+end
+
+function WorldScene:_draw_final_canvas()
+    love.graphics.setCanvas()
+    love.graphics.draw(self.canvas, 0, 0, 0, game.scale, game.scale)
 end
 
 function WorldScene:resize(w, h)
