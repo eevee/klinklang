@@ -333,9 +333,7 @@ function WorldScene:update(dt)
         math.ceil(dt * MIN_FRAMERATE)))
     local subdt = dt / updatect
     for i = 1, updatect do
-        for _, actor in ipairs(self.actors) do
-            actor:update(subdt)
-        end
+        self:_update_actors(subdt)
     end
 
     love.audio.setPosition(self.player.pos.x, self.player.pos.y, 0)
@@ -346,6 +344,12 @@ function WorldScene:update(dt)
     love.audio.setOrientation(fx, 0, 0, -1, 0, 0)
 
     self:update_camera()
+end
+
+function WorldScene:_update_actors(dt)
+    for _, actor in ipairs(self.actors) do
+        actor:update(dt)
+    end
 end
 
 function WorldScene:update_camera()
