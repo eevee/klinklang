@@ -513,6 +513,7 @@ function TiledMap:add_layer(layer)
                         position = Vector(
                             tx * self.tilewidth,
                             (ty + 1) * self.tileheight - tile.tileset.tileheight),
+                        properties = tile.tileset.raw.tileproperties[tile.id] or {},
                     })
                     layer.tilegrid[t] = false
                 end
@@ -524,11 +525,21 @@ function TiledMap:add_layer(layer)
                 -- This is a "tile" object
                 local class = object.tile:prop('actor')
                 if class then
+                    -- FIXME this is a mess lol, but i want it so tiles can
+                    -- also have options, e.g. a generic actor knows its sprite
+                    -- name.  also should do this above too
+                    local props = {}
+                    for k, v in pairs(object.properties or {}) do
+                        props[k] = v
+                    end
+                    for k, v in pairs(object.tile.tileset.raw.tileproperties[object.tile.id] or {}) do
+                        props[k] = v
+                    end
                     table.insert(self.actor_templates, {
                         name = class,
                         submap = layer.submap,
                         position = Vector(object.x, object.y - object.tile.tileset.tileheight),
-                        properties = object.properties,
+                        properties = props,
                     })
                 end
             -- FIXME this should probably be the default case rather than one more exception
