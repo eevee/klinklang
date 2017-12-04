@@ -473,7 +473,15 @@ function WorldScene:_draw_actors(actors)
     end
 
     table.sort(sorted_actors, function(actor1, actor2)
-        return (actor1.z or 0) < (actor2.z or 0)
+        local z1 = actor1.z or 0
+        local z2 = actor2.z or 0
+        if z1 ~= z2 then
+            return z1 < z2
+        elseif actor1.pos and actor2.pos then
+            return actor1.pos.x < actor2.pos.x
+        else
+            return (actor1.timer or 0) < (actor2.timer or 0)
+        end
     end)
 
     for _, actor in ipairs(sorted_actors) do
