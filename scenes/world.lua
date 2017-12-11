@@ -343,6 +343,12 @@ function WorldScene:update(dt)
     end
     love.audio.setOrientation(fx, 0, 0, -1, 0, 0)
 
+    for _, layer in ipairs(self.layers) do
+        if layer.update then
+            layer:update(dt)
+        end
+    end
+
     self:update_camera()
 end
 
