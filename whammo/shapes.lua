@@ -630,6 +630,7 @@ function MultiShape:move(dx, dy)
     for _, subshape in ipairs(self.subshapes) do
         subshape:move(dx, dy)
     end
+    self:update_blockmaps()
 end
 
 function MultiShape:draw(...)
