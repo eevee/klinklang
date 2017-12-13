@@ -432,8 +432,6 @@ function TiledMap:init(width, height, tilewidth, tileheight)
     self.music_zones = {}
     -- TODO maybe it should be possible to name arbitrary shapes
     self.named_tracks = {}
-    -- Used for drawing
-    self.sprite_batches = {}
 end
 
 function TiledMap.parse_json_file(class, path, resource_manager)
@@ -657,50 +655,10 @@ function TiledMap:draw(layer_name, submap_name, origin, width, height)
     -- TODO width and height also unused
     for _, layer in pairs(self.layers) do
         if layer.name == layer_name and layer.submap == submap_name then
-            if layer.type == 'tilelayer' then
-                self:draw_layer(layer)
-            elseif layer.type == 'imagelayer' then
+            if layer.type == 'imagelayer' then
                 love.graphics.draw(layer.image, layer.offsetx, layer.offsety)
             end
         end
-    end
-end
-
--- Draw a particular layer using sprite batches
-function TiledMap:draw_layer(layer)
-    -- NOTE: This batched approach means that the map /may not/ render
-    -- correctly if an oversized tile overlaps other tiles.  But I don't do
-    -- that, and it seems like a bad idea anyway, so.
-    -- TODO consider benchmarking this (on a large map) against recreating a
-    -- batch every frame but with only visible tiles?
-    local tw, th = self.tilewidth, self.tileheight
-    local batches = self.sprite_batches[layer]
-    if not batches then
-        batches = {}
-        self.sprite_batches[layer] = batches
-
-        local width, height = layer.width, layer.height
-        local data = layer.data
-        for t, tile in ipairs(layer.tilegrid) do
-            if tile then
-                local tileset = tile.tileset
-                local batch = batches[tileset]
-                if not batch then
-                    batch = love.graphics.newSpriteBatch(
-                        tileset.image, width * height, 'static')
-                    batches[tileset] = batch
-                end
-                local ty, tx = util.divmod(t - 1, width)
-                batch:add(
-                    tileset.quads[tile.id],
-                    -- convert tile offsets to pixels
-                    tx * tw,
-                    (ty + 1) * th - tileset.tileheight)
-            end
-        end
-    end
-    for tileset, batch in pairs(batches) do
-        love.graphics.draw(batch)
     end
 end
 

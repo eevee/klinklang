@@ -5,6 +5,7 @@ local Vector = require 'vendor.hump.vector'
 local actors_base = require 'klinklang.actors.base'
 local Player = require 'klinklang.actors.player'
 local actors_generic = require 'klinklang.actors.generic'
+local actors_map = require 'klinklang.actors.map'
 local Object = require 'klinklang.object'
 local BaseScene = require 'klinklang.scenes.base'
 local SceneFader = require 'klinklang.scenes.fader'
@@ -416,37 +417,17 @@ function WorldScene:draw()
     -- (the main problem is figuring out where exactly the actor layer lives)
     self.map:draw_parallax_background(self.camera, w, h)
 
-    -- TODO once the camera is set up, consider rigging the map to somehow
-    -- auto-expand to fill the screen?
-    -- FIXME don't really like hardcoding layer names here; they /have/ an
-    -- order, the main problem is just that there's no way to specify where the
-    -- actors should be drawn
-    self.map:draw('background', nil, self.camera, w, h)
-    self.map:draw('main terrain', nil, self.camera, w, h)
-
-    local actors_faucet
     if self.pushed_actors then
         self:_draw_actors(self.pushed_actors)
     else
         self:_draw_actors(self.actors)
     end
 
-    self.map:draw('objects', nil, self.camera, w, h)
-    self.map:draw('foreground', nil, self.camera, w, h)
-    self.map:draw('wiring', nil, self.camera, w, h)
-
     if self.pushed_actors then
         love.graphics.setColor(0, 0, 0, 192)
         love.graphics.rectangle('fill', self.camera.x, self.camera.y, w, h)
         love.graphics.setColor(255, 255, 255)
-        -- FIXME stop hardcoding fuckin layer names
-        self.map:draw('background', self.submap, self.camera, w, h)
-        self.map:draw('main terrain', self.submap, self.camera, w, h)
-        self.map:draw(self.submap, self.submap, self.camera, w, h)
         self:_draw_actors(self.actors)
-        self.map:draw('objects', self.submap, self.camera, w, h)
-        self.map:draw('foreground', self.submap, self.camera, w, h)
-        self.map:draw('wiring', self.submap, self.camera, w, h)
     end
 
     -- Draw a keycap when the player is next to something touchable
@@ -716,6 +697,33 @@ function WorldScene:reload_map()
 end
 
 function WorldScene:_create_actors(submap)
+    -- TODO this seems /slightly/ invasive but i'm not sure where else it would
+    -- go.  i guess if the "map" parts of the world got split off it would be
+    -- more appropriate.  i DO like that it starts to move "submap" out of the
+    -- map parsing, where it 100% does not belong
+    for _, layer in ipairs(self.map.layers) do
+        if layer.type == 'tilelayer' and layer.submap == submap then
+            local z
+            -- FIXME better!  but i still don't like hardcoded layer names
+            if layer.name == 'background' then
+                z = -10002
+            elseif layer.name == 'main terrain' then
+                z = -10001
+            elseif layer.name == submap and submap then
+                z = -10000
+            elseif layer.name == 'objects' then
+                z = 10000
+            elseif layer.name == 'foreground' then
+                z = 10001
+            elseif layer.name == 'wiring' then
+                z = 10002
+            end
+            if z ~= nil then
+                self:add_actor(actors_map.TiledMapLayer(layer, self.map, z))
+            end
+        end
+    end
+
     for _, template in ipairs(self.map.actor_templates) do
         if template.submap == submap then
             local class = actors_base.Actor:get_named_type(template.name)
