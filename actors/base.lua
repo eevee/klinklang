@@ -184,6 +184,14 @@ function Actor:set_sprite(sprite_name)
     self.sprite = game.sprites[self.sprite_name]:instantiate(nil, facing)
 end
 
+function Actor:facing_to_vector()
+    if self.facing_left then
+        return Vector(-1, 0)
+    else
+        return Vector(1, 0)
+    end
+end
+
 
 -- ========================================================================== --
 -- MobileActor

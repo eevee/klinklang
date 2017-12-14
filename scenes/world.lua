@@ -701,6 +701,7 @@ function WorldScene:_create_actors(submap)
     -- go.  i guess if the "map" parts of the world got split off it would be
     -- more appropriate.  i DO like that it starts to move "submap" out of the
     -- map parsing, where it 100% does not belong
+    -- TODO imo the collision should be attached to the tile layers too
     for _, layer in ipairs(self.map.layers) do
         if layer.type == 'tilelayer' and layer.submap == submap then
             local z
