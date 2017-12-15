@@ -369,7 +369,6 @@ function WorldScene:update_camera()
         local focusx = math.floor(self.player.pos.x + 0.5)
         local focusy = math.floor(self.player.pos.y + 0.5)
         local w, h = game:getDimensions()
-        local mapx, mapy = 0, 0
 
         local marginx = CAMERA_MARGIN * w
         local x0 = marginx
