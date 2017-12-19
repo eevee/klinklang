@@ -26,7 +26,6 @@ function TiledMapLayer:_make_batches()
     local tw, th = self.map.tilewidth, self.map.tileheight
 
     local width, height = self.layer.width, self.layer.height
-    local data = self.layer.data
     for t, tile in ipairs(self.layer.tilegrid) do
         if tile then
             local tileset = tile.tileset

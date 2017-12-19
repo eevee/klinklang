@@ -473,7 +473,20 @@ function TiledMap.parse_json_file(class, path, resource_manager)
 
     -- Load layers
     for _, raw_layer in ipairs(data.layers) do
-        self:add_layer(TiledMapLayer:parse_json(raw_layer, resource_manager, path, self._tiles_by_gid))
+        -- Handle group layers
+        -- FIXME should this actually mean something to the loader?  (note that
+        -- atm the group layer itself is not actually loaded as a layer)
+        -- FIXME should store the parent/child relationships too
+        -- FIXME recurse indefinitely
+        local sublayers
+        if raw_layer.layers then
+            sublayers = raw_layer.layers
+        else
+            sublayers = {raw_layer}
+        end
+        for _, raw_sublayer in ipairs(sublayers) do
+            self:add_layer(TiledMapLayer:parse_json(raw_sublayer, resource_manager, path, self._tiles_by_gid))
+        end
     end
 
     return self
