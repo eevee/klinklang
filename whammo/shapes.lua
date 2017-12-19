@@ -548,14 +548,18 @@ local Box = Polygon:extend{
     _normals = { [_XAXIS] = _XAXIS, [_YAXIS] = _YAXIS },
 }
 
-function Box:init(x, y, width, height)
+function Box:init(x, y, width, height, _xoff, _yoff)
     Polygon.init(self, x, y, x + width, y, x + width, y + height, x, y + height)
     self.width = width
     self.height = height
+    self.xoff = _xoff or 0
+    self.yoff = _yoff or 0
 end
 
 function Box:clone()
+    -- FIXME i don't think most shapes clone xoff/yoff correctly, oops...  ARGH this breaks something though
     return Box(self.x0, self.y0, self.width, self.height)
+    --return Box(self.x0, self.y0, self.width, self.height, self.xoff, self.yoff)
 end
 
 function Box:__tostring()
