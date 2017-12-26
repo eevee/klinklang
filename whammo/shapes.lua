@@ -206,7 +206,7 @@ end
 
 function Polygon:center()
     -- TODO uhh
-    return self.x0 + self.width / 2, self.y0 + self.height / 2
+    return (self.x0 + self.x1) / 2, (self.y0 + self.y1) / 2
 end
 
 function Polygon:draw(mode)
