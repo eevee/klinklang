@@ -4,10 +4,13 @@ local actors_base = require 'klinklang.actors.base'
 local util = require 'klinklang.util'
 
 
-local NORTH = Vector(0, -16)
-local SOUTH = Vector(0, 16)
-local EAST = Vector(16, 0)
-local WEST = Vector(-16, 0)
+local DEBUG_DRAW = false
+
+
+local NORTH = Vector(0, -8)
+local SOUTH = Vector(0, 8)
+local EAST = Vector(8, 0)
+local WEST = Vector(-8, 0)
 
 -- TODO i'd like to improve "powered" to a broader understanding of all current
 -- inputs, so other stuff can be sent over wires.  but at the same time, there
@@ -19,7 +22,7 @@ local Wirable = actors_base.Actor:extend{
     powered = 0,
     can_emit = true,
     can_receive = true,
-    z = 2000,  -- in front of the player
+    z = 11000,  -- in front of everything
 }
 
 function Wirable:init(...)
@@ -168,33 +171,34 @@ end
 function Wirable:draw()
     actors_base.Actor.draw(self)
 
-    --[[
-    love.graphics.setColor(255, 0, 255)
-    for _, node in ipairs(self.nodes) do
-        local xy = self.pos + node
-        love.graphics.circle('fill', xy.x, xy.y, 2)
-    end
-    love.graphics.setColor(255, 255, 255)
-
-    if self.powered > 0 and self.shape then
-        love.graphics.setColor(255, 255, 0, 128)
-        self.shape:draw('fill')
-    end
-    for connection, state in pairs(self.live_connections) do
-        local direction = connection.pos - self.pos
-        if state == -1 then
-            love.graphics.setColor(0, 255, 0)
-        elseif state == 1 then
-            love.graphics.setColor(255, 0, 0)
-        else
-            love.graphics.setColor(255, 255, 0)
+    if DEBUG_DRAW then
+        love.graphics.setColor(255, 0, 255)
+        love.graphics.circle('fill', self.pos.x, self.pos.y, 1)
+        for _, node in ipairs(self.nodes) do
+            local xy = self.pos + node * 7/8
+            love.graphics.circle('fill', xy.x, xy.y, 2)
         end
-        local midpoint = self.pos + direction / 4
-        local perp = direction:perpendicular() / 4
-        love.graphics.line(self.pos.x, self.pos.y, midpoint.x, midpoint.y)
+        love.graphics.setColor(255, 255, 255)
+
+        if self.powered > 0 and self.shape then
+            love.graphics.setColor(255, 255, 0, 128)
+            self.shape:draw('fill')
+        end
+        for connection, state in pairs(self.live_connections) do
+            local direction = connection.pos - self.pos
+            if state == -1 then
+                love.graphics.setColor(0, 255, 0)
+            elseif state == 1 then
+                love.graphics.setColor(255, 0, 0)
+            else
+                love.graphics.setColor(255, 255, 0)
+            end
+            local midpoint = self.pos + direction / 4
+            local perp = direction:perpendicular() / 4
+            love.graphics.line(self.pos.x, self.pos.y, midpoint.x, midpoint.y)
+        end
+        love.graphics.setColor(255, 255, 255)
     end
-    love.graphics.setColor(255, 255, 255)
-    ]]
 end
             
 
@@ -263,6 +267,13 @@ local WireNSW = Wirable:extend{
     sprite_name = 'wire nsw',
 
     nodes = {NORTH, SOUTH, WEST},
+}
+
+local WireNSEW = Wirable:extend{
+    name = 'wire nsew',
+    sprite_name = 'wire nsew',
+
+    nodes = {NORTH, SOUTH, EAST, WEST},
 }
 
 local Bulb = Wirable:extend{
