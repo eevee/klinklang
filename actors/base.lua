@@ -409,19 +409,29 @@ local function slide_along_normals(hits, direction)
 
     for shape, collision in pairs(hits) do
         if not collision.passable then
+            local maxleftdot = -math.huge
             local leftnorm
             local leftnorm1
+            local maxrightdot = -math.huge
             local rightnorm
             local rightnorm1
 
             for norm, norm1 in pairs(collision.normals) do
+                local perpdot = norm * perp
                 local dot = norm1 * direction
-                if norm * perp < 0 then
-                    leftnorm = norm
-                    leftnorm1 = norm1
+                if math.abs(perpdot) < 1/256 then
+                elseif perpdot < 0 then
+                    if dot > maxleftdot then
+                        leftnorm = norm
+                        leftnorm1 = norm1
+                        maxleftdot = dot
+                    end
                 else
-                    rightnorm = norm
-                    rightnorm1 = norm1
+                    if dot > maxrightdot then
+                        rightnorm = norm
+                        rightnorm1 = norm1
+                        maxrightdot = dot
+                    end
                 end
             end
 
@@ -448,7 +458,7 @@ local function slide_along_normals(hits, direction)
         end
     end
 
-    local slide
+    local axis
     if not left_possible and not right_possible then
         return Vector(), false
     elseif not left_possible then
