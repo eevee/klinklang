@@ -391,6 +391,83 @@ function MobileActor:_collision_callback(collision, pushers, already_hit)
     end
 end
 
+-- This function has the glorious and awkward honor of having to handle literal
+-- corner cases.  To do that, it splits the normals into two: those on our left
+-- (ccw), and those on our right (cw).  When we hit a corner, its two sides are
+-- handled separately.  When we hit a wall, that makes one slide direction
+-- impossible, so we mark it as such.
+-- FIXME this assumes two normals max: one on the left, one on the right.  with multishape and similar nonsense that may not be true, argh!
+-- FIXME oh boy this sure needs some comments explaining what it's doing and why
+local function slide_along_normals(hits, direction)
+    local perp = direction:perpendicular()
+    local minleftdot = 0
+    local minleftnorm
+    local minrightdot = 0
+    local minrightnorm
+    local right_possible = true
+    local left_possible = true
+
+    for shape, collision in pairs(hits) do
+        if not collision.passable then
+            local leftnorm
+            local leftnorm1
+            local rightnorm
+            local rightnorm1
+
+            for norm, norm1 in pairs(collision.normals) do
+                local dot = norm1 * direction
+                if norm * perp < 0 then
+                    leftnorm = norm
+                    leftnorm1 = norm1
+                else
+                    rightnorm = norm
+                    rightnorm1 = norm1
+                end
+            end
+
+            if left_possible and leftnorm then
+                local dot = leftnorm1 * direction
+                if dot < minleftdot then
+                    minleftdot = dot
+                    minleftnorm = leftnorm
+                end
+            else
+                left_possible = false
+                minleftnorm = nil
+            end
+            if right_possible and rightnorm then
+                local dot = rightnorm1 * direction
+                if dot < minrightdot then
+                    minrightdot = dot
+                    minrightnorm = rightnorm
+                end
+            else
+                right_possible = false
+                minrightnorm = nil
+            end
+        end
+    end
+
+    local slide
+    if not left_possible and not right_possible then
+        return Vector(), false
+    elseif not left_possible then
+        axis = minrightnorm
+    elseif not right_possible then
+        axis = minleftnorm
+    elseif minleftdot > minrightdot then
+        axis = minleftnorm
+    else
+        axis = minrightnorm
+    end
+
+    if axis then
+        return direction - direction:projectOn(axis), true
+    else
+        return direction, true
+    end
+end
+
 -- Move some distance, respecting collision.
 -- No other physics like gravity or friction happen here; only the actual movement.
 -- FIXME a couple remaining bugs:
@@ -410,7 +487,7 @@ function MobileActor:nudge(movement, pushers, xxx_no_slide)
     -- fails, then try to project our movement along a surface we hit and
     -- continue, until we hit something head-on or run out of movement.
     local total_movement = Vector.zero
-    local hits, last_clock
+    local hits
     local stuck_counter = 0
     while true do
         local successful
@@ -428,26 +505,11 @@ function MobileActor:nudge(movement, pushers, xxx_no_slide)
             break
         end
 
-        local combined_clock = util.ClockRange(util.ClockRange.ZERO, util.ClockRange.ZERO)
-        for shape, collision in pairs(hits) do
-            if not collision.passable then
-                combined_clock:intersect(collision.clock)
-            end
-        end
-
-        -- Slide along the extreme that's closest to the direction of movement
-        -- TODO combined_clock is ONLY used for this.  removing it is within my
-        -- grasp at last
-        local slide = combined_clock:closest_extreme(movement)
-        if not slide or slide == Vector.zero then
+        -- Find the allowed slide direction that's closest to the direction of movement.
+        movement, slid = slide_along_normals(hits, movement)
+        if not slid then
             break
         end
-        if remaining * slide < 0 then
-            -- Can't slide anywhere near the direction of movement, so we
-            -- have to stop here
-            break
-        end
-        movement = remaining:projectOn(slide)
 
         if math.abs(movement.x) < 1/16 and math.abs(movement.y) < 1/16 then
             break
@@ -472,15 +534,6 @@ function MobileActor:nudge(movement, pushers, xxx_no_slide)
         end
     end
 
-    local last_clock = util.ClockRange(util.ClockRange.ZERO, util.ClockRange.ZERO)
-    for shape, collision in pairs(hits) do
-        -- FIXME this is /slightly/ clumsy...  ehh...
-        local owner = worldscene.collider:get_owner(shape)
-        if not collision.passable and (not owner or already_hit[owner] ~= 'nudged') then
-            last_clock:intersect(collision.clock)
-        end
-    end
-
     --print("FINAL POSITION:", self.pos)
 
     -- Move our cargo along with us, independently of their own movement
@@ -492,7 +545,7 @@ function MobileActor:nudge(movement, pushers, xxx_no_slide)
     end
 
     pushers[self] = nil
-    return total_movement, hits, last_clock
+    return total_movement, hits
 end
 
 -- Given a list of hits from the collider, check whether we're standing on the
@@ -505,8 +558,7 @@ function MobileActor:check_for_ground(hits)
     local ground_actor  -- actor carrying us, if any
     local new_friction
     for _, collision in pairs(hits) do
-        if collision.touchtype >= 0 and not collision.passable and not collision.clock:includes(gravity) then
-
+        if collision.touchtype >= 0 and not collision.passable then
             for normal, normal1 in pairs(collision.normals) do
                 local dot = normal1 * gravity
                 if dot < mindot then
@@ -586,27 +638,15 @@ function MobileActor:update(dt)
     --print("--- UPDATE", self, "velocity", self.velocity, "movement", movement)
     local attempted = movement
 
-    local movement, hits, last_clock = self:nudge(movement)
-    --print("# got clock", last_clock)
+    local movement, hits = self:nudge(movement)
 
     self:check_for_ground(hits)
 
     -- Trim velocity as necessary, based on the last surface we slid against
-    -- TODO this is the only place we use last_clock!
-    --print("velocity is", self.velocity, "and clock is", last_clock)
-    if last_clock and self.velocity ~= Vector.zero then
-        local axis = last_clock:closest_extreme(self.velocity)
-        if not axis then
-            -- TODO stop?  once i fix the empty thing
-        elseif self.velocity * axis < 0 then
-            -- Nearest axis points away from our movement, so we have to stop
-            self.velocity = Vector.zero:clone()
-        else
-            --print("axis", axis, "dot product", self.velocity * axis)
-            -- Nearest axis is within a quarter-turn, so slide that direction
-            --print("velocity", self.velocity, self.velocity:projectOn(axis))
-            self.velocity = self.velocity:projectOn(axis)
-        end
+    -- FIXME this needs to ignore cases where already_hit[owner] == 'nudged'
+    --print("velocity is", self.velocity)
+    if self.velocity ~= Vector.zero then
+        self.velocity = slide_along_normals(hits, self.velocity)
     end
     --print("and now it's", self.velocity)
     --print("movement", movement, "attempted", attempted)
@@ -657,7 +697,7 @@ function MobileActor:update(dt)
     self.velocity.y = math.min(self.velocity.y, terminal_velocity)
     --print("velocity after gravity:", self.velocity)
 
-    return movement, hits, last_clock
+    return movement, hits
 end
 
 -- API for outside code to affect this actor's velocity.
@@ -894,7 +934,7 @@ function SentientActor:update(dt)
 
     -- Apply physics
     local was_on_ground = self.on_ground
-    local movement, hits, last_clock = SentientActor.__super.update(self, dt)
+    local movement, hits = SentientActor.__super.update(self, dt)
 
     -- Ground sticking
     -- FIXME this is still clearly visible (and annoying), AND it messes with
@@ -932,7 +972,7 @@ function SentientActor:update(dt)
         -- FIXME also it interferes with the spring, argghh
         local drop = Vector(0, math.abs(movement.x) * math.abs(self.max_slope.x) * 2)
         local drop_movement
-        drop_movement, hits, last_clock = self:nudge(drop, nil, true)
+        drop_movement, hits = self:nudge(drop, nil, true)
         movement = movement + drop_movement
         self:check_for_ground(hits)
     end
@@ -968,7 +1008,7 @@ function SentientActor:update(dt)
     -- Update the pose
     self:update_pose()
 
-    return movement, hits, last_clock
+    return movement, hits
 end
 
 function SentientActor:handle_jump(dt)
@@ -977,6 +1017,7 @@ function SentientActor:handle_jump(dt)
     -- increases!) the player's y velocity, and releasing jump lowers the y
     -- velocity to a threshold
     if self.decision_jump_mode == 2 then
+        print('-- JUMP --')
         -- You cannot climb while jumping, sorry
         -- TODO but maybe...  you can hold up + jump, and regrab the ladder only at the apex of the jump?
         self.decision_jump_mode = 1

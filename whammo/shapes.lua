@@ -306,7 +306,6 @@ end
 --   touchdist: Like `amount`, but how much before touching the other shape,
 --      which can be different when two shapes slide
 --   touchtype: 1 for collision, 0 for slide, -1 for already overlapping
---   clock: Range of angles that would move the shapes apart
 -- FIXME couldn't there be a much simpler version of this for two AABBs?
 function Polygon:slide_towards(other, movement)
     -- We cannot possibly collide if the bboxes don't overlap
@@ -353,9 +352,6 @@ function Polygon:slide_towards(other, movement)
     local maxamt = -math.huge
     local maxnumer, maxdenom
     local touchtype = -1
-    -- TODO i would love to get rid of ClockRange, and it starts right here; i
-    -- think at most we can return a span of two normals, if you hit a corner
-    local clock = util.ClockRange()
     local slide_axis
     local normals = {}  -- set of normals we collided with
     --print("us:", self:bbox())
@@ -445,7 +441,6 @@ function Polygon:slide_towards(other, movement)
             -- If the distance isn't negative, then it's possible to move
             -- anywhere in the general direction of this axis
             local perp = fullaxis:perpendicular()
-            clock:union(perp, -perp)
         end
     end
 
@@ -460,7 +455,6 @@ function Polygon:slide_towards(other, movement)
             amount = 0,
             touchdist = 0,
             touchtype = -1,
-            clock = util.ClockRange(util.ClockRange.ZERO, util.ClockRange.ZERO),
             normals = {},
         }
     elseif maxamt > 1 and touchtype > 0 then
@@ -489,7 +483,6 @@ function Polygon:slide_towards(other, movement)
             amount = 1,
             touchdist = touchdist,
             touchtype = 0,
-            clock = clock,
             normals = normals,
         }
     elseif maxamt == -math.huge then
@@ -504,7 +497,6 @@ function Polygon:slide_towards(other, movement)
         amount = maxamt,
         touchdist = maxamt,
         touchtype = 1,
-        clock = clock,
         normals = normals,
     }
 end
@@ -523,7 +515,6 @@ function Polygon:_multi_slide_towards(other, movement)
             if collision.amount < ret.amount then
                 ret = collision
             elseif collision.amount == ret.amount then
-                ret.clock:intersect(collision.clock)
                 ret.touchdist = math.min(ret.touchdist, collision.touchdist)
                 if ret.touchtype == 0 then
                     ret.touchtype = collision.touchtype

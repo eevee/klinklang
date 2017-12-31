@@ -55,7 +55,7 @@ function Player:update(dt)
     -- Run the base logic to perform movement, collision, sprite updating, etc.
     self.touching_mechanism = nil
     local was_on_ground = self.on_ground
-    local movement, hits, last_clock = Player.__super.update(self, dt)
+    local movement, hits = Player.__super.update(self, dt)
 
     -- A floating player spawns particles
     -- FIXME this seems a prime candidate for entity/component or something,
@@ -67,7 +67,7 @@ function Player:update(dt)
             {255, 255, 255}, 1.5, true))
     end
 
-    return movement, hits, last_clock
+    return movement, hits
 end
 
 
