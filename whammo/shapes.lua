@@ -7,45 +7,11 @@ local util = require 'klinklang.util'
 -- If they overlap by only this amount, they'll be considered touching.
 local PRECISION = 1e-8
 
-
-local Segment = Object:extend()
-
-function Segment:init(x0, y0, x1, y1)
-    self.x0 = x0
-    self.y0 = y0
-    self.x1 = x1
-    self.y1 = y1
-end
-
-function Segment:__tostring()
-    return ("<Segment: %f, %f to %f, %f>"):format(
-        self.x0, self.y0, self.x1, self.y1)
-end
-
-function Segment:point0()
-    return Vector(self.x0, self.y0)
-end
-
-function Segment:point1()
-    return Vector(self.x1, self.y1)
-end
-
-function Segment:tovector()
-    return Vector(self.x1 - self.x0, self.y1 - self.y0)
-end
-
--- Returns the "outwards" normal as a Vector, assuming the points are given
--- clockwise
-function Segment:normal()
-    return Vector(self.y1 - self.y0, -(self.x1 - self.x0))
-end
-
-function Segment:move(dx, dy)
-    self.x0 = self.x0 + dx
-    self.x1 = self.x1 + dx
-    self.y0 = self.y0 + dy
-    self.y1 = self.y1 + dy
-end
+-- Aggressively de-dupe these extremely common normals
+local XPOS = Vector(1, 0)
+local XNEG = Vector(-1, 0)
+local YPOS = Vector(0, 1)
+local YNEG = Vector(0, -1)
 
 
 local Shape = Object:extend{
@@ -128,15 +94,14 @@ local Polygon = Shape:extend()
 -- FIXME i think this blindly assumes clockwise order
 function Polygon:init(...)
     Shape.init(self)
-    self.edges = {}
     local coords = {...}
-    self.coords = coords
+    self.points = {Vector(coords[1], coords[2])}
     self.x0 = coords[1]
     self.y0 = coords[2]
     self.x1 = coords[1]
     self.y1 = coords[2]
     for n = 1, #coords - 2, 2 do
-        table.insert(self.edges, Segment(unpack(coords, n, n + 4)))
+        table.insert(self.points, Vector(coords[n + 2], coords[n + 3]))
         if coords[n + 2] < self.x0 then
             self.x0 = coords[n + 2]
         end
@@ -150,33 +115,59 @@ function Polygon:init(...)
             self.y1 = coords[n + 3]
         end
     end
-    table.insert(self.edges, Segment(coords[#coords - 1], coords[#coords], coords[1], coords[2]))
     self:_generate_normals()
 end
 
 function Polygon:clone()
-    -- TODO this shouldn't need to recompute all its segments
-    return Polygon(unpack(self.coords))
+    -- TODO or do this ridiculous repacking (though the vectors need cloning regardless)
+    return Polygon(unpack(self:to_coords()))
 end
 
 function Polygon:__tostring()
     return "<Polygon>"
 end
 
+function Polygon:to_coords()
+    local coords = {}
+    for _, point in ipairs(self.points) do
+        table.insert(coords, point.x)
+        table.insert(coords, point.y)
+    end
+    return coords
+end
+
 function Polygon:flipx(axis)
     local reverse_coords = {}
-    for n = #self.coords - 1, 1, -2 do
-        reverse_coords[#self.coords - n] = axis * 2 - self.coords[n]
-        reverse_coords[#self.coords - n + 1] = self.coords[n + 1]
+    for n, point in ipairs(self.points) do
+        reverse_coords[#self.points * 2 - (n * 2 - 1)] = axis * 2 - point.x
+        reverse_coords[#self.points * 2 - (n * 2 - 2)] = point.y
     end
-    return Polygon(unpack(self.coords))
+    return Polygon(unpack(reverse_coords))
 end
 
 function Polygon:_generate_normals()
     self._normals = {}
-    for _, edge in ipairs(self.edges) do
-        local normal = edge:normal()
-        if normal ~= Vector.zero then
+    local prev_point = self.points[#self.points]
+    for _, point in ipairs(self.points) do
+        -- Note that this assumes points are given clockwise
+        local normal = (prev_point - point):perpendicular()
+        prev_point = point
+
+        if normal == Vector.zero then
+            -- Ignore zero vectors (where did you even come from)
+        elseif normal.x == 0 then
+            if normal.y > 0 then
+                self._normals[YPOS] = YPOS
+            else
+                self._normals[YNEG] = YNEG
+            end
+        elseif normal.y == 0 then
+            if normal.x > 0 then
+                self._normals[XPOS] = XPOS
+            else
+                self._normals[XNEG] = XNEG
+            end
+        else
             -- What a mouthful
             self._normals[normal] = normal:normalized()
         end
@@ -194,12 +185,9 @@ function Polygon:move(dx, dy)
     self.x1 = self.x1 + dx
     self.y0 = self.y0 + dy
     self.y1 = self.y1 + dy
-    for n = 1, #self.coords, 2 do
-        self.coords[n] = self.coords[n] + dx
-        self.coords[n + 1] = self.coords[n + 1] + dy
-    end
-    for _, edge in ipairs(self.edges) do
-        edge:move(dx, dy)
+    for _, point in ipairs(self.points) do
+        point.x = point.x + dx
+        point.y = point.y + dy
     end
     self:update_blockmaps()
 end
@@ -210,7 +198,7 @@ function Polygon:center()
 end
 
 function Polygon:draw(mode)
-    love.graphics.polygon(mode, self.coords)
+    love.graphics.polygon(mode, self:to_coords())
 end
 
 function Polygon:normals()
@@ -223,13 +211,13 @@ function Polygon:intersection_with_ray(start, direction)
     -- TODO could save a little effort by passing these in too, maybe
     local startdot = start * direction
     local startperpdot = start * perp
-    local pt0 = Vector(self.coords[#self.coords - 1], self.coords[#self.coords])
+    local pt0 = self.points[#self.points]
     local dot0 = pt0 * perp
     local minpt = nil
     local mindot = math.huge
-    for i = 1, #self.coords, 2 do
+    for _, point in ipairs(self.points) do
         local pt, dot
-        local pt1 = Vector(self.coords[i], self.coords[i + 1])
+        local pt1 = point
         local dot1 = pt1 * perp
         if dot0 == dot1 then
             -- This edge is parallel to the ray.  If it's also collinear to the
@@ -278,20 +266,20 @@ function Polygon:intersection_with_ray(start, direction)
 end
 
 function Polygon:project_onto_axis(axis)
-    -- TODO maybe use vector-light here
-    local minpt = Vector(self.coords[1], self.coords[2])
+    local minpt = self.points[1]
     local maxpt = minpt
     local min = axis * minpt
     local max = min
-    for i = 3, #self.coords, 2 do
-        local pt = Vector(self.coords[i], self.coords[i + 1])
-        local dot = axis * pt
-        if dot < min then
-            min = dot
-            minpt = pt
-        elseif dot > max then
-            max = dot
-            maxpt = pt
+    for i, pt in ipairs(self.points) do
+        if i > 1 then
+            local dot = axis * pt
+            if dot < min then
+                min = dot
+                minpt = pt
+            elseif dot > max then
+                max = dot
+                maxpt = pt
+            end
         end
     end
     return min, max, minpt, maxpt
@@ -524,11 +512,9 @@ end
 
 
 -- An AABB, i.e., an unrotated rectangle
-local _XAXIS = Vector(1, 0)
-local _YAXIS = Vector(0, 1)
 local Box = Polygon:extend{
     -- Handily, an AABB only has two normals: the x and y axes
-    _normals = { [_XAXIS] = _XAXIS, [_YAXIS] = _YAXIS },
+    _normals = { [XPOS] = XPOS, [YPOS] = YPOS },
 }
 
 function Box:init(x, y, width, height, _xoff, _yoff)
@@ -677,5 +663,4 @@ return {
     Box = Box,
     MultiShape = MultiShape,
     Polygon = Polygon,
-    Segment = Segment,
 }
