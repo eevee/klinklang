@@ -354,8 +354,6 @@ function Polygon:slide_towards(other, movement)
     local touchtype = -1
     local slide_axis
     local normals = {}  -- set of normals we collided with
-    --print("us:", self:bbox())
-    --print("them:", other:bbox())
     -- FIXME i can ditch the normalized axes entirely; just need to make sure
     -- no callers are relying on getting them in normals
     for fullaxis, axis in pairs(axes) do
@@ -379,7 +377,6 @@ function Polygon:slide_towards(other, movement)
         if math.abs(dist) < PRECISION then
             dist = 0
         end
-        --print("    axis:", fullaxis, "dist:", dist, "sep:", sep, "dot:", dot)
         if dist >= 0 then
             -- This dot product is positive if we're moving closer along this
             -- axis, negative if we're moving away
@@ -448,7 +445,6 @@ function Polygon:slide_towards(other, movement)
         -- Shapes are already colliding
         -- FIXME should have /some/ kind of gentle rejection here; should be
         -- easier now that i have touchdist
-        --print("ALREADY COLLIDING", touchtype, worldscene.collider:get_owner(other))
         --error("seem to be inside something!!  stopping so you can debug buddy  <3")
         return {
             movement = Vector.zero,

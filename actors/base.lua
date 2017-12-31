@@ -534,8 +534,6 @@ function MobileActor:nudge(movement, pushers, xxx_no_slide)
         end
     end
 
-    --print("FINAL POSITION:", self.pos)
-
     -- Move our cargo along with us, independently of their own movement
     -- FIXME this means our momentum isn't part of theirs.  is that bad?
     if self.can_carry and self.cargo and not _is_vector_almost_zero(total_movement) then
@@ -632,10 +630,6 @@ function MobileActor:update(dt)
     local movement = goalpos - self.pos
 
     -- Collision time!
-    --print()
-    --print()
-    --print()
-    --print("--- UPDATE", self, "velocity", self.velocity, "movement", movement)
     local attempted = movement
 
     local movement, hits = self:nudge(movement)
@@ -644,12 +638,16 @@ function MobileActor:update(dt)
 
     -- Trim velocity as necessary, based on the last surface we slid against
     -- FIXME this needs to ignore cases where already_hit[owner] == 'nudged'
-    --print("velocity is", self.velocity)
+    -- or...  maybe not?  comment from when i was working on pushing in fox flux:
+    --      so if we pushed an object and it was blocked, we'd see 'blocked'
+    --      here and add it to the clock.  if we pushed an object and it moved,
+    --      we'd see 'nudged' here and ignore it since we can continue moving
+    --      in that direction.  but if we pushed an object and it /slid/...?
+    --      the best i can think of here is if we trim velocity to movement /
+    --      dt, which sounds, slightly crazy
     if self.velocity ~= Vector.zero then
         self.velocity = slide_along_normals(hits, self.velocity)
     end
-    --print("and now it's", self.velocity)
-    --print("movement", movement, "attempted", attempted)
 
     ----------------------------------------------------------------------------
     -- Passive adjustments
@@ -683,7 +681,6 @@ function MobileActor:update(dt)
             decel_vector = Vector.zero
         end
         self.velocity = self.velocity + decel_vector * self.ground_friction
-        --print("velocity after deceleration:", self.velocity)
     end
 
     -- TODO factor the ground_friction constant into this, and also into slope
@@ -695,7 +692,6 @@ function MobileActor:update(dt)
     end
     self.velocity = self.velocity + gravity * mult * dt
     self.velocity.y = math.min(self.velocity.y, terminal_velocity)
-    --print("velocity after gravity:", self.velocity)
 
     return movement, hits
 end
@@ -870,9 +866,6 @@ function SentientActor:update(dt)
     else
         xmult = self.aircontrol
     end
-    --print()
-    --print()
-    --print("position", self.pos, "velocity", self.velocity)
 
     -- Explicit movement
     if self.decision_walk > 0 then
@@ -999,7 +992,6 @@ function SentientActor:update(dt)
             end
             local slope_resistance = -(gravity * slope)
             self.velocity = self.velocity + slope_resistance * dt * slope
-            --print("velocity after slope resistance:", self.velocity)
         end
     else
         self.too_steep = nil
@@ -1017,7 +1009,6 @@ function SentientActor:handle_jump(dt)
     -- increases!) the player's y velocity, and releasing jump lowers the y
     -- velocity to a threshold
     if self.decision_jump_mode == 2 then
-        print('-- JUMP --')
         -- You cannot climb while jumping, sorry
         -- TODO but maybe...  you can hold up + jump, and regrab the ladder only at the apex of the jump?
         self.decision_jump_mode = 1
