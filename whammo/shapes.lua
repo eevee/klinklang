@@ -434,10 +434,6 @@ function Polygon:slide_towards(other, movement)
             elseif touchtype < 0 then
                 touchtype = 0
             end
-
-            -- If the distance isn't negative, then it's possible to move
-            -- anywhere in the general direction of this axis
-            local perp = fullaxis:perpendicular()
         end
     end
 
