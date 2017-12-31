@@ -735,8 +735,8 @@ local SentientActor = MobileActor:extend{
     -- Multiplier for xaccel while airborne.  MUST be greater than the ratio of
     -- friction to xaccel, or the player won't be able to move while floating!
     aircontrol = 0.5,
-    -- Maximum slope that can be walked up or jumped off of
-    max_slope = Vector(1, -1),
+    -- Maximum slope that can be walked up or jumped off of.  MUST BE NORMALIZED
+    max_slope = Vector(1, -1):normalized(),
     max_slope_slowdown = 0.7,
 
     -- Other configuration
@@ -857,7 +857,7 @@ function SentientActor:update(dt)
                 -- the normal, which is the x coordinate of the slope itself).
                 -- This isn't mathematically correct, but it feels fine.
                 local ground_y = math.abs(self.ground_normal.y)
-                local max_y = math.abs(self.max_slope:normalized().y)
+                local max_y = math.abs(self.max_slope.y)
                 local slowdown = 1 - (1 - self.max_slope_slowdown) * (1 - ground_y) / (1 - max_y)
                 max_speed = max_speed * slowdown
                 xmult = xmult * slowdown
@@ -977,7 +977,7 @@ function SentientActor:update(dt)
         self.in_mid_jump = false
 
         self.too_steep = (
-            self.ground_normal * gravity - self.max_slope:normalized() * gravity > 1e-8)
+            self.ground_normal * gravity - self.max_slope * gravity > 1e-8)
 
         -- Slope resistance -- an actor's ability to stay in place on an incline
         -- It always pushes upwards along the slope.  It has no cap, since it
@@ -1097,4 +1097,5 @@ return {
     SentientActor = SentientActor,
     get_jump_velocity = get_jump_velocity,
     any_normal_faces = any_normal_faces,
+    slide_along_normals = slide_along_normals,
 }
