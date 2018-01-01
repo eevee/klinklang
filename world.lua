@@ -151,6 +151,61 @@ function Map:remove_actor(actor)
     end
 end
 
+-- Broadcast a message to some set of actors on the map.
+-- `source` is the actor doing the broadcasting, if any.
+-- `filters` is a table of simple filters, as follows:
+--     distance: Only broadcast to actors within this distance (measured by
+--       pos, not by shape).  Actors without a pos are automatically excluded.
+--     pred: Arbitrary predicate, i.e. callable that takes an actor and returns
+--       true to broadcast or false to skip.
+-- `func` is either a callable or a method name.  If the latter, the method
+-- will only be called if it exists (though its type won't be checked).  Any
+-- further arguments are passed along in the call.
+function Map:broadcast(source, filters, func, ...)
+    local distance = filters.distance
+    local distance2
+    if distance then
+        assert(source, "Must provide a source actor when filtering by distance")
+        distance2 = distance * distance
+    end
+
+    local pred = filters.pred
+
+    local is_method = type(func) == 'string'
+
+    for _, actor in ipairs(self.actors) do
+        repeat
+            -- Check distance
+            if distance2 then
+                if not actor.pos then
+                    break
+                end
+                if (actor.pos - source.pos):len2() > distance2 then
+                    break
+                end
+            end
+
+            -- Check predicate
+            if pred then
+                if not pred(actor) then
+                    break
+                end
+            end
+
+            -- Seems good; do the call
+            if is_method then
+                local method = actor[func]
+                if method then
+                    method(actor, ...)
+                end
+            else
+                func(actor, ...)
+            end
+        until true
+    end
+end
+
+
 -- TODO this isn't really the right name for this operation, nor for the
 -- callback.  it's just being suspended; the actors aren't actually being
 -- removed from the map they're on.  and i'm only doing this in the first place
