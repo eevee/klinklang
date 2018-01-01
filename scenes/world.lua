@@ -285,7 +285,8 @@ local World = Object:extend{
 }
 
 function World:init()
-    -- All maps whose state is preserved: both current ones and stashed ones
+    -- All maps whose state is preserved: both current ones and stashed ones.
+    -- Nested table of TiledMap => submap_name => Map
     self.live_maps = {}
     -- Currently-active maps, mostly useful if you have one submap that draws
     -- on top of another.  In the common case, this will only contain one map
@@ -299,13 +300,15 @@ end
 -- Loads a new map, or returns an existing map if it's been seen before.  Does
 -- NOT add the map to the stack.
 function World:load_map(tiled_map, submap)
-    local key = tiled_map.path .. '\0' .. submap
     local revisiting = true
-    if not self.live_maps[key] then
-        self.live_maps[key] = self.map_class(key, tiled_map, submap)
+    if not self.live_maps[tiled_map] then
+        self.live_maps[tiled_map] = {}
+    end
+    if not self.live_maps[tiled_map][submap] then
+        self.live_maps[tiled_map][submap] = self.map_class(key, tiled_map, submap)
         revisiting = false
     end
-    return self.live_maps[key], revisiting
+    return self.live_maps[tiled_map][submap], revisiting
 end
 
 function World:push(map)
