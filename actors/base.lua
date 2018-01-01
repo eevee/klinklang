@@ -188,13 +188,14 @@ function Actor:move_to(position)
 end
 
 function Actor:set_shape(new_shape)
-    assert(self.map, "Can't set shape while not part of a map")
-    if self.shape then
+    if self.shape and self.map then
         self.map.collider:remove(self.shape)
     end
     self.shape = new_shape
     if self.shape then
-        self.map.collider:add(self.shape, self)
+        if self.map then
+            self.map.collider:add(self.shape, self)
+        end
         self.shape:move_to(self.pos:unpack())
     end
 end
