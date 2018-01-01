@@ -23,7 +23,7 @@ function Particle:update(dt)
 
     self.ttl = self.ttl - dt
     if self.ttl < 0 then
-        worldscene:remove_actor(self)
+        self:destroy()
     end
 end
 

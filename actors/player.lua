@@ -62,7 +62,7 @@ function Player:update(dt)
     -- where floatiness is a child component with its own update behavior
     -- FIXME this is hardcoded for isaac's bbox, roughly -- should be smarter
     if self.is_floating and math.random() < dt * 8 then
-        worldscene:add_actor(actors_misc.Particle(
+        self.map:add_actor(actors_misc.Particle(
             self.pos + Vector(math.random(-16, 16), 0), Vector(0, -32), Vector(0, 0),
             {255, 255, 255}, 1.5, true))
     end
@@ -98,7 +98,7 @@ function Player:die()
         -- switch to knife...
         -- TODO oh, it gets better: switch gamestate during an update means draw
         -- doesn't run this cycle, so you get a single black frame
-        worldscene.tick:delay(function()
+        self.map.tick:delay(function()
             Gamestate.push(DeadScene())
         end, 1.5)
     end

@@ -33,7 +33,7 @@ end
 -- FIXME what happens if you stick a rune in an open doorway?
 function GenericSlidingDoor:on_enter()
     -- FIXME this "ray" should really have a /width/
-    local impact, impactdist = worldscene.collider:fire_ray(
+    local impact, impactdist = self.map.collider:fire_ray(
         self.pos,
         Vector(0, 1),
         function (actor)
@@ -65,7 +65,7 @@ function GenericSlidingDoor:draw()
     love.graphics.push('all')
     -- FIXME maybe worldscene needs a helper for this
     -- FIXME lot of hardcoded numbers here
-    love.graphics.setScissor(pt.x - worldscene.camera.x, pt.y - worldscene.camera.y, 32, self.door_height)
+    love.graphics.setScissor(pt.x - self.map.world.camera.x, pt.y - self.map.world.camera.y, 32, self.door_height)
     local height = self.door_height + (-self.door_height) % 32
     local top = pt.y - (-self.door_height) % 32
     local bottom = pt.y + self.door_height, 32
@@ -94,7 +94,7 @@ function GenericSlidingDoor:open()
     -- FIXME what happens if the door hits something?
     local height = self.door_height
     local time = height / 30
-    worldscene.fluct:to(self, time, { door_height = 32 })
+    self.map.flux:to(self, time, { door_height = 32 })
         :ease('linear')
         -- TODO would be nice to build the shape from individual sprite collisions
         :onupdate(function() self:set_shape(whammo_shapes.Box(-12, 0, 24, self.door_height)) end)
@@ -139,7 +139,7 @@ end
 function GenericSlidingDoorShutter:on_enter()
     local door = self.door_type(self.pos)
     self.ptrs.door = door
-    worldscene:add_actor(door)
+    self.map:add_actor(door)
 end
 
 function GenericSlidingDoorShutter:blocks(actor, dir)

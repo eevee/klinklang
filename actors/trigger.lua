@@ -34,16 +34,15 @@ function TriggerZone:init(pos, props, shape)
     end
 end
 
-function TriggerZone:on_enter()
+function TriggerZone:on_enter(...)
+    TriggerZone.__super.on_enter(self, ...)
+
     if self.props.flag and game:flag(self.props.flag) then
-        worldscene:remove_actor(self)
-        return
+        -- XXX this used to not call super in the first place before
+        -- destroying itself, but, that seems rude.  otoh now there's a
+        -- chance of firing on the first frame, which is, bad
+        self:destroy()
     end
-
-    TriggerZone.__super.on_enter()
-
-    -- FIXME lol
-    worldscene.collider:add(self.shape, self)
 end
 
 function TriggerZone:blocks(other, direction)
@@ -74,7 +73,7 @@ function TriggerZone:execute_trigger(activator)
     elseif self.action == 'leave submap' then
         worldscene:leave_submap()
     elseif self.action == 'broadcast' then
-        for _, actor in ipairs(worldscene.actors) do
+        for _, actor in ipairs(self.map.actors) do
             if actor[self.props.message] then
                 actor[self.props.message](actor, activator, self.props)
             end
@@ -95,7 +94,8 @@ function TriggerZone:execute_trigger(activator)
     end
 
     if self.props.once then
-        worldscene:remove_actor(self)
+        -- FIXME should also prevent triggering again this frame
+        self:destroy()
     end
 end
 
