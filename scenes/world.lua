@@ -18,22 +18,350 @@ local MIN_FRAMERATE = 45
 -- Don't do more than this many updates at once
 local MAX_UPDATES = 10
 
+-- XXX stuff to fix in other games now that i've broken everything here:
+-- - WorldScene:_create_actors has gone away
+-- - WorldScene:update_camera has gone away
+-- TODO obvious post cleanup
+-- - remove actors, collider, fluct, tick, submap, camera
+-- - give actors a reference to the map they're on?  maybe pass it to on_enter?
+-- - remove _draw_use_key_hint (fox flux specific?  or maybe neon phase?)
+-- - remove the inventory switch Q binding (oh my GOD)
+-- - move drawing of the blockmap to DebugLayer
+-- - give everything a self.game property maybe??
+-- - do something with camera jitter?
+
 --------------------------------------------------------------------------------
 -- Layers
 
-local MapLayer = Object:extend{}
 
-function MapLayer:init(map)
-    self.actors = {}
+local Camera = Object:extend{
+    minx = -math.huge,
+    miny = -math.huge,
+    maxx = math.huge,
+    maxy = math.huge,
+    x = 0,
+    y = 0,
+}
+
+function Camera:set_bounds(minx, miny, maxx, maxy)
+    self.minx = minx
+    self.maxx = maxx
+    self.miny = miny
+    self.maxy = maxy
 end
 
-function MapLayer:unload()
-    for i = #self.actors, 1, -1 do
-        local actor = self.actors[i]
-        self.actors[i] = nil
-        if actor then
-            actor:on_leave()
+function Camera:aim_at(focusx, focusy, w, h)
+    -- Update camera position
+    -- TODO i miss having a box type
+    -- FIXME would like some more interesting features here like smoothly
+    -- catching up with the player, platform snapping?
+    local marginx = CAMERA_MARGIN * w
+    local x0 = marginx
+    local x1 = w - marginx
+    --local minx = self.map.camera_margin_left
+    --local maxx = self.map.width - self.map.camera_margin_right - w
+    local newx = self.x
+    if focusx - newx < x0 then
+        newx = focusx - x0
+    elseif focusx - newx > x1 then
+        newx = focusx - x1
+    end
+    newx = math.max(self.minx, math.min(self.maxx - w, newx))
+    self.x = math.floor(newx)
+
+    local marginy = CAMERA_MARGIN * h
+    local y0 = marginy
+    local y1 = h - marginy
+    --local miny = self.map.camera_margin_top
+    --local maxy = self.map.height - self.map.camera_margin_bottom - h
+    local newy = self.y
+    if focusy - newy < y0 then
+        newy = focusy - y0
+    elseif focusy - newy > y1 then
+        newy = focusy - y1
+    end
+    newy = math.max(self.miny, math.min(self.maxy - h, newy))
+    -- FIXME moooove, elsewhere.  only tricky bit is that it still wants to clamp to miny/maxy
+    --[[
+    if self.player.camera_jitter and self.player.camera_jitter > 0 then
+        newy = newy + math.sin(self.player.camera_jitter * math.pi) * 3
+        newy = math.max(miny, math.min(maxy, newy))
+    end
+    ]]
+    self.y = math.floor(newy)
+end
+
+function Camera:apply()
+    love.graphics.translate(-self.x, -self.y)
+end
+
+
+-- This is one independent map, though it's often referred to as a "submap"
+-- because more than one of them (e.g., overworld and inside buildings) can
+-- exist within the same Tiled map.
+local Map = Object:extend{}
+
+function Map:init(name, tiled_map, submap)
+    -- TODO actually i don't really know what "name" means here
+    self.name = name
+    -- TODO i would prefer if, somehow, this class were blissfully unaware of
+    -- the entire 'submap' concept, but we need it to get stuff out of tiled
+    self.submap = submap
+
+    -- TODO would be nice to not be so reliant on particular details of
+    -- TiledMap, i guess, abstractly, but also who cares that much
+    self.tiled_map = tiled_map
+
+    -- FIXME if i put these here, then anything the PLAYER (or any other moved
+    -- object) tries to do when changing maps will be suspended, and will
+    -- resume when they return to that map (!).  if i put it at the World
+    -- level, a bunch of actors might update themselves when they're no longer
+    -- on the map any more!  slightly troubling.  do they have some kinda api
+    -- for, i don't know, removing a timer or putting it elsewhere?  should
+    -- actors just have their own fluxes?  (eugh)
+    self.flux = flux.group()
+    self.tick = tick.group()
+
+    self.actors = {}
+    self.actors_to_remove = {}
+    self.collider = whammo.Collider(4 * tiled_map.tilewidth)
+
+    tiled_map:add_to_collider(self.collider, submap)
+
+    -- TODO this seems more a candidate for an 'enter' or map-switch event?
+    -- maybe?  maybe not?
+    self:_create_actors()
+end
+
+function Map:__tostring()
+    local submap_bit = ''
+    if self.submap ~= '' then
+        submap_bit = (" (submap %s)"):format(self.submap)
+    end
+    return ("<Map from %s%s>"):format(self.tiled_map.path, submap_bit)
+end
+
+function Map:add_actor(actor)
+    table.insert(self.actors, actor)
+
+    actor:on_enter(self)
+    -- XXX temporary
+    if not actor.map then
+        print("ACTOR WITH A BROKEN ON_ENTER PROBABLY:", actor)
+    end
+end
+
+-- Schedules the actor to be removed at the end of the next update; this lets
+-- them destroy themselves in the middle of an update /and then complete that
+-- update/ without making the world state inconsistent.  Such cases are more
+-- obvious now that on_leave sets Actor.map to nil; if the actor continues
+-- trying to do anything interesting, it might crash because its map has
+-- vanished out from under it!
+function Map:delayed_remove_actor(actor)
+    table.insert(self.actors_to_remove, actor)
+end
+
+function Map:remove_actor(actor)
+    -- TODO what if the actor is the player...?  should we unset self.player?
+    actor:on_leave()
+
+    -- TODO maybe an index would be useful
+    for i, an_actor in ipairs(self.actors) do
+        if actor == an_actor then
+            local last = #self.actors
+            self.actors[i] = self.actors[last]
+            self.actors[last] = nil
+            break
         end
+    end
+end
+
+-- TODO this isn't really the right name for this operation, nor for the
+-- callback.  it's just being suspended; the actors aren't actually being
+-- removed from the map they're on.  and i'm only doing this in the first place
+-- for sounds, which, maybe, belong in a sound manager?
+function Map:unload()
+    -- Unload previous map; this allows actors to clean up global resources,
+    -- such as ambient sounds.
+    -- TODO i'm not sure this is the right thing to do; it would be wrong for
+    -- NEON PHASE, for example, since there we stash a map to go back to it
+    -- later!  i'm also not sure it should apply to the player?  but i only
+    -- need it in the first place to stop the laser sound.  wow audio is hard
+    if self.actors then
+        for i = #self.actors, 1, -1 do
+            local actor = self.actors[i]
+            self.actors[i] = nil
+            if actor then
+                actor:on_leave()
+            end
+        end
+    end
+end
+
+-- Note that this might be called multiple times per frame, if WorldScene is
+-- trying to do catch-up updates
+function Map:update(dt)
+    self.flux:update(dt)
+    self.tick:update(dt)
+
+    self:_update_actors(dt)
+
+    for i, actor in ipairs(self.actors_to_remove) do
+        self:remove_actor(actor)
+        self.actors_to_remove[i] = nil
+    end
+end
+
+-- FIXME this is only here so anise can override it, which, seems very silly to
+-- me?  but also i don't see a great way around it short of some separate
+-- mechanism for deciding whether to update each actor.  well.  actually.  hmm
+function Map:_update_actors(dt)
+    for _, actor in ipairs(self.actors) do
+        actor:update(dt)
+    end
+end
+
+function Map:draw()
+    for _, actor in ipairs(self.actors) do
+        actor:draw()
+    end
+end
+
+function Map:_create_actors()
+    -- TODO this seems /slightly/ invasive but i'm not sure where else it would
+    -- go.  i guess if the "map" parts of the world got split off it would be
+    -- more appropriate.  i DO like that it starts to move "submap" out of the
+    -- map parsing, where it 100% does not belong
+    -- TODO imo the collision should be attached to the tile layers too
+    for _, layer in ipairs(self.tiled_map.layers) do
+        if layer.type == 'tilelayer' and layer.submap == self.submap then
+            local z
+            -- FIXME better!  but i still don't like hardcoded layer names
+            if layer.name == 'background' then
+                z = -10002
+            elseif layer.name == 'main terrain' then
+                z = -10001
+            -- FIXME okay this particular case is terrible
+            elseif self.submap ~= '' and layer.name == self.submap then
+                z = -10000
+            elseif layer.name == 'objects' then
+                z = 10000
+            elseif layer.name == 'foreground' then
+                z = 10001
+            elseif layer.name == 'wiring' then
+                z = 10002
+            end
+            if z ~= nil then
+                self:add_actor(actors_map.TiledMapLayer(layer, self.tiled_map, z))
+            end
+        end
+    end
+
+    for _, template in ipairs(self.tiled_map.actor_templates) do
+        if (template.submap or '') == self.submap then
+            local class = actors_base.Actor:get_named_type(template.name)
+            local position = template.position:clone()
+            -- FIXME i am unsure about template.shape here; atm it's only used for trigger zone
+            -- FIXME oh hey maybe this should use a different kind of constructor entirely, so the main one doesn't have a goofy-ass signature?
+            local actor = class(position, template.properties, template.shape)
+            -- FIXME this feels...  hokey...
+            -- FIXME this also ends up requiring that a lot of init stuff has
+            -- to go in on_enter because the position is bogus.  but maybe it
+            -- should go there anyway?
+            if actor.sprite and actor.sprite.anchor then
+                actor:move_to(position + actor.sprite.anchor)
+            end
+            self:add_actor(actor)
+        end
+    end
+end
+
+
+
+
+-- Entire game world.  Knows about maps (or, at least one!)
+local World = Object:extend{
+    map_class = Map,
+}
+
+function World:init()
+    -- All maps whose state is preserved: both current ones and stashed ones
+    self.live_maps = {}
+    -- Currently-active maps, mostly useful if you have one submap that draws
+    -- on top of another.  In the common case, this will only contain one map
+    self.map_stack = {}
+    -- Always equivalent to self.map_stack[#self.map_stack]
+    self.active_map = nil
+
+    self.camera = Camera()
+end
+
+-- Loads a new map, or returns an existing map if it's been seen before.  Does
+-- NOT add the map to the stack.
+function World:load_map(tiled_map, submap)
+    local key = tiled_map.path .. '\0' .. submap
+    local revisiting = true
+    if not self.live_maps[key] then
+        self.live_maps[key] = self.map_class(key, tiled_map, submap)
+        revisiting = false
+    end
+    return self.live_maps[key], revisiting
+end
+
+function World:push(map)
+    self.map_stack[#self.map_stack + 1] = map
+    self:_set_active(map)
+end
+
+-- TODO maybe an arg to say whether to preserve it?  or is that determined when
+-- it's first pushed?  or by the map itself somehow??
+function World:pop()
+    local popped_map = self.active_map
+    self.map_stack[#self.map_stack] = nil
+    self:_set_active(self.map_stack[#self.map_stack])
+    return popped_map
+end
+
+function World:_set_active(map)
+    self.active_map = map
+
+    self.camera:set_bounds(
+        map.tiled_map.camera_margin_left,
+        map.tiled_map.camera_margin_top,
+        map.tiled_map.width - map.tiled_map.camera_margin_right,
+        map.tiled_map.height - map.tiled_map.camera_margin_bottom)
+end
+
+function World:update(dt)
+    if self.active_map then
+        self.active_map:update(dt)
+    end
+
+    local w, h = game:getDimensions()
+    -- FIXME i should own the player, probably!
+    self.camera:aim_at(worldscene.player.pos.x, worldscene.player.pos.y, w, h)
+end
+
+function World:draw()
+    local w, h = game:getDimensions()
+
+    -- FIXME the parallax background should just be an actor so it's not
+    -- goofily special-cased here...  but it would need to know the camera
+    -- position...
+    if #self.map_stack > 0 then
+        self.map_stack[1].tiled_map:draw_parallax_background(self.camera, w, h)
+    end
+
+    for i, map in ipairs(self.map_stack) do
+        if i > 1 then
+            love.graphics.setColor(0, 0, 0, 192)
+            -- TODO could draw a rectangle the full size of the map instead?
+            -- would avoid knowing the camera or viewport here...  though i
+            -- guess i own the camera already eh
+            love.graphics.rectangle('fill', self.camera.x, self.camera.y, w, h)
+            love.graphics.setColor(255, 255, 255)
+        end
+        map:draw()
     end
 end
 
@@ -109,19 +437,25 @@ function DebugLayer:draw()
 end
 
 --------------------------------------------------------------------------------
--- World scene, which draws the game world
+-- World scene, which draws the game world (as stored in a World)
 
 local WorldScene = BaseScene:extend{
     __tostring = function(self) return "worldscene" end,
 
     -- Configurables
+    -- TODO probably just pass these in rather than letting the scene create
+    -- them?  the world at the very least; player i could see wanting to be
+    -- configurable maybe
     player_class = Player,
+    world_class = World,
 
     -- State
     music = nil,
     fluct = nil,
     tick = nil,
 
+    -- TODO these should really be in a separate player controls gizmo.
+    -- components.....
     using_gamepad = false,
     was_left_down = false,
     was_right_down = false,
@@ -135,7 +469,6 @@ local WorldScene = BaseScene:extend{
 function WorldScene:init(...)
     BaseScene.init(self, ...)
 
-    self.camera = Vector()
     -- FIXME? i'd rather rely on enter() for this, but the world is drawn via
     -- SceneFader /before/ enter() is called for the first time
     self:_refresh_canvas()
@@ -144,6 +477,10 @@ function WorldScene:init(...)
     if game.debug then
         table.insert(self.layers, DebugLayer(self))
     end
+
+    -- TODO lol why am i even doing this, just pass a world in
+    self.world = self.world_class()
+    self.camera = self.world.camera
 
     -- FIXME well, i guess, don't actually fix me, but, this is used to stash
     -- entire maps atm too
@@ -286,10 +623,9 @@ function WorldScene:update(dt)
         end
     end
 
-    self.fluct:update(dt)
-    self.tick:update(dt)
-
     -- Update the music to match the player's current position
+    -- FIXME shouldn't this happen /after/ the actor updates...??  but also
+    -- this probably doesn't belong here as usual
     local x, y = self.player.pos:unpack()
     local new_music = false
     if self.map_music then
@@ -334,7 +670,7 @@ function WorldScene:update(dt)
         math.ceil(dt * MIN_FRAMERATE)))
     local subdt = dt / updatect
     for i = 1, updatect do
-        self:_update_actors(subdt)
+        self.world:update(subdt)
     end
 
     love.audio.setPosition(self.player.pos.x, self.player.pos.y, 0)
@@ -349,85 +685,21 @@ function WorldScene:update(dt)
             layer:update(dt)
         end
     end
-
-    self:update_camera()
 end
 
-function WorldScene:_update_actors(dt)
-    for _, actor in ipairs(self.actors) do
-        actor:update(dt)
-    end
-end
-
-function WorldScene:update_camera()
-    -- Update camera position
-    -- TODO i miss having a box type
-    -- FIXME would like some more interesting features here like smoothly
-    -- catching up with the player, platform snapping?
-    if self.player then
-        -- TODO this focuses on the player's feet!  should be middle of body?  eyes?
-        local focusx = math.floor(self.player.pos.x + 0.5)
-        local focusy = math.floor(self.player.pos.y + 0.5)
-        local w, h = game:getDimensions()
-
-        local marginx = CAMERA_MARGIN * w
-        local x0 = marginx
-        local x1 = w - marginx
-        local minx = self.map.camera_margin_left
-        local maxx = self.map.width - self.map.camera_margin_right - w
-        local newx = self.camera.x
-        if focusx - newx < x0 then
-            newx = focusx - x0
-        elseif focusx - newx > x1 then
-            newx = focusx - x1
-        end
-        newx = math.max(minx, math.min(maxx, newx))
-        self.camera.x = math.floor(newx)
-
-        local marginy = CAMERA_MARGIN * h
-        local y0 = marginy
-        local y1 = h - marginy
-        local miny = self.map.camera_margin_top
-        local maxy = self.map.height - self.map.camera_margin_bottom - h
-        local newy = self.camera.y
-        if focusy - newy < y0 then
-            newy = focusy - y0
-        elseif focusy - newy > y1 then
-            newy = focusy - y1
-        end
-        newy = math.max(miny, math.min(maxy, newy))
-        if self.player.camera_jitter and self.player.camera_jitter > 0 then
-            newy = newy + math.sin(self.player.camera_jitter * math.pi) * 3
-            newy = math.max(miny, math.min(maxy, newy))
-        end
-        self.camera.y = math.floor(newy)
-    end
-end
 
 function WorldScene:draw()
     local w, h = game:getDimensions()
+    love.graphics.push('all')
     love.graphics.setCanvas(self.canvas)
     love.graphics.clear()
 
-    love.graphics.push('all')
-    love.graphics.translate(-self.camera.x, -self.camera.y)
+    -- FIXME where does this belong...?  the camera is in the world, but we
+    -- have some layers that may care about world coordinates.  maybe they
+    -- should just deal with that themselves?
+    self.camera:apply()
 
-    -- TODO later this can expand into drawing all the layers automatically
-    -- (the main problem is figuring out where exactly the actor layer lives)
-    self.map:draw_parallax_background(self.camera, w, h)
-
-    if self.pushed_actors then
-        self:_draw_actors(self.pushed_actors)
-    else
-        self:_draw_actors(self.actors)
-    end
-
-    if self.pushed_actors then
-        love.graphics.setColor(0, 0, 0, 192)
-        love.graphics.rectangle('fill', self.camera.x, self.camera.y, w, h)
-        love.graphics.setColor(255, 255, 255)
-        self:_draw_actors(self.actors)
-    end
+    self.world:draw()
 
     -- Draw a keycap when the player is next to something touchable
     -- FIXME i seem to put this separately in every game?  standardize somehow?
@@ -452,12 +724,28 @@ function WorldScene:draw()
     end
 end
 
+-- Draws a set of actors in _world_ coordinates
 function WorldScene:_draw_actors(actors)
+    -- TODO could reduce allocation and probably speed up the sort below if we
+    -- kept this list around.  or hell is there any downside to just keeping
+    -- the actors list in draw order?  would mean everyone updates in a fairly
+    -- consistent order, back to front.  the current order is completely
+    -- arbitrary and can change at a moment's notice anyway
+    -- OH WAIT, this specifically takes a list of actors to draw, uh oh!  i'm
+    -- pretty sure anise is using that to exclude some actors from drawing, for
+    -- example.  but, fuck, we should probably just not bother drawing actors
+    -- outside the camera anyway.  (tricky bit is figuring out /when/ they're
+    -- outside the camera i suppose; merely inspecting actor.pos will cause no
+    -- end of edge cases, but not everyone has a shape either...  should it be
+    -- up to the actor??)
+    -- ALSO, it might be nice for the player to always update first, ESPECIALLY
+    -- if their controls end up as a component on themselves
     local sorted_actors = {}
     for k, v in ipairs(actors) do
         sorted_actors[k] = v
     end
 
+    -- TODO this has actually /increased/ z-fighting, good job.  
     table.sort(sorted_actors, function(actor1, actor2)
         local z1 = actor1.z or 0
         local z2 = actor2.z or 0
@@ -579,22 +867,19 @@ end
 --------------------------------------------------------------------------------
 -- API
 
-function WorldScene:load_map(map, spot_name)
-    -- Unload previous map; this allows actors to clean up global resources,
-    -- such as ambient sounds.
-    -- TODO i'm not sure this is the right thing to do; it would be wrong for
-    -- NEON PHASE, for example, since there we stash a map to go back to it
-    -- later!  i'm also not sure it should apply to the player?  but i only
-    -- need it in the first place to stop the laser sound.  wow audio is hard
-    if self.actors then
-        for i = #self.actors, 1, -1 do
-            local actor = self.actors[i]
-            self.actors[i] = nil
-            if actor then
-                actor:on_leave()
-            end
+-- TODO it annoys me that this is somehow distinct from entering a submap
+-- TODO i guess actually the scene could be responsible for the transition,
+-- right?  if everything else is, you know, elsewhere
+function WorldScene:load_map(tiled_map, spot_name)
+    if self.current_map then
+        -- TODO hmmm
+        while self.world.active_map do
+            self.world:pop()
         end
+        -- FIXME maybe this doesn't go here
+        self.current_map:unload()
     end
+    -- TODO as usual, need a more rigorous idea of music management
     if self.music then
         self.music:stop()
     end
@@ -603,74 +888,60 @@ function WorldScene:load_map(map, spot_name)
         -- FIXME this is very much a hack that happens to work with the design
         -- of fox flux; there should be a more explicit way of setting save
         -- points
-        game:set_save_spot(map.path, spot_name)
+        game:set_save_spot(tiled_map.path, spot_name)
     else
         -- If this map declares its attachment to an overworld, use that point
         -- as a save point
-        local overworld_map = map:prop('overworld map')
-        local overworld_spot = map:prop('overworld spot')
+        local overworld_map = tiled_map:prop('overworld map')
+        local overworld_spot = tiled_map:prop('overworld spot')
         if overworld_map and overworld_spot then
             game:set_save_spot(overworld_map, overworld_spot)
         end
     end
 
-    self.map = map
+    self.map = tiled_map
     --self.music = nil  -- FIXME not sure when this should happen; isaac vs neon are very different
-    self.fluct = flux.group()
-    self.tick = tick.group()
 
-    if self.stashed_submaps[map] then
-        self.actors = self.stashed_submaps[map].actors
-        self.collider = self.stashed_submaps[map].collider
-        self.camera = self.player.pos:clone()
-        self:update_camera()
-        -- XXX this is really half-assed, relies on the caller to add the player back to the map too
-        return
-    end
+    -- XXX revisiting is currently really half-assed; it relies on the caller
+    -- to add the player back to the map too!  it was basically hacked in for
+    -- neon phase's angel zone (contrast with isaac or fox flux, which
+    -- explicitly want to discard every map as we leave), but it's also useful
+    -- for anise.  find a way to reconcile these behaviors?
+    local map, revisiting = self.world:load_map(tiled_map, '')
+    self.world:push(map)
+    self.current_map = map
+    self.fluct = self.current_map.flux
+    self.tick = self.current_map.tick
+    self.actors = self.current_map.actors
+    self.collider = self.current_map.collider
 
-    self.actors = {}
-    self.collider = whammo.Collider(4 * map.tilewidth)
-    -- FIXME this is useful sometimes (temporary hop to another map), but not
-    -- always (reloading the map for isaac); find a way to reconcile
-    --[[
-    self.stashed_submaps[map] = {
-        actors = self.actors,
-        collider = self.collider,
-    }
-    ]]
-
-    -- TODO this seems clearly wrong, especially since i don't clear the
-    -- collider, but it happens to work (i think)
-    map:add_to_collider(self.collider)
-
-    local player_start
-    if spot_name then
-        player_start = self.map.named_spots[spot_name]
-        if not player_start then
-            error(("No spot named %s on map %s"):format(spot_name, map))
+    if not revisiting then
+        local player_start
+        if spot_name then
+            player_start = tiled_map.named_spots[spot_name]
+            if not player_start then
+                error(("No spot named %s on map %s"):format(spot_name, tiled_map))
+            end
+        else
+            player_start = tiled_map.player_start
+            if not player_start then
+                error(("No player start found on map %s"):format(map))
+            end
         end
-    else
-        player_start = self.map.player_start
-        if not player_start then
-            error(("No player start found on map %s"):format(map))
+        if self.player then
+            self.player:move_to(player_start:clone())
+        else
+            self.player = self.player_class(player_start:clone())
+        end
+        self:add_actor(self.player)
+
+        local map_music_path = tiled_map:prop('music')
+        if map_music_path then
+            self.map_music = love.audio.newSource(map_music_path, 'stream')
+        else
+            self.map_music = nil
         end
     end
-    if self.player then
-        self.player:move_to(player_start:clone())
-    else
-        self.player = self.player_class(player_start:clone())
-    end
-    self:add_actor(self.player)
-
-    local map_music_path = self.map:prop('music')
-    if map_music_path then
-        self.map_music = love.audio.newSource(map_music_path, 'stream')
-    else
-        self.map_music = nil
-    end
-
-    -- TODO this seems more a candidate for an 'enter' or map-switch event
-    self:_create_actors()
 
     self.map_region = self.map:prop('region', '')
 
@@ -678,16 +949,26 @@ function WorldScene:load_map(map, spot_name)
     -- (and SHOULD happen after populating the world, anyway) because it does a
     -- zero-duration update, and if the player is still touching whatever
     -- killed them, they'll instantly die again.
+    -- FIXME maybe make it not do a zero-duration update
+    -- FIXME in general this seems like it does not remotely belong here, but
+    -- also that seems like the same general question as stashing maps vs not
     if self.player.is_dead then
         -- TODO should this be a more general 'reset'?
         self.player:resurrect()
     end
 
-    self.camera = self.player.pos:clone()
-    self.camera.y = self.camera.y - self.map.height
+    -- FIXME i don't know what i was doing here.  especially subtracting the
+    -- map height, What??  clearly i want a separate api for "ignore any state
+    -- and jump to here" though
+    self.camera.x = self.player.pos.x
+    self.camera.y = self.player.pos.y - self.map.height
 
     -- Advance the world by zero time to put it in a consistent state (e.g.
     -- figure out what's on the ground, update the camera)
+    -- FIXME i would love to not do this because it keeps causing minor but
+    -- irritating surprises.  we can update the camera, sure, but i think a
+    -- newly-spawned actor should be able to deal with inconsistent state on
+    -- its own
     self:update(0)
 end
 
@@ -695,120 +976,53 @@ function WorldScene:reload_map()
     self:load_map(self.map)
 end
 
-function WorldScene:_create_actors(submap)
-    -- TODO this seems /slightly/ invasive but i'm not sure where else it would
-    -- go.  i guess if the "map" parts of the world got split off it would be
-    -- more appropriate.  i DO like that it starts to move "submap" out of the
-    -- map parsing, where it 100% does not belong
-    -- TODO imo the collision should be attached to the tile layers too
-    for _, layer in ipairs(self.map.layers) do
-        if layer.type == 'tilelayer' and layer.submap == submap then
-            local z
-            -- FIXME better!  but i still don't like hardcoded layer names
-            if layer.name == 'background' then
-                z = -10002
-            elseif layer.name == 'main terrain' then
-                z = -10001
-            elseif layer.name == submap and submap then
-                z = -10000
-            elseif layer.name == 'objects' then
-                z = 10000
-            elseif layer.name == 'foreground' then
-                z = 10001
-            elseif layer.name == 'wiring' then
-                z = 10002
-            end
-            if z ~= nil then
-                self:add_actor(actors_map.TiledMapLayer(layer, self.map, z))
-            end
-        end
-    end
-
-    for _, template in ipairs(self.map.actor_templates) do
-        if template.submap == submap then
-            local class = actors_base.Actor:get_named_type(template.name)
-            local position = template.position:clone()
-            -- FIXME i am unsure about template.shape here; atm it's only used for trigger zone
-            -- FIXME oh hey maybe this should use a different kind of constructor entirely, so the main one doesn't have a goofy-ass signature?
-            local actor = class(position, template.properties, template.shape)
-            -- FIXME this feels...  hokey...
-            if actor.sprite and actor.sprite.anchor then
-                actor:move_to(position + actor.sprite.anchor)
-            end
-            self:add_actor(actor)
-        end
-    end
-end
-
+-- TODO how does this work if you enter submap A, then B, then A again?  poorly thought through
 function WorldScene:enter_submap(name)
-    -- FIXME this is extremely half-baked
-    if self.submap == nil then
-        self.pushed_actors = self.actors
-        self.pushed_collider = self.collider
-    end
     self.submap = name
     self:remove_actor(self.player)
 
-    -- FIXME get rid of pushed in favor of this?  but still need to establish the stack
-    if self.stashed_submaps[name] then
-        self.actors = self.stashed_submaps[name].actors
-        self.collider = self.stashed_submaps[name].collider
-        self:add_actor(self.player)
-        return
-    end
+    local map = self.world:load_map(self.current_map.tiled_map, name or '')
+    self.world:push(map)
+    self.current_map = self.world.active_map
 
-    self.actors = {}
-    self.collider = whammo.Collider(4 * self.map.tilewidth)
-    self.stashed_submaps[name] = {
-        actors = self.actors,
-        collider = self.collider,
-    }
-    self.map:add_to_collider(self.collider, self.submap)
     self:add_actor(self.player)
 
-    self:_create_actors(self.submap)
+    self.fluct = self.current_map.flux
+    self.tick = self.current_map.tick
+    self.actors = self.current_map.actors
+    self.collider = self.current_map.collider
 end
 
-function WorldScene:leave_submap(name)
-    -- FIXME this is extremely half-baked
-    self.submap = nil
+function WorldScene:leave_submap()
     self:remove_actor(self.player)
-    self.actors = self.pushed_actors
-    self.collider = self.pushed_collider
-    self.pushed_actors = nil
-    self.pushed_collider = nil
+
+    self.world:pop()
+    self.current_map = self.world.active_map
+    self.submap = nil
+
     self:add_actor(self.player)
+
+    self.fluct = self.current_map.flux
+    self.tick = self.current_map.tick
+    self.actors = self.current_map.actors
+    self.collider = self.current_map.collider
 end
 
 function WorldScene:add_actor(actor)
-    table.insert(self.actors, actor)
-
-    if actor.shape then
-        -- TODO what happens if the shape changes?
-        self.collider:add(actor.shape, actor)
-    end
-
-    actor:on_enter()
+    self.current_map:add_actor(actor)
 end
 
 function WorldScene:remove_actor(actor)
-    -- TODO what if the actor is the player...?  should we unset self.player?
-    actor:on_leave()
-
-    -- TODO maybe an index would be useful
-    for i, an_actor in ipairs(self.actors) do
-        if actor == an_actor then
-            local last = #self.actors
-            self.actors[i] = self.actors[last]
-            self.actors[last] = nil
-            break
-        end
-    end
-
-    if actor.shape then
-        self.collider:remove(actor.shape)
-    end
+    self.current_map:remove_actor(actor)
 end
 
 
 return WorldScene
+-- TODO do i want to do this, or move the other stuff into other files?
+--[[
+return {
+    WorldScene = WorldScene,
+    World = World,
+    Map = Map,
+}
+]]

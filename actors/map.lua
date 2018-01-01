@@ -9,9 +9,9 @@ local TiledMapLayer = actors_base.BareActor:extend{
     sprite_batches = nil,
 }
 
-function TiledMapLayer:init(layer, map, z)
+function TiledMapLayer:init(layer, tiled_map, z)
     self.layer = layer
-    self.map = map
+    self.tiled_map = tiled_map
     self.z = z
 end
 
@@ -23,7 +23,7 @@ function TiledMapLayer:_make_batches()
     -- batch every frame but with only visible tiles?
     self.sprite_batches = {}
 
-    local tw, th = self.map.tilewidth, self.map.tileheight
+    local tw, th = self.tiled_map.tilewidth, self.tiled_map.tileheight
 
     local width, height = self.layer.width, self.layer.height
     for t, tile in ipairs(self.layer.tilegrid) do

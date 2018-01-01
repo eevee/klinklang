@@ -14,6 +14,9 @@ local tiledmap = require 'klinklang.tiledmap'
 -- drawing from a sprite.  Code operating on arbitrary actors should only use
 -- the properties and methods defined here.
 local BareActor = Object:extend{
+    -- Map I belong to, set in on_enter and cleared in on_leave
+    map = nil,
+
     pos = nil,
 
     -- If true, the player can "use" this object, calling on_use(activator)
@@ -56,11 +59,21 @@ function BareActor:draw()
 end
 
 -- Called when the actor is added to the world
-function BareActor:on_enter()
+function BareActor:on_enter(map)
+    self.map = map
+
+    if self.shape then
+        map.collider:add(self.shape, self)
+    end
 end
 
 -- Called when the actor is removed from the world
 function BareActor:on_leave()
+    if self.shape then
+        self.map.collider:remove(self.shape)
+    end
+
+    self.map = nil
 end
 
 -- Called every frame that another actor is touching this one
@@ -85,6 +98,13 @@ end
 -- General API stuff for controlling actors from outside
 function BareActor:move_to(position)
     self.pos = position
+end
+
+-- Doesn't directly destroy the actor, but schedules it to be removed from the
+-- map at the end of the next update, at which point GC will take care of it if
+-- it has no other references
+function BareActor:destroy()
+    self.map:delayed_remove_actor(self)
 end
 
 
@@ -168,12 +188,13 @@ function Actor:move_to(position)
 end
 
 function Actor:set_shape(new_shape)
+    assert(self.map, "Can't set shape while not part of a map")
     if self.shape then
-        worldscene.collider:remove(self.shape)
+        self.map.collider:remove(self.shape)
     end
     self.shape = new_shape
     if self.shape then
-        worldscene.collider:add(self.shape, self)
+        self.map.collider:add(self.shape, self)
         self.shape:move_to(self.pos:unpack())
     end
 end
@@ -255,7 +276,8 @@ function MobileActor:init(...)
     self.velocity = Vector.zero:clone()
 end
 
-function MobileActor:on_enter()
+function MobileActor:on_enter(...)
+    MobileActor.__super.on_enter(self, ...)
     self.cargo = setmetatable({}, { __mode = 'k' })
 end
 
@@ -308,7 +330,7 @@ end
 
 
 function MobileActor:_collision_callback(collision, pushers, already_hit)
-    local actor = worldscene.collider:get_owner(collision.shape)
+    local actor = self.map.collider:get_owner(collision.shape)
     if type(actor) ~= 'table' or not Object.isa(actor, BareActor) then
         actor = nil
     end
@@ -501,7 +523,7 @@ function MobileActor:nudge(movement, pushers, xxx_no_slide)
     local stuck_counter = 0
     while true do
         local successful
-        successful, hits = worldscene.collider:slide(self.shape, movement, pass_callback)
+        successful, hits = self.map.collider:slide(self.shape, movement, pass_callback)
         self.shape:move(successful:unpack())
         self.pos = self.pos + successful
         total_movement = total_movement + successful
@@ -574,7 +596,7 @@ function MobileActor:check_for_ground(hits)
                     ground = normal1
                 end
                 if dot < mindot or (dot == mindot and not ground_actor) then
-                    ground_actor = worldscene.collider:get_owner(collision.shape)
+                    ground_actor = self.map.collider:get_owner(collision.shape)
                     if ground_actor and type(ground_actor) == 'table' and ground_actor.isa then
                         local friction
                         if ground_actor:isa(Actor) then

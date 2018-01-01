@@ -31,7 +31,8 @@ function Wirable:init(...)
     self.live_connections = setmetatable({}, { __mode = 'k' })
 end
 
-function Wirable:on_enter()
+function Wirable:on_enter(map)
+    Wirable.__super.on_enter(self, map)
     local orig = self.powered
 
     -- FIXME get this stuff from the physics engine (but wait, how, if these lot don't have collision??)
@@ -41,7 +42,7 @@ function Wirable:on_enter()
     for _, offset in ipairs(self.nodes) do
         table.insert(nodes, self.pos + offset)
     end
-    for _, actor in ipairs(worldscene.actors) do
+    for _, actor in ipairs(map.actors) do
         if actor ~= self and actor._receive_pulse then
             local is_connection = false
             for _, offset in ipairs(actor.nodes) do
@@ -348,12 +349,13 @@ function WireSocket:blocks()
     return false
 end
 
-function WireSocket:on_enter()
+function WireSocket:on_enter(map)
+    WireSocket.__super.on_enter(self, map)
     if self.spawn_with then
         local plugtype = actors_base.Actor:get_named_type(self.spawn_with)
         local plug = plugtype(self.pos)
         self.ptrs.plug = plug
-        worldscene:add_actor(plug)
+        map:add_actor(plug)
     end
 end
 

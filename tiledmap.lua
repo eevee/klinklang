@@ -390,7 +390,7 @@ function TiledMapLayer.parse_json(class, data, resource_manager, base_path, tile
         end
     end
 
-    self.submap = self:prop('submap')
+    self.submap = self:prop('submap', '')
 
     return self
 end
