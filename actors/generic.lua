@@ -31,7 +31,8 @@ function GenericSlidingDoor:init(...)
 end
 
 -- FIXME what happens if you stick a rune in an open doorway?
-function GenericSlidingDoor:on_enter()
+function GenericSlidingDoor:on_enter(...)
+    GenericSlidingDoor.__super.on_enter(self, ...)
     -- FIXME this "ray" should really have a /width/
     local impact, impactdist = self.map.collider:fire_ray(
         self.pos,
@@ -136,7 +137,8 @@ function GenericSlidingDoorShutter:init(...)
     actors_base.Actor.init(self, ...)
 end
 
-function GenericSlidingDoorShutter:on_enter()
+function GenericSlidingDoorShutter:on_enter(...)
+    GenericSlidingDoorShutter.__super.on_enter(self, ...)
     local door = self.door_type(self.pos)
     self.ptrs.door = door
     self.map:add_actor(door)
