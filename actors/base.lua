@@ -274,7 +274,7 @@ local MobileActor = Actor:extend{
 function MobileActor:init(...)
     MobileActor.__super.init(self, ...)
 
-    self.velocity = Vector.zero:clone()
+    self.velocity = Vector()
 end
 
 function MobileActor:on_enter(...)
@@ -641,51 +641,7 @@ function MobileActor:check_for_ground(hits)
 end
 
 function MobileActor:update(dt)
-    MobileActor.__super.update(self, dt)
-
-    -- Fudge the movement to try ending up aligned to the pixel grid.
-    -- This helps compensate for the physics engine's love of gross float
-    -- coordinates, and should allow the player to position themselves
-    -- pixel-perfectly when standing on pixel-perfect (i.e. flat) ground.
-    -- FIXME i had to make this round to the nearest eighth because i found a
-    -- place where standing on a gentle slope would make you vibrate back and
-    -- forth between pixels.  i don't think that's the case any more, though,
-    -- and it would be nice to make this work for pushing as well, so you can
-    -- push an object down a gap its own size!  the only problem is that it has
-    -- a nontrivial impact on overall speed
-    local goalpos = self.pos + self.velocity * dt / self:get_fluid_resistance()
-    if self.velocity.x ~= 0 then
-        goalpos.x = math.floor(goalpos.x * 8 + 0.5) / 8
-    end
-    if self.velocity.y ~= 0 then
-        goalpos.y = math.floor(goalpos.y * 8 + 0.5) / 8
-    end
-    local movement = goalpos - self.pos
-
-    -- Collision time!
-    local attempted = movement
-
-    local movement, hits = self:nudge(movement)
-
-    self:check_for_ground(hits)
-
-    -- Trim velocity as necessary, based on the last surface we slid against
-    -- FIXME this needs to ignore cases where already_hit[owner] == 'nudged'
-    -- or...  maybe not?  comment from when i was working on pushing in fox flux:
-    --      so if we pushed an object and it was blocked, we'd see 'blocked'
-    --      here and add it to the clock.  if we pushed an object and it moved,
-    --      we'd see 'nudged' here and ignore it since we can continue moving
-    --      in that direction.  but if we pushed an object and it /slid/...?
-    --      the best i can think of here is if we trim velocity to movement /
-    --      dt, which sounds, slightly crazy
-    if self.velocity ~= Vector.zero then
-        self.velocity = slide_along_normals(hits, self.velocity)
-    end
-
-    ----------------------------------------------------------------------------
     -- Passive adjustments
-    -- We do these last so they don't erode an explicitly-set velocity before
-    -- that velocity even has a chance to affect movement.
     if math.abs(self.velocity.x) < self.min_speed then
         self.velocity.x = 0
     end
@@ -716,6 +672,11 @@ function MobileActor:update(dt)
         self.velocity = self.velocity + decel_vector * self.ground_friction
     end
 
+    -- Stash the velocity from before we add ambient acceleration.  This makes
+    -- the integration more accurate by excluding abrupt changes (e.g.,
+    -- jumping) from smoothing
+    local last_velocity = self.velocity
+
     -- TODO factor the ground_friction constant into this, and also into slope
     -- resistance
     -- Gravity
@@ -723,8 +684,60 @@ function MobileActor:update(dt)
     if self.velocity.y > 0 then
         mult = mult * self.gravity_multiplier_down
     end
-    self.velocity = self.velocity + gravity * mult * dt
+    self.velocity = self.velocity + gravity * (mult * dt)
     self.velocity.y = math.min(self.velocity.y, terminal_velocity)
+
+    ----------------------------------------------------------------------------
+    -- Super call
+    MobileActor.__super.update(self, dt)
+
+    -- This looks a bit funny, but it makes simulation of constant gravity
+    -- /exactly/ correct (modulo terminal velocity and whatnot), AND it avoids
+    -- problems like jump height being eroded too much by the first tic of
+    -- gravity at low framerates.  Not quite sure what it's called, but it's
+    -- similar to Verlet integration and the midpoint method.
+    local ds = (self.velocity + last_velocity) * (dt * 0.5)
+    self.last_velocity = self.velocity
+
+    -- Fudge the movement to try ending up aligned to the pixel grid.
+    -- This helps compensate for the physics engine's love of gross float
+    -- coordinates, and should allow the player to position themselves
+    -- pixel-perfectly when standing on pixel-perfect (i.e. flat) ground.
+    -- FIXME i had to make this round to the nearest eighth because i found a
+    -- place where standing on a gentle slope would make you vibrate back and
+    -- forth between pixels.  i don't think that's the case any more, though,
+    -- and it would be nice to make this work for pushing as well, so you can
+    -- push an object down a gap its own size!  the only problem is that it has
+    -- a nontrivial impact on overall speed.  maybe we should only do this when
+    -- moving slowly?
+    local goalpos = self.pos + ds / self:get_fluid_resistance()
+    --[[
+    if self.velocity.x ~= 0 then
+        goalpos.x = math.floor(goalpos.x * 8 + 0.5) / 8
+    end
+    if self.velocity.y ~= 0 then
+        goalpos.y = math.floor(goalpos.y * 8 + 0.5) / 8
+    end
+    ]]
+    local movement = goalpos - self.pos
+
+    -- Collision time!
+    local movement, hits = self:nudge(movement)
+
+    self:check_for_ground(hits)
+
+    -- Trim velocity as necessary, based on the last surface we slid against
+    -- FIXME this needs to ignore cases where already_hit[owner] == 'nudged'
+    -- or...  maybe not?  comment from when i was working on pushing in fox flux:
+    --      so if we pushed an object and it was blocked, we'd see 'blocked'
+    --      here and add it to the clock.  if we pushed an object and it moved,
+    --      we'd see 'nudged' here and ignore it since we can continue moving
+    --      in that direction.  but if we pushed an object and it /slid/...?
+    --      the best i can think of here is if we trim velocity to movement /
+    --      dt, which sounds, slightly crazy
+    if self.velocity ~= Vector.zero then
+        self.velocity = slide_along_normals(hits, self.velocity)
+    end
 
     return movement, hits
 end
