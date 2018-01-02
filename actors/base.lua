@@ -301,6 +301,15 @@ function MobileActor:get_fluid_resistance()
     return 1
 end
 
+-- TODO again, a prop would be nice
+function MobileActor:get_gravity_multiplier()
+    local mult = self.gravity_multiplier
+    if self.velocity.y > 0 then
+        mult = mult * self.gravity_multiplier_down
+    end
+    return mult
+end
+
 -- Lower-level function passed to the collider to determine whether another
 -- object blocks us
 -- FIXME now that they're next to each other, these two methods look positively silly!  and have a bit of a symmetry problem: the other object can override via the simple blocks(), but we have this weird thing
@@ -680,11 +689,7 @@ function MobileActor:update(dt)
     -- TODO factor the ground_friction constant into this, and also into slope
     -- resistance
     -- Gravity
-    local mult = self.gravity_multiplier
-    if self.velocity.y > 0 then
-        mult = mult * self.gravity_multiplier_down
-    end
-    self.velocity = self.velocity + gravity * (mult * dt)
+    self.velocity = self.velocity + gravity * (self:get_gravity_multiplier() * dt)
     self.velocity.y = math.min(self.velocity.y, terminal_velocity)
 
     ----------------------------------------------------------------------------
@@ -834,6 +839,13 @@ function SentientActor:decide_pause_climbing()
     end
 end
 
+function SentientActor:get_gravity_multiplier()
+    if self.decision_climb and not self.xxx_useless_climb then
+        return 0
+    end
+    return SentientActor.__super.get_gravity_multiplier(self)
+end
+
 function SentientActor:push(dv)
     SentientActor.__super.push(self, dv)
 
@@ -946,8 +958,7 @@ function SentientActor:update(dt)
     self:handle_jump(dt)
 
     -- Climbing
-    -- Because gravity happens /after/ movement, this completely negates
-    -- gravity, no extra effort required!
+    -- Immunity to gravity while climbing is handled via get_gravity_multiplier
     if self.decision_climb then
         if self.xxx_useless_climb then
             -- Can try to climb, but is just affected by gravity as normal
