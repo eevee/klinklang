@@ -483,8 +483,7 @@ function WorldScene:load_map(tiled_map, spot_name)
         while self.world.active_map do
             self.world:pop()
         end
-        -- FIXME maybe this doesn't go here
-        self.current_map:unload()
+        self:remove_actor(self.player)
     end
     -- TODO as usual, need a more rigorous idea of music management
     if self.music then
@@ -509,11 +508,12 @@ function WorldScene:load_map(tiled_map, spot_name)
     self.map = tiled_map
     --self.music = nil  -- FIXME not sure when this should happen; isaac vs neon are very different
 
-    -- XXX revisiting is currently really half-assed; it relies on the caller
-    -- to add the player back to the map too!  it was basically hacked in for
-    -- neon phase's angel zone (contrast with isaac or fox flux, which
-    -- explicitly want to discard every map as we leave), but it's also useful
-    -- for anise.  find a way to reconcile these behaviors?
+    -- XXX revisiting is currently a bit half-assed; it was originally made for
+    -- NEON PHASE's void, where the player object on the new map was completely
+    -- different and we didn't want the old one moved.  meanwhile, isaac and
+    -- fox flux explicitly want to throw away the old map, but anise wants to
+    -- preserve them while keeping the usual moving behavior.  find a way to
+    -- reconcile all of this
     local map, revisiting = self.world:load_map(tiled_map, '')
     self.world:push(map)
     self.current_map = map
@@ -522,28 +522,26 @@ function WorldScene:load_map(tiled_map, spot_name)
     self.actors = self.current_map.actors
     self.collider = self.current_map.collider
 
-    if not revisiting then
-        local player_start
-        if spot_name then
-            player_start = tiled_map.named_spots[spot_name]
-            if not player_start then
-                error(("No spot named %s on map %s"):format(spot_name, tiled_map))
-            end
-        else
-            player_start = tiled_map.player_start
-            if not player_start then
-                error(("No player start found on map %s"):format(map))
-            end
+    local player_start
+    if spot_name then
+        player_start = tiled_map.named_spots[spot_name]
+        if not player_start then
+            error(("No spot named %s on map %s"):format(spot_name, tiled_map))
         end
-        self.player:move_to(player_start:clone())
-        self:add_actor(self.player)
+    else
+        player_start = tiled_map.player_start
+        if not player_start then
+            error(("No player start found on map %s"):format(map))
+        end
+    end
+    self.player:move_to(player_start:clone())
+    self:add_actor(self.player)  -- XXX problem for neon phase
 
-        local map_music_path = tiled_map:prop('music')
-        if map_music_path then
-            self.map_music = love.audio.newSource(map_music_path, 'stream')
-        else
-            self.map_music = nil
-        end
+    local map_music_path = tiled_map:prop('music')
+    if map_music_path then
+        self.map_music = love.audio.newSource(map_music_path, 'stream')
+    else
+        self.map_music = nil
     end
 
     self.map_region = self.map:prop('region', '')

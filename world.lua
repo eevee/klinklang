@@ -394,13 +394,20 @@ function World:pop()
 end
 
 function World:_set_active(map)
+    -- TODO figure this out, for NEON PHASE, etc
+    if self.active_map then
+        --self.active_map:suspend()
+    end
+
     self.active_map = map
 
-    self.camera:set_bounds(
-        map.tiled_map.camera_margin_left,
-        map.tiled_map.camera_margin_top,
-        map.tiled_map.width - map.tiled_map.camera_margin_right,
-        map.tiled_map.height - map.tiled_map.camera_margin_bottom)
+    if map then
+        self.camera:set_bounds(
+            map.tiled_map.camera_margin_left,
+            map.tiled_map.camera_margin_top,
+            map.tiled_map.width - map.tiled_map.camera_margin_right,
+            map.tiled_map.height - map.tiled_map.camera_margin_bottom)
+    end
 end
 
 function World:update(dt)
