@@ -236,8 +236,12 @@ function Map:update(dt)
 
     self:_update_actors(dt)
 
+    local seen = {}  -- avoid removing the same one twice!
     for i, actor in ipairs(self.actors_to_remove) do
-        self:remove_actor(actor)
+        if not seen[actor] then
+            self:remove_actor(actor)
+            seen[actor] = true
+        end
         self.actors_to_remove[i] = nil
     end
 end
