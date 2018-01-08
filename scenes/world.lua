@@ -421,7 +421,10 @@ end
 
 function WorldScene:_draw_final_canvas()
     love.graphics.setCanvas()
-    love.graphics.draw(self.canvas, 0, 0, 0, game.scale, game.scale)
+    love.graphics.push('all')
+    game:transform_viewport()
+    love.graphics.draw(self.canvas, 0, 0)
+    love.graphics.pop()
 end
 
 function WorldScene:resize(w, h)
