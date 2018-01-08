@@ -641,7 +641,6 @@ function DialogueScene:draw()
     -- Draw the dialogue box, which is slightly complicated because it involves
     -- drawing the ends and then repeating the middle bit to fit the screen
     -- size
-    local w, h = game:getDimensions()
     local font_height = (self.phrase_speaker.font_height or self.font_height) / (self.phrase_speaker.font_prescale or 1)
     self:_draw_background(self.dialogue_box)
 
