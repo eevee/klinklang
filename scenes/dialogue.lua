@@ -614,9 +614,9 @@ function DialogueScene:draw()
     end
 
     love.graphics.push('all')
-    love.graphics.scale(game.scale, game.scale)
+    game:transform_viewport()
     love.graphics.setColor(0, 0, 0, self.background_opacity)
-    love.graphics.rectangle('fill', 0, 0, game:getDimensions())
+    love.graphics.rectangle('fill', game.screen:xywh())
     --[[
     love.graphics.rectangle('fill', 0, self.dialogue_box.y, game:getDimensions(), self.dialogue_box.height)
     love.graphics.rectangle('fill', self.text_box:unpack())

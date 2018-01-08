@@ -58,7 +58,7 @@ function Game:getDimensions()
 end
 
 function Game:transform_viewport()
-    love.graphics.setScissor(self.screen:unpack())
+    love.graphics.setScissor(self.screen:xywh())
     love.graphics.translate(self.screen.x, self.screen.y)
     love.graphics.scale(self.scale, self.scale)
 end

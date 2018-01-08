@@ -33,7 +33,7 @@ end
 
 -- TODO hm this could be done by setting y0 = y1 - new_height
 function AABB:get_chunk(dx, dy)
-    local x, y, width, height = self:unpack()
+    local x, y, width, height = self:xywh()
     if dx > 0 then
         width = dx
     elseif dx < 0 then
@@ -49,7 +49,7 @@ function AABB:get_chunk(dx, dy)
     return AABB(x, y, width, height)
 end
 
-function AABB:unpack()
+function AABB:xywh()
     return self.x, self.y, self.width, self.height
 end
 
