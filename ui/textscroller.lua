@@ -8,10 +8,10 @@ local Object = require 'klinklang.object'
 --   - allow embedding sprites in text
 --   - allow dynamic text e.g. wavy or shaky (this would be vastly easier if love let me mess with individual text offsets urgh, atm i think i'd have to just store a zillion text objects)
 -- - letters fade in?
--- - can you scroll...  backwards?  or scroll up entire lines?  or whatever?
+-- - can you scroll...  backwards?  or scroll up entire lines?  or whatever?  (XXX THEN I COULD MERGE MENU INTO THIS I THINK??)
 -- XXX to fix:
 -- - this constructor is terrible
--- - doesn't handle being resized atm
+-- - doesn't handle being resized atm, but anise game has no resizing, so...?
 -- - the current approach to scrolling too-long text is incredibly bad and there should probably be at least three options available here:
 --   1. current thing: wait when box is full, then add one line at a time
 --   2. just keep scrolling forever uninterrupted
@@ -22,6 +22,10 @@ local Object = require 'klinklang.object'
 local TextScroller = Object:extend{
     waiting = false,  -- have we run out of space?  FIXME or something else
     finished = false,  -- have we reached the end of the text?
+    last_was_space = true,  -- was the last character we scrolled a space?
+    clock = 0,  -- when this rolls over, show a new character
+    line = 1,  -- current line being scrolled (possibly doesn't exist yet)
+    byte_offset = 0,  -- in current line
 }
 
 function TextScroller:init(font, font_prescale, text, speed, width, height, color, shadow_color)
@@ -34,21 +38,13 @@ function TextScroller:init(font, font_prescale, text, speed, width, height, colo
     self.color = color
     self.shadow_color = shadow_color
 
-    self.curline = 0
-    self.curchar = 0
-    self.phrase_texts = {}
-    self.phrase_timer = nil  -- counts in time * SCROLL_RATE; every time it goes up by 1, a new character should appear
-
     self.font_height = font:getHeight() * font:getLineHeight() / self.font_prescale
     self.max_lines = math.floor(self.height / self.font_height)
     self.y0 = math.floor(self.height % self.font_height / 2)
 
     local _textwidth, lines = font:getWrap(text, self.width * self.font_prescale)
     self.phrase_lines = lines
-    self.phrase_timer = 0
-    self.last_was_space = true
-    self.curline = 1
-    self.curchar = 0
+    self.phrase_texts = {}
 end
 
 function TextScroller:first_line_offset()
@@ -64,46 +60,44 @@ function TextScroller:fill()
     -- TODO what if i'm waiting?
     -- Find the index of the last line that should be visible
     local lastline
-    if self.curline > self.max_lines then
-        lastline = self.curline
+    if self.line > self.max_lines then
+        lastline = self.line
     else
         lastline = math.min(self.max_lines, #self.phrase_lines)
     end
 
-    local font = self.phrase_speaker.font or self.font
-    for l = self.curline, lastline do
+    for l = self.line, lastline do
         self.phrase_texts[l] = love.graphics.newText(self.font, self.phrase_lines[l])
     end
-    self.curline = lastline + 1
-    self.curchar = 0
+    self.line = lastline + 1
+    self.byte_offset = 0
     self.waiting = true
 end
 
 function TextScroller:update(dt)
     -- TODO what if i'm waiting?
-    self.phrase_timer = self.phrase_timer + dt * self.speed
+    self.clock = self.clock + dt * self.speed
     local font = self.font
-    local need_redraw = (self.phrase_timer >= 1)
+    local need_redraw = (self.clock >= 1)
     -- Show as many new characters as necessary, based on time elapsed
-    while self.phrase_timer >= 1 do
+    while self.clock >= 1 do
         -- Advance cursor, continuing across lines if necessary.
-        -- curchar is used as the end of a slice, so we want it to point to
-        -- the /end/ of a UTF-8 byte sequence.  To get that, we ask
-        -- utf8.offset for the start of the SECOND character after the
-        -- current one, then subtract a byte to get the end of the first
-        -- character.  (The utf8 library apparently saw this use case
-        -- coming, because it will happily return one byte past the end of
-        -- the string as an offset.)
-        local second_char_offset = utf8.offset(self.phrase_lines[self.curline], 2, self.curchar + 1)
+        -- byte_offset is used as the end of a slice, so we want it to point to
+        -- the /end/ of a UTF-8 byte sequence.  To get that, we ask utf8.offset
+        -- for the start of the SECOND character after the current one, then
+        -- subtract a byte to get the end of the first character.  (The utf8
+        -- library apparently saw this use case coming, because it will happily
+        -- return one byte past the end of the string as an offset.)
+        local second_char_offset = utf8.offset(self.phrase_lines[self.line], 2, self.byte_offset + 1)
         if second_char_offset then
-            self.curchar = second_char_offset - 1
+            self.byte_offset = second_char_offset - 1
         else
             -- There is no second byte, so we've hit the end of the line
-            self.phrase_texts[self.curline] = love.graphics.newText(font, self.phrase_lines[self.curline])
-            self.curline = self.curline + 1
-            self.curchar = 0
+            self.phrase_texts[self.line] = love.graphics.newText(font, self.phrase_lines[self.line])
+            self.line = self.line + 1
+            self.byte_offset = 0
 
-            if self.curline == #self.phrase_lines + 1 then
+            if self.line == #self.phrase_lines + 1 then
                 self.waiting = true
                 self.finished = true
                 break
@@ -111,7 +105,7 @@ function TextScroller:update(dt)
 
             -- If we just maxed out the text box, pause before continuing
             -- FIXME this will pause on /every/ extra line; is that right?  this seems not entirely deliberate
-            if self.curline > self.max_lines then
+            if self.line > self.max_lines then
                 self.waiting = true
                 break
             end
@@ -119,7 +113,7 @@ function TextScroller:update(dt)
         -- Count a non-whitespace character against the timer.
         -- Note that this is a byte slice of the end of a UTF-8 character,
         -- but spaces are a single byte in UTF-8, so it's fine.
-        if string.sub(self.phrase_lines[self.curline], self.curchar, self.curchar) == " " then
+        if string.sub(self.phrase_lines[self.line], self.byte_offset, self.byte_offset) == " " then
             self.last_was_space = true
         else
             if self.last_was_space and self.chatter_enabled and self.phrase_speaker.chatter_sfx and not self.script[self.script_index].silent then
@@ -135,24 +129,24 @@ function TextScroller:update(dt)
                 end, sfx:getDuration() / 4)
             end
             self.last_was_space = false
-            self.phrase_timer = self.phrase_timer - 1
+            self.clock = self.clock - 1
         end
     end
     -- Re-render the visible part of the current line if the above loop
     -- made any progress.  Note that it's important to NOT do this if we
     -- haven't shown any of the current line yet, or we might shift
     -- everything up just to draw a blank line.
-    if need_redraw and self.curchar > 0 then
-        self.phrase_texts[self.curline] = love.graphics.newText(
+    if need_redraw and self.byte_offset > 0 then
+        self.phrase_texts[self.line] = love.graphics.newText(
             font,
-            string.sub(self.phrase_lines[self.curline], 1, self.curchar))
+            string.sub(self.phrase_lines[self.line], 1, self.byte_offset))
     end
 end
 
 function TextScroller:draw(x, y)
     y = y + self.y0
     local scale = 1 / self.font_prescale
-    -- Don't use curline here, because it might be a line we haven't started
+    -- Don't use self.line here, because it might be a line we haven't started
     -- drawing at all yet
     local first_line = math.max(1, #self.phrase_texts - self.max_lines + 1)
     local last_line = math.min(first_line + self.max_lines - 1, #self.phrase_texts)

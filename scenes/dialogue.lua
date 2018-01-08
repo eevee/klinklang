@@ -617,10 +617,6 @@ function DialogueScene:draw()
     game:transform_viewport()
     love.graphics.setColor(0, 0, 0, self.background_opacity)
     love.graphics.rectangle('fill', game.screen:xywh())
-    --[[
-    love.graphics.rectangle('fill', 0, self.dialogue_box.y, game:getDimensions(), self.dialogue_box.height)
-    love.graphics.rectangle('fill', self.text_box:unpack())
-    ]]
     love.graphics.setColor(255, 255, 255)
 
     -- Draw the dialogue box, which is slightly complicated because it involves
