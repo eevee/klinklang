@@ -428,8 +428,6 @@ end
 -- (ccw), and those on our right (cw).  When we hit a corner, its two sides are
 -- handled separately.  When we hit a wall, that makes one slide direction
 -- impossible, so we mark it as such.
--- FIXME this assumes two normals max: one on the left, one on the right.  with multishape and similar nonsense that may not be true, argh!
--- FIXME oh boy this sure needs some comments explaining what it's doing and why
 local function slide_along_normals(hits, direction)
     local perp = direction:perpendicular()
     local minleftdot = 0
@@ -439,14 +437,36 @@ local function slide_along_normals(hits, direction)
     local right_possible = true
     local left_possible = true
 
+    -- So, here's the problem.  At first blush, this seems easy enough: just
+    -- pick the normal that restricts us the most, which is the one that faces
+    -- most towards us (i.e. has the most negative dot product), and slide
+    -- along that.  Alas, there are two major problems there.
+    -- 1. We might be blocked on /both sides/ and thus can't move at all.  To
+    -- detect this, we have to sort normals into "left" and "right", find the
+    -- worst normal on each side, and then reconcile at the end.
+    -- 2. Each hit might be a corner collision and have multiple normals.
+    -- While hitting more objects and thus encountering more normals will
+    -- /reduce/ our available slide area, hitting a corner /increases/ it.  So
+    -- within a single hit, we have to do the same thing in reverse, finding
+    -- the BEST normal on each side and counting that one.
+    -- FIXME there are also two problems with the data we get out of whammo
+    -- atm: (a) a corner collision might produce more than two normals which
+    -- feels ambiguous (but maybe it isn't; remember those normals are from
+    -- both us and the thing we hit?  maybe draw a diagram to check on this),
+    -- and (b) MultiShape blindly crams all the normals into a single table,
+    -- even though normals from different shapes combine differently.  for the
+    -- latter problem, maybe we should just return a left_normal and
+    -- right_normal in each hit?  i mean we do the dot products in whammo
+    -- itself already, so that'd save us a lot of effort.  only drawback i can
+    -- think of is that moving by zero would make all those normals kind of
+    -- meaningless, but i think we could just look at the overall direction of
+    -- contact...?  whatever that means?
     for shape, collision in pairs(hits) do
         if not collision.passable then
             local maxleftdot = -math.huge
             local leftnorm
-            local leftnorm1
             local maxrightdot = -math.huge
             local rightnorm
-            local rightnorm1
 
             for norm, norm1 in pairs(collision.normals) do
                 local perpdot = norm * perp
@@ -455,22 +475,19 @@ local function slide_along_normals(hits, direction)
                 elseif perpdot < 0 then
                     if dot > maxleftdot then
                         leftnorm = norm
-                        leftnorm1 = norm1
                         maxleftdot = dot
                     end
                 else
                     if dot > maxrightdot then
                         rightnorm = norm
-                        rightnorm1 = norm1
                         maxrightdot = dot
                     end
                 end
             end
 
             if left_possible and leftnorm then
-                local dot = leftnorm1 * direction
-                if dot < minleftdot then
-                    minleftdot = dot
+                if maxleftdot < minleftdot then
+                    minleftdot = maxleftdot
                     minleftnorm = leftnorm
                 end
             else
@@ -478,9 +495,8 @@ local function slide_along_normals(hits, direction)
                 minleftnorm = nil
             end
             if right_possible and rightnorm then
-                local dot = rightnorm1 * direction
-                if dot < minrightdot then
-                    minrightdot = dot
+                if maxrightdot < minrightdot then
+                    minrightdot = maxrightdot
                     minrightnorm = rightnorm
                 end
             else
