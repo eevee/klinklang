@@ -36,6 +36,8 @@ function Game:init()
     self.progress = {
         flags = {},
     }
+
+    self:_determine_scale()
 end
 
 
