@@ -72,10 +72,16 @@ function TextScroller:fill()
     self.line = lastline + 1
     self.byte_offset = 0
     self.waiting = true
+    if self.line > #self.phrase_lines then
+        self.finished = true
+    end
 end
 
 function TextScroller:update(dt)
-    -- TODO what if i'm waiting?
+    if self.waiting or self.finished then
+        return
+    end
+
     self.clock = self.clock + dt * self.speed
     local font = self.font
     local need_redraw = (self.clock >= 1)
