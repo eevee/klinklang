@@ -11,6 +11,12 @@ local Object = require 'klinklang.object'
 local TextScroller = require 'klinklang.ui.textscroller'
 
 
+-- TODO some general stuff i've been wanting:
+-- - consolidate into Speaker objects
+--   - remove all the places i do speaker.x or self.default_x
+--   - implement all the StackedSprite API stuff even for single sprites (e.g. set_talking)
+-- - do...  something...?  to make passing speakers in easier and more consistent...
+
 local function _evaluate_condition(condition)
     if condition == nil then
         return true
@@ -158,7 +164,19 @@ local DialogueScene = BaseScene:extend{
 
 -- TODO as with DeadScene, it would be nice if i could formally eat keyboard input
 -- FIXME document the shape of speakers/script, once we know what it is
-function DialogueScene:init(speakers, script)
+function DialogueScene:init(...)
+    local args
+    if select('#', ...) == 1 then
+        args = ...
+    else
+        local speakers, script = ...
+        args = {
+            speakers = speakers,
+            script = script,
+        }
+        print("WARNING: you're using the old DialogueScene args format, fixplz")
+    end
+
     BaseScene.init(self)
 
     self.wrapped = nil
@@ -185,7 +203,7 @@ function DialogueScene:init(speakers, script)
     self.speakers = {}
     local claimed_positions = {}
     local seeking_position = {}
-    for name, speaker in pairs(speakers) do
+    for name, speaker in pairs(args.speakers) do
         -- FIXME maybe speakers should only provide a spriteset so i'm not
         -- changing out from under them
         if speaker.isa and speaker:isa(actors_base.BareActor) then
@@ -273,7 +291,8 @@ function DialogueScene:init(speakers, script)
         end
     end
 
-    self.script = script
+    self.script = args.script
+    assert(self.script, "Can't play dialogue without a script")
     self.labels = {}  -- name -> index
     for i, step in ipairs(self.script) do
         if step.label then
