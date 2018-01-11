@@ -53,5 +53,10 @@ function AABB:xywh()
     return self.x, self.y, self.width, self.height
 end
 
+function AABB:contains(point)
+    local x0, y0, x1, y1 = self:bounds()
+    return x0 <= point.x and point.x <= x1 and y0 <= point.y and point.y <= y1
+end
+
 
 return AABB

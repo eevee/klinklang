@@ -2,6 +2,7 @@ local flux = require 'vendor.flux'
 local tick = require 'vendor.tick'
 local Vector = require 'vendor.hump.vector'
 
+local AABB = require 'klinklang.aabb'
 local actors_base = require 'klinklang.actors.base'
 local actors_map = require 'klinklang.actors.map'
 local Object = require 'klinklang.object'
@@ -48,6 +49,10 @@ function Camera:clear_bounds()
     self.maxx = math.huge
     self.miny = -math.huge
     self.maxy = math.huge
+end
+
+function Camera:aabb()
+    return AABB(self.x, self.y, self.width, self.height)
 end
 
 function Camera:aim_at(focusx, focusy)
@@ -267,6 +272,8 @@ function Map:update(dt)
     self.flux:update(dt)
     self.tick:update(dt)
 
+    -- TODO it might be nice for players to always update first, ESPECIALLY if
+    -- their controls end up as a component on themselves
     self:_update_actors(dt)
 
     local seen = {}  -- avoid removing the same one twice!
@@ -288,24 +295,32 @@ function Map:_update_actors(dt)
     end
 end
 
-function Map:draw()
+-- Draw actors in z-order, excluding any that aren't within the given bounds
+-- (presumably a camera).  Note that this relies on the pos attribute;
+-- extremely large actors or actors that draw very far away from their position
+-- might want to inherit from BareActor and forego having a position entirely,
+-- in which case they'll draw unconditionally.
+function Map:draw(aabb)
+    if aabb then
+        aabb = aabb:with_margin(-aabb.width / 2, -aabb.height / 2)
+    else
+        -- In the interest of preserving the argument-less draw(), default to
+        -- drawing the entire map, with a wide margin around it.
+        aabb = AABB(
+            -self.tiled_map.width / 2, -self.tiled_map.height / 2,
+            self.tiled_map.width * 2, self.tiled_map.height * 2)
+    end
+
     -- TODO could reduce allocation and probably speed up the sort below if we
-    -- kept this list around.  or hell is there any downside to just keeping
+    -- kept this list around?  or hell is there any downside to just keeping
     -- the actors list in draw order?  would mean everyone updates in a fairly
     -- consistent order, back to front.  the current order is completely
     -- arbitrary and can change at a moment's notice anyway
-    -- OH WAIT, this specifically takes a list of actors to draw, uh oh!  i'm
-    -- pretty sure anise is using that to exclude some actors from drawing, for
-    -- example.  but, fuck, we should probably just not bother drawing actors
-    -- outside the camera anyway.  (tricky bit is figuring out /when/ they're
-    -- outside the camera i suppose; merely inspecting actor.pos will cause no
-    -- end of edge cases, but not everyone has a shape either...  should it be
-    -- up to the actor??)
-    -- ALSO, it might be nice for the player to always update first, ESPECIALLY
-    -- if their controls end up as a component on themselves
     local sorted_actors = {}
-    for k, v in ipairs(self.actors) do
-        sorted_actors[k] = v
+    for _, actor in ipairs(self.actors) do
+        if not actor.pos or aabb:contains(actor.pos) then
+            table.insert(sorted_actors, actor)
+        end
     end
 
     -- TODO this has actually /increased/ z-fighting, good job.  
@@ -463,6 +478,7 @@ function World:draw()
         self.map_stack[1].tiled_map:draw_parallax_background(self.camera, w, h)
     end
 
+    local camera_box = self.camera:aabb()
     for i, map in ipairs(self.map_stack) do
         if i > 1 then
             love.graphics.setColor(0, 0, 0, 192)
@@ -472,7 +488,7 @@ function World:draw()
             love.graphics.rectangle('fill', self.camera.x, self.camera.y, w, h)
             love.graphics.setColor(255, 255, 255)
         end
-        map:draw()
+        map:draw(camera_box)
     end
 end
 
