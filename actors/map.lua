@@ -57,6 +57,8 @@ function TiledMapLayer:init(layer, tiled_map, z)
     -- layers, multiple maps, etc., but i'm not sure where a global stash of
     -- them would go
     self.tile_actors = {}
+
+    self.animated_tiles = {}  -- animated tileid -> { batch id and x/y, timer, frame, frames = { quad, duration } }
 end
 
 function TiledMapLayer:_make_shapes_and_actors()
@@ -113,6 +115,7 @@ function TiledMapLayer:_make_batches()
 
     local tw, th = self.tiled_map.tilewidth, self.tiled_map.tileheight
 
+    -- TODO maybe just merge this with the thing above?
     local width, height = self.layer.width, self.layer.height
     for t, tile in ipairs(self.layer.tilegrid) do
         if tile then
@@ -124,11 +127,36 @@ function TiledMapLayer:_make_batches()
                 self.sprite_batches[tileset] = batch
             end
             local ty, tx = util.divmod(t - 1, width)
-            batch:add(
-                tileset.quads[tile.id],
-                -- convert tile offsets to pixels
-                tx * tw,
-                (ty + 1) * th - tileset.tileheight)
+            -- convert tile offsets to pixels
+            local x = tx * tw
+            local y = (ty + 1) * th - tileset.tileheight
+            local batchid = batch:add(tileset.quads[tile.id], x, y)
+
+            local animation
+            if tile.tileset.raw.tiles[tile.id] then
+                animation = tile.tileset.raw.tiles[tile.id].animation
+            end
+            if animation then
+                if not self.animated_tiles[tile] then
+                    local frames = {}
+                    for _, framedef in ipairs(animation) do
+                        table.insert(frames, {
+                            quad = tile.tileset.quads[framedef.tileid],
+                            duration = framedef.duration / 1000,
+                        })
+                    end
+                    self.animated_tiles[tile] = {
+                        timer = 0,
+                        frame = 1,
+                        frames = frames,
+                    }
+                end
+                table.insert(self.animated_tiles[tile], {
+                    batchid = batchid,
+                    x = x,
+                    y = y,
+                })
+            end
         end
     end
 end
@@ -169,7 +197,29 @@ function TiledMapLayer:on_leave()
 end
 
 function TiledMapLayer:update(dt)
-    -- TODO maybe someday this will handle animated tiles!
+    for tile, anim in pairs(self.animated_tiles) do
+        anim.timer = anim.timer + dt
+        local bumped = false
+        while anim.timer > anim.frames[anim.frame].duration do
+            bumped = true
+            anim.timer = anim.timer - anim.frames[anim.frame].duration
+            anim.frame = anim.frame + 1
+            if anim.frame > #anim.frames then
+                anim.frame = 1
+            end
+        end
+
+        if bumped then
+            local batch = self.sprite_batches[tile.tileset]
+            for _, tileinst in ipairs(anim) do
+                batch:set(
+                    tileinst.batchid,
+                    anim.frames[anim.frame].quad,
+                    tileinst.x,
+                    tileinst.y)
+            end
+        end
+    end
 end
 
 function TiledMapLayer:draw()
