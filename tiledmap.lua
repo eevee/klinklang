@@ -624,31 +624,8 @@ function TiledMap:add_to_collider(collider, submap_name)
     end
 
     for _, layer in ipairs(self.layers) do
-        if layer:prop('exclude from collision') then
-            -- Skip
-        elseif layer.type == 'tilelayer' and layer.submap == submap_name then
-            local width, height = layer.width, layer.height
-            local data = layer.data
-            if not self.shapes[layer] then
-                self.shapes[layer] = {}
-                for t, tile in ipairs(layer.tilegrid) do
-                    if tile then
-                        local shape = tile:get_collision()
-                        if shape then
-                            local ty, tx = util.divmod(t - 1, width)
-                            shape = _xxx_oneway_aware_shape_clone(shape)
-                            shape:move(
-                                tx * self.tilewidth,
-                                (ty + 1) * self.tileheight - tile.tileset.tileheight)
-                            self.shapes[layer][shape] = tile
-                        end
-                    end
-                end
-            end
-            for shape, tile in pairs(self.shapes[layer]) do
-                collider:add(shape, tile)
-            end
-        elseif layer.type == 'objectgroup' and layer.submap == submap_name then
+        -- Tile layers are already handled by a layer actor
+        if layer.type == 'objectgroup' and layer.submap == submap_name then
             for _, obj in ipairs(layer.objects) do
                 if self.shapes[obj] then
                     collider:add(self.shapes[obj])
@@ -714,4 +691,5 @@ return {
     TiledTileset = TiledTileset,
     TiledTile = TiledTile,
     tiled_shape_to_whammo_shape = tiled_shape_to_whammo_shape,
+    _xxx_oneway_aware_shape_clone = _xxx_oneway_aware_shape_clone,
 }
