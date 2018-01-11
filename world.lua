@@ -8,16 +8,33 @@ local Object = require 'klinklang.object'
 local whammo = require 'klinklang.whammo'
 
 
-local CAMERA_MARGIN = 0.33
-
 local Camera = Object:extend{
     minx = -math.huge,
     miny = -math.huge,
     maxx = math.huge,
     maxy = math.huge,
+    -- TODO what happens if i just don't provide these?
+    width = 0,
+    height = 0,
     x = 0,
     y = 0,
+    margin = 0.33,
 }
+
+function Camera:clone()
+    local camera = getmetatable(self)()
+    camera:set_size(self.width, self.height)
+    camera:set_bounds(self.minx, self.miny, self.maxx, self.maxy)
+    camera.margin = self.margin
+    camera.x = self.x
+    camera.y = self.y
+    return camera
+end
+
+function Camera:set_size(width, height)
+    self.width = width
+    self.height = height
+end
 
 function Camera:set_bounds(minx, miny, maxx, maxy)
     self.minx = minx
@@ -26,37 +43,44 @@ function Camera:set_bounds(minx, miny, maxx, maxy)
     self.maxy = maxy
 end
 
-function Camera:aim_at(focusx, focusy, w, h)
+function Camera:clear_bounds()
+    self.minx = -math.huge
+    self.maxx = math.huge
+    self.miny = -math.huge
+    self.maxy = math.huge
+end
+
+function Camera:aim_at(focusx, focusy)
     -- Update camera position
     -- TODO i miss having a box type
     -- FIXME would like some more interesting features here like smoothly
     -- catching up with the player, platform snapping?
-    local marginx = CAMERA_MARGIN * w
+    local marginx = self.margin * self.width
     local x0 = marginx
-    local x1 = w - marginx
+    local x1 = self.width - marginx
     --local minx = self.map.camera_margin_left
-    --local maxx = self.map.width - self.map.camera_margin_right - w
+    --local maxx = self.map.width - self.map.camera_margin_right - self.width
     local newx = self.x
     if focusx - newx < x0 then
         newx = focusx - x0
     elseif focusx - newx > x1 then
         newx = focusx - x1
     end
-    newx = math.max(self.minx, math.min(self.maxx - w, newx))
+    newx = math.max(self.minx, math.min(self.maxx - self.width, newx))
     self.x = math.floor(newx)
 
-    local marginy = CAMERA_MARGIN * h
+    local marginy = self.margin * self.height
     local y0 = marginy
-    local y1 = h - marginy
+    local y1 = self.height - marginy
     --local miny = self.map.camera_margin_top
-    --local maxy = self.map.height - self.map.camera_margin_bottom - h
+    --local maxy = self.map.height - self.map.camera_margin_bottom - self.height
     local newy = self.y
     if focusy - newy < y0 then
         newy = focusy - y0
     elseif focusy - newy > y1 then
         newy = focusy - y1
     end
-    newy = math.max(self.miny, math.min(self.maxy - h, newy))
+    newy = math.max(self.miny, math.min(self.maxy - self.height, newy))
     -- FIXME moooove, elsewhere.  only tricky bit is that it still wants to clamp to miny/maxy
     --[[
     if self.player.camera_jitter and self.player.camera_jitter > 0 then
@@ -69,6 +93,15 @@ end
 
 function Camera:apply()
     love.graphics.translate(-self.x, -self.y)
+end
+
+-- Draws the camera parameters, in world coordinates
+function Camera:draw()
+    love.graphics.rectangle('line',
+        self.x + self.width * self.margin,
+        self.y + self.height * self.margin,
+        self.width * (1 - 2 * self.margin),
+        self.height * (1 - 2 * self.margin))
 end
 
 
@@ -416,7 +449,8 @@ function World:update(dt)
     end
 
     local w, h = game:getDimensions()
-    self.camera:aim_at(self.player.pos.x, self.player.pos.y, w, h)
+    self.camera:set_size(w, h)
+    self.camera:aim_at(self.player.pos.x, self.player.pos.y)
 end
 
 function World:draw()
