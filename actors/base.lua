@@ -259,6 +259,10 @@ local MobileActor = Actor:extend{
     -- If this is false, then other objects will never stop this actor's
     -- movement; however, it can still push and carry them
     is_blockable = true,
+    -- If this is true and this actor wouldn't move this tic (i.e. has zero
+    -- velocity and no gravity), skip the nudge entirely.  Way faster, but
+    -- returns no hits and doesn't call on_collide_with.
+    may_skip_nudge = false,
     -- Pushing and platform behavior
     is_pushable = false,
     can_push = false,
@@ -718,7 +722,10 @@ function MobileActor:update(dt)
     -- gravity at low framerates.  Not quite sure what it's called, but it's
     -- similar to Verlet integration and the midpoint method.
     local ds = (self.velocity + last_velocity) * (dt * 0.5)
-    self.last_velocity = self.velocity
+
+    if ds == Vector.zero and self.may_skip_nudge then
+        return Vector(), {}
+    end
 
     -- Fudge the movement to try ending up aligned to the pixel grid.
     -- This helps compensate for the physics engine's love of gross float
