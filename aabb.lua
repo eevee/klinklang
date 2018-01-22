@@ -8,6 +8,17 @@ function AABB:init(x, y, width, height)
     self.y = y
     self.width = width
     self.height = height
+
+    -- FIXME make these properties or whatever
+    self.left = x
+    self.right = x + width
+    self.x0 = self.left
+    self.x1 = self.right
+
+    self.top = y
+    self.bottom = y + height
+    self.y0 = self.top
+    self.y1 = self.bottom
 end
 
 function AABB.from_screen(class)
