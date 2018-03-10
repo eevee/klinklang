@@ -121,7 +121,6 @@ function TiledMapLayer:_make_shapes_and_actors()
         end
     end
 
-
     if self.layer.type == 'tilelayer' then
         local width, height = self.layer.width, self.layer.height
         for t, tile in ipairs(self.layer.tilegrid) do
@@ -146,7 +145,10 @@ function TiledMapLayer:_make_shapes_and_actors()
             local x = tx * self.tiled_map.tilewidth
             local y = (ty + 1) * self.tiled_map.tileheight - tile.tileset.tileheight
 
-            if tile:has_solid_collision() then
+            if tile:has_solid_collision() and
+                tile.tileset.tilewidth == self.tiled_map.tilewidth and
+                tile.tileset.tileheight == self.tiled_map.tileheight
+            then
                 -- Merge candidate!  See if we're compatible
                 if merged_aabb and merged_aabb.y == y and
                     merged_aabb.width < MAX_TILE_MERGE * tile.tileset.tilewidth and
