@@ -1,8 +1,10 @@
 local Vector = require 'vendor.hump.vector'
 
+local AABB = require 'klinklang.aabb'
 local actors_base = require 'klinklang.actors.base'
 local tiledmap = require 'klinklang.tiledmap'
 local util = require 'klinklang.util'
+local whammo_shapes = require 'klinklang.whammo.shapes'
 
 
 -- This is a special kind of actor: it doesn't have a position!  Since this is
@@ -11,9 +13,12 @@ local util = require 'klinklang.util'
 -- necessary.  Naturally, it cannot have any state.  It's mainly useful for
 -- reading a standard set of properties and responding to collisions.
 local TiledMapTile = actors_base.BareActor:extend{
+    name = 'map tile',
     permeable = nil,
     terrain = nil,
     fluid = nil,
+
+    PROPS_USED = {'permeable', 'terrain', 'fluid'},
 }
 
 function TiledMapTile:init(tiled_tile)
@@ -61,33 +66,117 @@ function TiledMapLayer:init(layer, tiled_map, z)
     self.animated_tiles = {}  -- animated tileid -> { batch id and x/y, timer, frame, frames = { quad, duration } }
 end
 
+local function _are_tiles_merge_compatible(a, b)
+    for _, prop in ipairs(TiledMapTile.PROPS_USED) do
+        if a:prop(prop) ~= b:prop(prop) then
+            return false
+        end
+    end
+
+    -- FIXME i really need a better way to track one-way collision
+    if a:get_collision()._xxx_is_one_way_platform ~=
+        a:get_collision()._xxx_is_one_way_platform
+    then
+        return false
+    end
+
+    return true
+end
+
 function TiledMapLayer:_make_shapes_and_actors()
     if self.shapes then
         return
     end
     self.shapes = {}
 
+    -- A very common case is to have big regions of tiles that are all
+    -- completely solid.  The naïve approach produces a separate shape for
+    -- every single one of those tiles, which increases the size of the
+    -- blockmap and requires more collision checks in general.  Merging
+    -- adjacent collision shapes improves things almost for free.
+    -- For now, we do the easy thing and only merge horizontal runs.  It's
+    -- possible to merge in both directions, but certainly more complicated,
+    -- and subject to diminishing returns.
+    -- NOTE: If it ever becomes possible to change the map at runtime, we'll
+    -- need to handle breaking these adjacent blocks back up!
+    -- FIXME: need to combine across different tiles, if the props are compatible
+    -- FIXME: this loses 'one-way' status!  argh
+    local merged_aabb  -- our running shape
+    local merged_tile  -- map tile of the first shape
+    local MAX_TILE_MERGE = 32
+
+    local function reify_merged_shape()
+        if merged_aabb then
+            local merged_shape = whammo_shapes.Box(0, 0, merged_aabb.width, merged_aabb.height)
+
+            -- FIXME i really, really need a better way to track one-way collision
+            if merged_tile:get_collision()._xxx_is_one_way_platform then
+                merged_shape._xxx_is_one_way_platform = true
+            end
+
+            merged_shape:move(merged_aabb.x, merged_aabb.y)
+            self.shapes[merged_shape] = merged_tile
+            merged_aabb = nil
+            merged_tile = nil
+        end
+    end
+
+
     if self.layer.type == 'tilelayer' then
         local width, height = self.layer.width, self.layer.height
         for t, tile in ipairs(self.layer.tilegrid) do
-            if tile then
-                if self.tile_actors[tile] == nil then
-                    self.tile_actors[tile] = TiledMapTile(tile)
-                end
-
-                -- FIXME would be nice to have arbitrary shapes per tile!
-                -- then they could be part oneway, part not, or whatever.
-                local shape = tile:get_collision()
-                if shape then
-                    local ty, tx = util.divmod(t - 1, width)
-                    shape = tiledmap._xxx_oneway_aware_shape_clone(shape)
-                    shape:move(
-                        tx * self.tiled_map.tilewidth,
-                        (ty + 1) * self.tiled_map.tileheight - tile.tileset.tileheight)
-                    self.shapes[shape] = tile
-                end
+            if not tile then
+                reify_merged_shape()
+                goto continue
             end
+
+            if self.tile_actors[tile] == nil then
+                self.tile_actors[tile] = TiledMapTile(tile)
+            end
+
+            -- FIXME would be nice to have an arbitrary number of shapes per tile!
+            -- then they could be part oneway, part not, or whatever.
+            local shape = tile:get_collision()
+            if not shape then
+                reify_merged_shape()
+                goto continue
+            end
+
+            local ty, tx = util.divmod(t - 1, width)
+            local x = tx * self.tiled_map.tilewidth
+            local y = (ty + 1) * self.tiled_map.tileheight - tile.tileset.tileheight
+
+            if tile:has_solid_collision() then
+                -- Merge candidate!  See if we're compatible
+                if merged_aabb and merged_aabb.y == y and
+                    merged_aabb.width < MAX_TILE_MERGE * tile.tileset.tilewidth and
+                    _are_tiles_merge_compatible(tile, merged_tile)
+                then
+                    -- Good to go! Tack it on and keep going
+                    merged_aabb.width = merged_aabb.width + tile.tileset.tilewidth
+                    goto continue
+                else
+                    -- Incompatible, but might be compatible with the /next/
+                    -- tile, so keep it for now.  This also marks the end of
+                    -- the current merged row, so add it if it exists
+                    reify_merged_shape()
+
+                    merged_aabb = AABB(x, y, tile.tileset.tilewidth, tile.tileset.tileheight)
+                    merged_tile = tile
+                end
+            else
+                reify_merged_shape()
+
+                shape = tiledmap._xxx_oneway_aware_shape_clone(shape)
+                shape:move(x, y)
+                self.shapes[shape] = tile
+            end
+
+            ::continue::
         end
+
+        -- Remember to add any lingering final shape!
+        reify_merged_shape()
     elseif self.layer.type == 'objectgroup' then
         -- FIXME this won't actually happen yet because we don't make a Layer
         -- actor out of object layers yet, oof

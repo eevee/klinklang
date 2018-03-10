@@ -112,6 +112,27 @@ local function tiled_shape_to_whammo_shape(object)
     return shape
 end
 
+function TiledTile:has_solid_collision()
+    if self:prop('solid') then
+        return true
+    end
+
+    local tw = self.tileset.tilewidth
+    local th = self.tileset.tileheight
+
+    -- TODO? could hypothetically check without parsing the collision, but i'm
+    -- not sure that saves anything
+    local collision = self:get_collision()
+
+    return (
+        collision:isa(whammo_shapes.Box) and
+        collision.x0 == 0 and
+        collision.y0 == 0 and
+        collision.x1 == tw and
+        collision.y1 == th
+    )
+end
+
 -- Returns the collision shape.  Does NOT take the anchor into account; that's
 -- the caller's problem.  Note also that this returns the same shape object on
 -- every call, so you should clone it if you plan to modify it.
