@@ -157,9 +157,9 @@ local DialogueScene = BaseScene:extend{
 
     -- Default speaker settings; set in a subclass (or just monkeypatch)
     default_background = nil,
-    default_color = {255, 255, 255},
-    default_shadow = {0, 0, 0, 128},
-    inactive_speaker_color = {192, 192, 192},
+    default_color = {1, 1, 1},
+    default_shadow = {0, 0, 0, 0.5},
+    inactive_speaker_color = {0.75, 0.75, 0.75},
 }
 
 -- TODO as with DeadScene, it would be nice if i could formally eat keyboard input
@@ -636,7 +636,7 @@ function DialogueScene:draw()
     game:transform_viewport()
     love.graphics.setColor(0, 0, 0, self.background_opacity)
     love.graphics.rectangle('fill', game.screen:xywh())
-    love.graphics.setColor(255, 255, 255)
+    love.graphics.setColor(1, 1, 1)
 
     -- Draw the dialogue box, which is slightly complicated because it involves
     -- drawing the ends and then repeating the middle bit to fit the screen
@@ -659,7 +659,7 @@ function DialogueScene:draw()
             for l = start_line, #item.lines do
                 table.insert(texts, item.texts[l])
                 if m == self.menu_cursor then
-                    love.graphics.setColor(255, 255, 255, 64)
+                    love.graphics.setColor(1, 1, 1, 0.25)
                     love.graphics.rectangle('fill', self.text_margin_x * 3/4, self.dialogue_box.y + self.text_margin_y + font_height * lines, self.dialogue_box.width - self.text_margin_x * 6/4, font_height)
                 end
                 if m == #self.menu_items and l == #item.lines then
@@ -677,7 +677,7 @@ function DialogueScene:draw()
 
         -- Draw little triangles to indicate scrollability
         -- FIXME magic numbers here...  should use sprites?  ugh
-        love.graphics.setColor(255, 255, 255)
+        love.graphics.setColor(1, 1, 1)
         if not (self.menu_top == 1 and self.menu_top_line == 1) then
             local x = self.text_box.x
             local y = self.text_box.y
@@ -718,7 +718,7 @@ function DialogueScene:draw()
 
     -- Draw the speakers
     -- FIXME the draw order differs per run!
-    love.graphics.setColor(255, 255, 255)
+    love.graphics.setColor(1, 1, 1)
     for _, speaker in pairs(self.speakers) do
         if speaker.sprite and speaker.visible then
             self:_draw_speaker(speaker)
@@ -797,7 +797,7 @@ function DialogueScene:_draw_speaker(speaker)
     end
     local pos = Vector(x, (self.override_sprite_bottom or self.dialogue_box.y) - sh)
     if self.phrase_speaker == speaker then
-        love.graphics.setColor(255, 255, 255)
+        love.graphics.setColor(1, 1, 1)
     else
         love.graphics.setColor(self.inactive_speaker_color)
     end

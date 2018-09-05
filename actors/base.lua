@@ -1114,7 +1114,7 @@ function SentientActor:handle_jump(dt)
                 if self.jump_sound then
                     -- FIXME oh boy, this is gonna be a thing that i have to care about in a lot of places huh
                     local sfx = game.resource_manager:get(self.jump_sound):clone()
-                    if sfx:getChannels() == 1 then
+                    if sfx:getChannelCount() == 1 then
                         sfx:setRelative(true)
                     end
                     sfx:play()

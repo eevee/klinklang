@@ -47,23 +47,23 @@ function DeadScene:draw()
     local line1 = love.graphics.newText(m5x7, "you died")
     love.graphics.setColor(0, 0, 0)
     love.graphics.draw(line1, (w - line1:getWidth()) / 2, h / 2 - line_height * 1.5 + 1)
-    love.graphics.setColor(255, 255, 255)
+    love.graphics.setColor(1, 1, 1)
     love.graphics.draw(line1, (w - line1:getWidth()) / 2, h / 2 - line_height * 1.5)
 
     local line2 = love.graphics.newText(m5x7)
-    line2:set{{255, 255, 255}, "press ", {52, 52, 52}, "R", {255, 255, 255}, " to restart"}
+    line2:set{{1, 1, 1}, "press ", {0.2, 0.2, 0.2}, "R", {1, 1, 1}, " to restart"}
     local prefixlen = m5x7:getWidth("press ")
     local keylen = m5x7:getWidth("R")
     local quad = love.graphics.newQuad(384, 0, 32, 32, p8_spritesheet:getDimensions())
-    love.graphics.setColor(255, 255, 255)
+    love.graphics.setColor(1, 1, 1)
     love.graphics.draw(p8_spritesheet, quad, (w - line2:getWidth()) / 2 + prefixlen + keylen / 2 - 32 / 2, h / 2 - 32 / 2)
     love.graphics.draw(line2, (w - line2:getWidth()) / 2, h / 2 - line_height / 2)
 
     if worldscene.player.ptrs.savepoint then
-        line2:set{{255, 255, 255}, "press ", {52, 52, 52}, "E", {255, 255, 255}, " to resurrect"}
+        line2:set{{1, 1, 1}, "press ", {0.2, 0.2, 0.2}, "E", {1, 1, 1}, " to resurrect"}
         local keylen = m5x7:getWidth("E")
         local quad = love.graphics.newQuad(384, 0, 32, 32, p8_spritesheet:getDimensions())
-        love.graphics.setColor(255, 255, 255)
+        love.graphics.setColor(1, 1, 1)
         love.graphics.draw(p8_spritesheet, quad, (w - line2:getWidth()) / 2 + prefixlen + keylen / 2 - 32 / 2, h / 2 + line_height - 32 / 2)
         love.graphics.draw(line2, (w - line2:getWidth()) / 2, h / 2 + line_height / 2)
     end
@@ -88,7 +88,7 @@ function DeadScene:keypressed(key, scancode, isrepeat)
         if player.ptrs.savepoint then
             game.resource_manager:get('assets/sounds/resurrect.ogg'):play()
             Gamestate.switch(SceneFader(
-                self.wrapped, true, 0.25, {140, 214, 18},
+                self.wrapped, true, 0.25, {140/255, 214/255, 18/255},
                 function()
                     -- TODO shouldn't this logic be in the staff or the savepoint somehow?
                     -- TODO eugh this magic constant

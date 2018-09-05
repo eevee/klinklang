@@ -39,13 +39,13 @@ function DebugLayer:draw()
     if game.debug_twiddles.show_shapes then
         for _, actor in ipairs(self.world.actors) do
             if actor.shape then
-                love.graphics.setColor(255, 255, 0, 128)
+                love.graphics.setColor(1, 1, 0, 0.5)
                 actor.shape:draw('fill')
             end
             if actor.pos then
-                love.graphics.setColor(255, 0, 0)
+                love.graphics.setColor(1, 0, 0)
                 love.graphics.circle('fill', actor.pos.x, actor.pos.y, 2)
-                love.graphics.setColor(255, 255, 255)
+                love.graphics.setColor(1, 1, 1)
                 love.graphics.circle('line', actor.pos.x, actor.pos.y, 2)
             end
         end
@@ -55,20 +55,20 @@ function DebugLayer:draw()
         for hit, collision in pairs(game.debug_hits) do
             if collision.touchtype > 0 then
                 -- Collision: red
-                love.graphics.setColor(255, 0, 0, 128)
+                love.graphics.setColor(1, 0, 0, 0.5)
             elseif collision.touchtype < 0 then
                 -- Overlap: blue
-                love.graphics.setColor(0, 64, 255, 128)
+                love.graphics.setColor(0, 0.25, 1, 0.5)
             else
                 -- Touch: green
-                love.graphics.setColor(0, 192, 0, 128)
+                love.graphics.setColor(0, 0.75, 0, 0.5)
             end
             hit:draw('fill')
-            --love.graphics.setColor(255, 255, 0)
+            --love.graphics.setColor(1, 1, 0)
             --local x, y = hit:bbox()
             --love.graphics.print(("%0.2f"):format(d), x, y)
 
-            love.graphics.setColor(255, 0, 255)
+            love.graphics.setColor(1, 0, 1)
             local x0, y0, x1, y1 = collision.shape:bbox()
             local x, y = math.floor((x0 + x1) / 2), math.floor((y0 + y1) / 2)
             for normal, normal1 in pairs(collision.normals) do
@@ -84,7 +84,7 @@ function DebugLayer:draw()
         end
         for _, ray in ipairs(game.debug_rays) do
             local start, direction, hit = unpack(ray)
-            love.graphics.setColor(255, 0, 0, 128)
+            love.graphics.setColor(1, 0, 0, 0.5)
             love.graphics.line(start.x, start.y, start.x + direction.x * 500, start.y + direction.y * 500)
             if hit then
                 love.graphics.circle('fill', hit.x, hit.y, 4)
@@ -394,7 +394,7 @@ end
 
 function WorldScene:_draw_blockmap()
     love.graphics.push('all')
-    love.graphics.setColor(255, 255, 255, 64)
+    love.graphics.setColor(1, 1, 1, 0.25)
     love.graphics.scale(game.scale, game.scale)
 
     local blockmap = self.collider.blockmap

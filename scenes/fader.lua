@@ -47,7 +47,7 @@ function SceneFader:enter(from_scene)
     if from_scene.music and from_scene ~= self.to_scene then
         self:fade_out_music(from_scene.music)
     end
-    self._fluct:to(self.color, self.time, {[4] = 255})
+    self._fluct:to(self.color, self.time, {[4] = 1})
     :oncomplete(function()
         self.going = false
         if self.onmidpoint then

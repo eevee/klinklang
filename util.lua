@@ -82,18 +82,22 @@ local function _find_files_impl(stack)
         end
         row.cursor = row.cursor + 1
 
-        if fn:match("^%.") then
-            -- Ignore dot files
-        elseif love.filesystem.isFile(path) then
-            if not stack.pattern or fn:match(stack.pattern) then
-                return path, fn
-            end
-        elseif love.filesystem.isDirectory(path) then
-            if stack.recurse ~= false then
-                local new_row = love.filesystem.getDirectoryItems(path)
-                new_row.base = path
-                new_row.cursor = 1
-                table.insert(stack, new_row)
+        -- Ignore dot files
+        if not fn:match("^%.") then
+            local info = love.filesystem.getInfo(path)
+            if not info then
+                -- Probably the root didn't exist
+            elseif info.type == 'file' then
+                if not stack.pattern or fn:match(stack.pattern) then
+                    return path, fn
+                end
+            elseif info.type == 'directory' then
+                if stack.recurse ~= false then
+                    local new_row = love.filesystem.getDirectoryItems(path)
+                    new_row.base = path
+                    new_row.cursor = 1
+                    table.insert(stack, new_row)
+                end
             end
         end
     end
