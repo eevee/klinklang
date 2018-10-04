@@ -404,6 +404,7 @@ function MobileActor:_collision_callback(collision, pushers, already_hit)
             -- trying to push it, do nothing...  but pretend it's solid, so we
             -- don't, say, fall through it
             passable = false
+            --already_hit[actor] = 'blocked'
         else
             -- TODO the mass thing is pretty cute, but it doesn't chain --
             -- the player moves the same speed pushing one crate as pushing
@@ -416,6 +417,72 @@ function MobileActor:_collision_callback(collision, pushers, already_hit)
             else
                 already_hit[actor] = 'nudged'
                 passable = 'retry'
+            end
+        end
+    end
+
+    -- Ground test: did we collide with something facing upwards?
+    -- Find the normal that faces /most/ upwards, i.e. most away from gravity.
+    -- This has to be done HERE because after all collisions are resolved, we
+    -- slide any remaining velocity, which means we no longer know that we
+    -- actually HIT the ground rather than merely sliding along it!
+    if not passable and collision.touchtype > 0 then
+        local mindot = 0  -- 0 is vertical, which we don't want
+        local ground  -- normalized ground normal
+        local ground_actor  -- actor carrying us, if any
+        local new_friction
+        local normals = {collision.left_normal, collision.right_normal}
+        for i = 1, 2 do
+            local normal = normals[i]
+            if normal then
+                local normal1 = normal:normalized()
+                local dot = normal1 * gravity
+                if dot < mindot then
+                    mindot = dot
+                    ground = normal1
+                end
+                if dot < mindot or (dot == mindot and not ground_actor) then
+                    ground_actor = self.map.collider:get_owner(collision.shape)
+                    if ground_actor and type(ground_actor) == 'table' and ground_actor.isa then
+                        local friction
+                        if ground_actor:isa(Actor) then
+                            -- TODO? friction = ground_actor.friction
+                        elseif ground_actor:isa(tiledmap.TiledTile) then
+                            friction = ground_actor:prop('friction')
+                        end
+                        if not new_friction or (friction and friction > new_friction) then
+                            new_friction = friction
+                        end
+                    end
+                    -- FIXME what does this do for straddling?  should do
+                    -- whichever was more recent, but that seems like a Whole
+                    -- Thing.  also should this live on TiledMapTile instead of
+                    -- being a general feature?
+                    if ground_actor and ground_actor.terrain then
+                        -- FIXME defer this too
+                        self.new_terrain = ground_actor.terrain
+                    end
+                    if ground_actor and not ground_actor.can_carry then
+                        ground_actor = nil
+                    end
+                end
+            end
+        end
+        if ground then
+            self.new_ground_normal = ground
+            self.new_ground_friction = new_friction or 1
+        end
+        -- FIXME this can go wrong if our carrier is removed from the map.  or
+        -- we're removed from the map, for that matter!  can fix this now though
+        -- FIXME wait, does this still go here
+        if self.ptrs.cargo_of ~= ground_actor then
+            if self.ptrs.cargo_of then
+                self.ptrs.cargo_of.cargo[self] = nil
+                self.ptrs.cargo_of = nil
+            end
+            if ground_actor then
+                ground_actor.cargo[self] = true
+                self.ptrs.cargo_of = ground_actor
             end
         end
     end
@@ -466,31 +533,24 @@ local function slide_along_normals(hits, direction)
     -- meaningless, but i think we could just look at the overall direction of
     -- contact...?  whatever that means?
     for shape, collision in pairs(hits) do
-        if not collision.passable then
+        if collision.touchtype >= 0 and not collision.passable then
             local maxleftdot = -math.huge
             local leftnorm
             local maxrightdot = -math.huge
             local rightnorm
 
-            for norm, norm1 in pairs(collision.normals) do
-                local perpdot = norm * perp
-                local dot = norm1 * direction
-                if math.abs(perpdot) < 1/256 then
-                elseif perpdot < 0 then
-                    if dot > maxleftdot then
-                        leftnorm = norm
-                        maxleftdot = dot
-                    end
-                else
-                    if dot > maxrightdot then
-                        rightnorm = norm
-                        maxrightdot = dot
-                    end
-                end
-            end
+            maxleftdot = collision.left_normal_dot
+            maxrightdot = collision.right_normal_dot
+            leftnorm = collision.left_normal
+            rightnorm = collision.right_normal
+
+            -- TODO comment stuff in shapes.lua
+            -- TODO update comments here, delete dead code
+            -- TODO explain why i used <= below (oh no i don't remember, but i think it was related to how this is done against the last slide only)
+            -- FIXME i'm now using normals compared against our /last slide/ on our /velocity/ and it's unclear what ramifications that could have (especially since it already had enough ramifications to need the <=) -- think about this i guess lol
 
             if left_possible and leftnorm then
-                if maxleftdot < minleftdot then
+                if maxleftdot <= minleftdot then
                     minleftdot = maxleftdot
                     minleftnorm = leftnorm
                 end
@@ -499,7 +559,7 @@ local function slide_along_normals(hits, direction)
                 minleftnorm = nil
             end
             if right_possible and rightnorm then
-                if maxrightdot < minrightdot then
+                if maxrightdot <= minrightdot then
                     minrightdot = maxrightdot
                     minrightnorm = rightnorm
                 end
@@ -597,7 +657,9 @@ function MobileActor:nudge(movement, pushers, xxx_no_slide)
     end
 
     -- Move our cargo along with us, independently of their own movement
-    -- FIXME this means our momentum isn't part of theirs.  is that bad?
+    -- FIXME this means our momentum isn't part of theirs!!  i think we could
+    -- compute effective momentum by comparing position to the last frame, or
+    -- by collecting all nudges...?  important for some stuff like glass lexy
     if self.can_carry and self.cargo and not _is_vector_almost_zero(total_movement) then
         for actor in pairs(self.cargo) do
             actor:nudge(total_movement, pushers)
@@ -608,65 +670,13 @@ function MobileActor:nudge(movement, pushers, xxx_no_slide)
     return total_movement, hits
 end
 
--- Given a list of hits from the collider, check whether we're standing on the
--- ground.  Broken out so SentientActor can use it for shenanigans.
-function MobileActor:check_for_ground(hits)
-    -- Ground test: did we collide with something facing upwards?
-    -- Find the normal that faces /most/ upwards, i.e. most away from gravity
-    local mindot = 0  -- 0 is vertical, which we don't want
-    local ground  -- normalized ground normal
-    local ground_actor  -- actor carrying us, if any
-    local new_friction
-    for _, collision in pairs(hits) do
-        if collision.touchtype >= 0 and not collision.passable then
-            for normal, normal1 in pairs(collision.normals) do
-                local dot = normal1 * gravity
-                if dot < mindot then
-                    mindot = dot
-                    ground = normal1
-                end
-                if dot < mindot or (dot == mindot and not ground_actor) then
-                    ground_actor = self.map.collider:get_owner(collision.shape)
-                    if ground_actor and type(ground_actor) == 'table' and ground_actor.isa then
-                        local friction
-                        if ground_actor:isa(Actor) then
-                            -- TODO? friction = ground_actor.friction
-                        elseif ground_actor:isa(tiledmap.TiledTile) then
-                            friction = ground_actor:prop('friction')
-                        end
-                        if not new_friction or (friction and friction > new_friction) then
-                            new_friction = friction
-                        end
-                    end
-                    if ground_actor and not ground_actor.can_carry then
-                        ground_actor = nil
-                    end
-                end
-            end
-        end
-    end
-    self.ground_friction = new_friction or 1
-    self.ground_normal = ground
-    -- FIXME this is redundant, i **think**
-    self.on_ground = not not ground
-
-    -- Figure out what we're riding on, if anything
-    if not self.is_portable then
-        ground_actor = nil
-    end
-    -- FIXME this can go wrong if our carrier is removed from the map.  or
-    -- we're removed from the map, for that matter!
-    if self.ptrs.cargo_of ~= ground_actor then
-        if self.ptrs.cargo_of then
-            self.ptrs.cargo_of.cargo[self] = nil
-            self.ptrs.cargo_of = nil
-        end
-        if ground_actor then
-            ground_actor.cargo[self] = true
-            self.ptrs.cargo_of = ground_actor
-        end
-    end
-
+-- Updates the various "ground we're on" properties to match the values found
+-- in the collision callback.
+function MobileActor:update_ground()
+    self.ground_normal = self.new_ground_normal
+    self.ground_friction = self.new_ground_friction
+    self.on_ground = not not self.ground_normal
+    self.on_terrain = self.new_terrain
 end
 
 function MobileActor:update(dt)
@@ -749,10 +759,14 @@ function MobileActor:update(dt)
     ]]
     local movement = goalpos - self.pos
 
+    self.new_ground_normal = nil
+    self.new_ground_friction = 1
+    self.new_terrain = nil
+
     -- Collision time!
     local movement, hits = self:nudge(movement)
 
-    self:check_for_ground(hits)
+    self:update_ground()
 
     -- Trim velocity as necessary, based on the last surface we slid against
     -- FIXME this needs to ignore cases where already_hit[owner] == 'nudged'
@@ -1011,9 +1025,7 @@ function SentientActor:update(dt)
 
     -- Ground sticking
     -- FIXME this is still clearly visible (and annoying), AND it messes with
-    -- attempts to nudge the player upwards artificially, so i'm disabling it
-    -- again.  figure out how to make this actually work.
-    --[[
+    -- attempts to nudge the player upwards artificially!
     -- If we walk up off the top of a slope, our momentum will carry us into
     -- the air, which looks very silly.  A conscious actor would step off the
     -- ramp.  So if we're only a very short distance above the ground, we were
@@ -1043,13 +1055,13 @@ function SentientActor:update(dt)
         -- FIXME this is actually completely ridiculous; no cap means it can
         -- drop you a huge amount
         -- FIXME also it interferes with the spring, argghh
+        -- FIXME consider cloning our shape, moving it, testing for collision, and doing the drop only if you find something?
         local drop = Vector(0, math.abs(movement.x) * math.abs(self.max_slope.x) * 2)
         local drop_movement
         drop_movement, hits = self:nudge(drop, nil, true)
         movement = movement + drop_movement
-        self:check_for_ground(hits)
+        self:update_ground()
     end
-    ]]
 
     -- Handle our own passive physics
     if self.on_ground then

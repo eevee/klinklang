@@ -336,6 +336,11 @@ function Polygon:slide_towards(other, movement)
         axes[norm] = norm1
     end
 
+    local maxleftdot = -math.huge
+    local leftnorm
+    local maxrightdot = -math.huge
+    local rightnorm
+
     -- Project both shapes onto each axis and look for the minimum distance
     local maxamt = -math.huge
     local maxnumer, maxdenom
@@ -396,22 +401,47 @@ function Polygon:slide_towards(other, movement)
                 if math.abs(amount) < PRECISION then
                     amount = 0
                 end
+
+                local use_normal
                 -- TODO i think i could avoid this entirely by using a cross
                 -- product instead?
                 if math.abs(amount - maxamt) < PRECISION then
                     -- Equal, ish
-                    if not fullaxis._is_move_normal then
-                        -- FIXME these are no longer de-duplicated, hmm
-                        normals[-fullaxis] = -axis
-                    end
+                    use_normal = true
                 elseif amount > maxamt then
                     maxamt = amount
                     maxnumer = numer
                     maxdenom = dot
-                    if fullaxis._is_move_normal then
-                        normals = {}
+                    normals = {}
+                    leftnorm = nil
+                    rightnorm = nil
+                    maxleftdot = -math.huge
+                    maxrightdot = -math.huge
+                    use_normal = true
+                end
+
+                if use_normal and not fullaxis._is_move_normal then
+                    -- FIXME these are no longer de-duplicated, hmm
+                    local normal = -fullaxis
+                    normals[normal] = -axis
+
+                    local ourdot = -(movement * axis)
+
+                    -- Determine if this normal is on our left or right
+                    local perpdot = movenormal * normal
+                    if ourdot > 0 then
+                        -- Do nothing; this normal faces away from us?
                     else
-                        normals = { [-fullaxis] = -axis }
+                        -- TODO explain this better, but the idea is: using the greater dot means using the slope that's furthest away from us, which resolves corners nicely because two normals on one side HAVE to be a corner, they can't actually be one in front of the other
+                        -- TODO should these do something on a tie?
+                        if perpdot <= PRECISION and ourdot > maxleftdot then
+                            leftnorm = normal
+                            maxleftdot = ourdot
+                        end
+                        if perpdot >= -PRECISION and ourdot > maxrightdot then
+                            rightnorm = normal
+                            maxrightdot = ourdot
+                        end
                     end
                 end
             end
@@ -436,6 +466,8 @@ function Polygon:slide_towards(other, movement)
             touchdist = 0,
             touchtype = -1,
             normals = {},
+            left_normal_dot = -math.huge,
+            right_normal_dot = -math.huge,
         }
     elseif maxamt > 1 and touchtype > 0 then
         -- We're allowed to move further than the requested distance, AND we
@@ -458,12 +490,26 @@ function Polygon:slide_towards(other, movement)
         -- Since we're touching, the slide axis is also a valid normal, along
         -- with any collision normals
         normals[-slide_axis] = -slide_axis:normalized()
+        if -slide_axis * movenormal < 0 then
+            leftnorm = -slide_axis
+            maxleftdot = 0
+        else
+            rightnorm = -slide_axis
+            maxrightdot = 0
+        end
+
         return {
             movement = movement,
             amount = 1,
             touchdist = touchdist,
             touchtype = 0,
             normals = normals,
+
+            _slide = true,
+            left_normal = leftnorm,
+            right_normal = rightnorm,
+            left_normal_dot = maxleftdot,
+            right_normal_dot = maxrightdot,
         }
     elseif maxamt == -math.huge then
         -- We don't hit anything at all!
@@ -478,6 +524,11 @@ function Polygon:slide_towards(other, movement)
         touchdist = maxamt,
         touchtype = 1,
         normals = normals,
+
+        left_normal = leftnorm,
+        right_normal = rightnorm,
+        left_normal_dot = maxleftdot,
+        right_normal_dot = maxrightdot,
     }
 end
 
@@ -502,6 +553,14 @@ function Polygon:_multi_slide_towards(other, movement)
                 -- FIXME would be nice to de-dupe here too
                 for full, norm in pairs(collision.normals) do
                     ret.normals[full] = norm
+                end
+                if collision.left_normal_dot > ret.left_normal_dot then
+                    ret.left_normal_dot = collision.left_normal_dot
+                    ret.left_normal = collision.left_normal
+                end
+                if collision.right_normal_dot > ret.right_normal_dot then
+                    ret.right_normal_dot = collision.right_normal_dot
+                    ret.right_normal = collision.right_normal
                 end
             end
         end
