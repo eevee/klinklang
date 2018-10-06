@@ -337,7 +337,7 @@ end
 function WorldScene:draw()
     local w, h = game:getDimensions()
     love.graphics.push('all')
-    love.graphics.setCanvas(self.canvas)
+    love.graphics.setCanvas{self.canvas, stencil=true}
     love.graphics.clear()
 
     -- FIXME where does this belong...?  the camera is in the world, but we
