@@ -4,6 +4,7 @@ local Vector = require 'vendor.hump.vector'
 local BaseScene = require 'klinklang.scenes.base'
 local SceneFader = require 'klinklang.scenes.fader'
 
+-- XXX this whole thing is extremely isaac specific
 local DeadScene = BaseScene:extend{
     __tostring = function(self) return "deadscene" end,
 
@@ -35,7 +36,7 @@ function DeadScene:draw()
     -- We draw it twice, the first time slightly taller, so it has a slight
     -- fade on the top and bottom edges
     local bg_height = love.graphics.getHeight() / 4
-    love.graphics.setColor(0, 0, 0, 128)
+    love.graphics.setColor(0, 0, 0, 0.5)
     love.graphics.rectangle('fill', 0, (h - bg_height) / 2, w, bg_height)
     love.graphics.rectangle('fill', 0, (h - bg_height) / 2 + 2, w, bg_height - 4)
 

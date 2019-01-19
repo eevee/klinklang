@@ -481,12 +481,12 @@ function World:draw()
     local camera_box = self.camera:aabb()
     for i, map in ipairs(self.map_stack) do
         if i > 1 then
-            love.graphics.setColor(0, 0, 0, 192)
+            love.graphics.setColor(0, 0, 0, 0.75)
             -- TODO could draw a rectangle the full size of the map instead?
             -- would avoid knowing the camera or viewport here...  though i
             -- guess i own the camera already eh
             love.graphics.rectangle('fill', self.camera.x, self.camera.y, w, h)
-            love.graphics.setColor(255, 255, 255)
+            love.graphics.setColor(1, 1, 1)
         end
         map:draw(camera_box)
     end
