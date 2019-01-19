@@ -53,13 +53,7 @@ function TiledTile:__tostring()
 end
 
 function TiledTile:prop(key, default)
-    -- TODO what about the tilepropertytypes
-    local proptable = self.tileset.raw.tileproperties
-    if not proptable then
-        return default
-    end
-
-    local props = proptable[self.id]
+    local props = self.tileset.tileprops[self.id]
     if props == nil then
         return default
     end
@@ -154,11 +148,9 @@ function TiledTile:get_collision()
     end
 
     local objects
-    if self.tileset.raw.tiles then
-        local tiledata = self.tileset.raw.tiles[self.id]
-        if tiledata and tiledata.objectgroup then
-            objects = tiledata.objectgroup.objects
-        end
+    local tiledata = self.tileset.rawtiledata[self.id]
+    if tiledata and tiledata.objectgroup then
+        objects = tiledata.objectgroup.objects
     end
     if not objects then
         return
@@ -199,11 +191,9 @@ end
 function TiledTile:get_anchor()
     -- TODO this is ugly and duplicated from get_collision
     local objects
-    if self.tileset.raw.tiles then
-        local tiledata = self.tileset.raw.tiles[self.id]
-        if tiledata and tiledata.objectgroup then
-            objects = tiledata.objectgroup.objects
-        end
+    local tiledata = self.tileset.rawtiledata[self.id]
+    if tiledata and tiledata.objectgroup then
+        objects = tiledata.objectgroup.objects
     end
     if not objects then
         return
@@ -269,16 +259,33 @@ function TiledTileset:init(path, data, resource_manager)
         local row, col = util.divmod(relid, self.columns)
         self.quads[relid] = love.graphics.newQuad(
             col * tw, row * th, tw, th, iw, ih)
+    end
 
-        -- While we're in here: JSON necessitates that the keys for per-tile
-        -- data are strings, but they're intended as numbers, so fix them up
-        -- TODO surely this could be done as its own loop on the outside
-        for _, key in ipairs{'tiles', 'tileproperties', 'tilepropertytypes'} do
-            local tbl = data[key]
-            if tbl then
-                tbl[relid] = tbl["" .. relid]
-                tbl["" .. relid] = nil
+    -- Snag tile properties and animations
+    self.rawtiledata = {}  -- tileid => raw data
+    self.tileprops = {}  -- tileid => {name => value}
+    if data.tiledversion then
+        -- New format: 'properties' list in the tiles list
+        for _, tiledata in pairs(data.tiles or {}) do
+            self.rawtiledata[tiledata.id] = tiledata
+
+            if tiledata.properties then
+                local props = {}
+                self.tileprops[tiledata.id] = props
+                for _, prop in ipairs(tiledata.properties) do
+                    props[prop.name] = prop.value
+                end
             end
+        end
+    else
+        -- Old format: separate dict of props, with string keys that need
+        -- converting to numbers
+        for tileid, tiledata in pairs(data.tiles or {}) do
+            self.rawtiledata[tileid + 0] = tiledata
+        end
+
+        for t, props in pairs(data.tileproperties or {}) do
+            self.tileprops[t + 0] = props
         end
     end
 
@@ -291,23 +298,22 @@ function TiledTileset:init(path, data, resource_manager)
     local default_anchors = {}
     local grid = anim8.newGrid(tw, th, iw, ih, data.margin, data.margin, data.spacing)
     for id = 0, self.tilecount - 1 do
-        -- Tile IDs are keyed as strings, because JSON
-        --id = "" .. id
-        -- FIXME uggh
-        if data.tileproperties and data.tileproperties[id] and data.tileproperties[id]['sprite name'] then
+        if self.tileprops[id] and self.tileprops[id]['sprite name'] then
+            local props = self.tileprops[id]
+
             -- Collect the frames, as a list of quads
             local args = {}
-            if data.tiles and data.tiles[id] and data.tiles[id].animation then
+            if self.rawtiledata[id] and self.rawtiledata[id].animation then
                 args.frames = {}
                 args.durations = {}
-                for _, animation_frame in ipairs(data.tiles[id].animation) do
+                for _, animation_frame in ipairs(self.rawtiledata[id].animation) do
                     table.insert(args.frames, self.quads[animation_frame.tileid])
                     table.insert(args.durations, animation_frame.duration / 1000)
                 end
-                if data.tileproperties[id]['animation stops'] then
+                if props['animation stops'] then
                     args.onloop = 'pauseAtEnd'
-                elseif data.tileproperties[id]['animation loops to'] then
-                    local f = data.tileproperties[id]['animation loops to']
+                elseif props['animation loops to'] then
+                    local f = props['animation loops to']
                     args.onloop = function(anim) anim:gotoFrame(f) end
                 end
             else
@@ -317,10 +323,10 @@ function TiledTileset:init(path, data, resource_manager)
 
             -- Other misc properties
             -- FIXME this is a bad name, since it doesn't have to be an animation
-            if data.tileproperties[id]['animation flipped'] then
+            if props['animation flipped'] then
                 args.flipped = true
             end
-            if data.tileproperties[id]['sprite left view'] then
+            if props['sprite left view'] then
                 args.leftwards = true
             end
 
@@ -329,7 +335,7 @@ function TiledTileset:init(path, data, resource_manager)
 
             -- Add the above args as a pose for the sprite name (or names,
             -- separated by newlines)
-            for full_sprite_name in data.tileproperties[id]['sprite name']:gmatch("[^\n]+") do
+            for full_sprite_name in props['sprite name']:gmatch("[^\n]+") do
                 local sprite_name, pose_name = full_sprite_name:match("^(.+)/(.+)$")
                 local spriteset = spritesets[sprite_name]
                 if not spriteset then
@@ -402,7 +408,19 @@ function TiledMapLayer.parse_json(class, data, resource_manager, base_path, tile
         end
     end
 
-    self.properties = data.properties or {}
+    if data.properties == nil then
+        self.properties = {}
+    elseif data.propertytypes == nil then
+        -- New format: list of name/type/value
+        self.properties = {}
+        for _, propdef in ipairs(data.properties) do
+            self.properties[propdef.name] = propdef.value
+        end
+    else
+        -- Old format: separate tables of values and types
+        self.properties = data.properties
+    end
+
     if data.data then
         self.tilegrid = {}
         for i, gid in ipairs(data.data) do
@@ -545,7 +563,7 @@ function TiledMap:add_layer(layer)
                         position = Vector(
                             tx * self.tilewidth,
                             (ty + 1) * self.tileheight - tile.tileset.tileheight),
-                        properties = tile.tileset.raw.tileproperties[tile.id] or {},
+                        properties = tile.tileset.tileprops[tile.id] or {},
                     })
                     layer.tilegrid[t] = false
                 end
@@ -564,7 +582,7 @@ function TiledMap:add_layer(layer)
                     for k, v in pairs(object.properties or {}) do
                         props[k] = v
                     end
-                    for k, v in pairs(object.tile.tileset.raw.tileproperties[object.tile.id] or {}) do
+                    for k, v in pairs(object.tile.tileset.tileprops[object.tile.id] or {}) do
                         props[k] = v
                     end
                     table.insert(self.actor_templates, {
