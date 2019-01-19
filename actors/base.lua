@@ -1002,9 +1002,12 @@ function SentientActor:update(dt)
         if self.xxx_useless_climb then
             -- Can try to climb, but is just affected by gravity as normal
         elseif self.decision_climb > 0 then
-            self.velocity.y = -self.climb_speed
+            -- Climbing is done with a nudge, rather than velocity, to avoid
+            -- building momentum which would then launch you off the top
+            -- FIXME need to cancel all velocity (and reposition??) when first grabbing the ladder
+            self:nudge(Vector(0, -self.climb_speed * dt))
         elseif self.decision_climb < 0 then
-            self.velocity.y = self.climb_speed
+            self:nudge(Vector(0, self.climb_speed * dt))
         else
             self.velocity.y = 0
         end
