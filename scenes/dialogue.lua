@@ -152,7 +152,7 @@ local DialogueScene = BaseScene:extend{
     text_margin_x = 16,
     text_margin_y = 12,
     text_scroll_speed = 64,
-    background_opacity = 128,
+    background_opacity = 0.5,
     override_sprite_bottom = nil,
 
     -- Default speaker settings; set in a subclass (or just monkeypatch)
