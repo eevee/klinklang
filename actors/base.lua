@@ -716,11 +716,13 @@ function MobileActor:update(dt)
     -- jumping) from smoothing
     local last_velocity = self.velocity
 
+    local fluidres = self:get_fluid_resistance()
+
     -- TODO factor the ground_friction constant into this, and also into slope
     -- resistance
     -- Gravity
     self.velocity = self.velocity + gravity * (self:get_gravity_multiplier() * dt)
-    self.velocity.y = math.min(self.velocity.y, terminal_velocity)
+    self.velocity.y = math.min(self.velocity.y, terminal_velocity / fluidres)
 
     ----------------------------------------------------------------------------
     -- Super call
@@ -748,7 +750,7 @@ function MobileActor:update(dt)
     -- push an object down a gap its own size!  the only problem is that it has
     -- a nontrivial impact on overall speed.  maybe we should only do this when
     -- moving slowly?
-    local goalpos = self.pos + ds / self:get_fluid_resistance()
+    local goalpos = self.pos + ds / fluidres
     --[[
     if self.velocity.x ~= 0 then
         goalpos.x = math.floor(goalpos.x * 8 + 0.5) / 8
