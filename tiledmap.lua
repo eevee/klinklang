@@ -34,6 +34,27 @@ local function _xxx_oneway_aware_shape_clone(shape)
 end
 
 
+-- Given a Tiled /thing/ (map, layer, object...), extract its properties as a
+-- regular table.  Works with both the "old" and "new" formats.  If there are
+-- no properties, returns an empty table.
+local function extract_properties(thing)
+    if thing.properties == nil then
+        return {}
+    elseif thing.propertytypes == nil then
+        -- New format: properties is a list of name/type/value
+        local props = {}
+        for _, prop in ipairs(thing.properties) do
+            props[prop.name] = prop.value
+        end
+        return props
+    else
+        -- Old format: properties is a table, so it's usable directly
+        return thing.properties
+    end
+end
+
+
+
 --------------------------------------------------------------------------------
 -- TiledTile
 -- What a ridiculous name!
@@ -408,18 +429,7 @@ function TiledMapLayer.parse_json(class, data, resource_manager, base_path, tile
         end
     end
 
-    if data.properties == nil then
-        self.properties = {}
-    elseif data.propertytypes == nil then
-        -- New format: list of name/type/value
-        self.properties = {}
-        for _, propdef in ipairs(data.properties) do
-            self.properties[propdef.name] = propdef.value
-        end
-    else
-        -- Old format: separate tables of values and types
-        self.properties = data.properties
-    end
+    self.properties = extract_properties(data)
 
     if data.data then
         self.tilegrid = {}
@@ -484,7 +494,7 @@ function TiledMap.parse_json_file(class, path, resource_manager)
     self.path = path
 
     -- Copy some basics
-    local props = data.properties or {}
+    local props = extract_properties(data)
     self.camera_margin_left = props['camera margin'] or props['camera margin left'] or 0
     self.camera_margin_right = props['camera margin'] or props['camera margin right'] or 0
     self.camera_margin_top = props['camera margin'] or props['camera margin top'] or 0
@@ -578,10 +588,9 @@ function TiledMap:add_layer(layer)
                     -- FIXME this is a mess lol, but i want it so tiles can
                     -- also have options, e.g. a generic actor knows its sprite
                     -- name.  also should do this above too
-                    local props = {}
-                    for k, v in pairs(object.properties or {}) do
-                        props[k] = v
-                    end
+                    -- FIXME this is not a clone for old maps
+                    -- FIXME um, shouldn't the object override the tile?
+                    local props = extract_properties(object)
                     for k, v in pairs(object.tile.tileset.tileprops[object.tile.id] or {}) do
                         props[k] = v
                     end
@@ -598,7 +607,7 @@ function TiledMap:add_layer(layer)
                     name = object.type,
                     submap = layer.submap,
                     position = Vector(object.x, object.y),
-                    properties = object.properties,
+                    properties = extract_properties(object),
                     shape = tiled_shape_to_whammo_shape(object),
                 })
             elseif object.type == 'player start' then
