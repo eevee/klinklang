@@ -120,7 +120,8 @@ local function tiled_shape_to_whammo_shape(object)
     -- FIXME this is pretty bad, right?  the collision system shouldn't
     -- need to know about this?  unless it should??  (a problem atm is
     -- that it gets ignored on a subshape)
-    if object.properties and object.properties['one-way platform'] then
+    local props = extract_properties(object)
+    if props['one-way platform'] then
         shape._xxx_is_one_way_platform = true
     end
 
@@ -285,7 +286,7 @@ function TiledTileset:init(path, data, resource_manager)
     -- Snag tile properties and animations
     self.rawtiledata = {}  -- tileid => raw data
     self.tileprops = {}  -- tileid => {name => value}
-    if data.tiledversion then
+    if data.tileproperties == nil and (data.tiles == nil or #data.tiles > 0) then
         -- New format: 'properties' list in the tiles list
         for _, tiledata in pairs(data.tiles or {}) do
             self.rawtiledata[tiledata.id] = tiledata
