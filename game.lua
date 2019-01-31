@@ -27,9 +27,9 @@ function Game:init()
     self.resource_manager = ResourceManager()
 
     self.debug_twiddles = {
-        show_blockmap = true,
-        show_collision = true,
-        show_shapes = true,
+        show_blockmap = false,
+        show_collision = false,
+        show_shapes = false,
     }
     self.debug_hits = {}
     self.debug_rays = {}
