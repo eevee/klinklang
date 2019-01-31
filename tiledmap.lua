@@ -239,7 +239,7 @@ local TiledTileset = Object:extend{}
 function TiledTileset:init(path, data, resource_manager)
     self.path = path
     if not data then
-        data = util.strict_json_decode(love.filesystem.read(path))
+        data = util.strict_json_decode(util.strict_read_file(path))
     end
     -- FIXME get rid of this
     self.raw = data
@@ -485,7 +485,7 @@ function TiledMap:init(width, height, tilewidth, tileheight)
 end
 
 function TiledMap.parse_json_file(class, path, resource_manager)
-    local data = util.strict_json_decode(love.filesystem.read(path))
+    local data = util.strict_json_decode(util.strict_read_file(path))
 
     local self = class(
         data.width * data.tilewidth, data.height * data.tileheight,

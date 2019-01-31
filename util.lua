@@ -107,6 +107,16 @@ local function find_files(args)
     return _find_files_impl, {args, pattern = args.pattern, recurse = args.recurse, n = 1}
 end
 
+-- Thin wrapper around love.filesystem.read that aborts immediately if the file
+-- can't be read for any reason.
+local function strict_read_file(path)
+    local blob, err = love.filesystem.read(path)
+    if blob == nil then
+        error(err)
+    end
+    return blob
+end
+
 
 return {
     strict_json_decode = strict_json_decode,
@@ -116,4 +126,5 @@ return {
     random_float = random_float,
     any_modifier_keys = any_modifier_keys,
     find_files = find_files,
+    strict_read_file = strict_read_file,
 }
