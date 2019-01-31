@@ -243,6 +243,27 @@ function Map:broadcast(source, filters, func, ...)
     end
 end
 
+-- Test whether a shape is blocked.  You must provide your own predicate, which for example might test actor:blocks(something).
+function Map:is_blocked(shape, predicate)
+    local blocked = false
+    -- FIXME i wish i could cancel the slide partway through?
+    self.collider:slide(shape, Vector.zero, function(collision)
+        -- FIXME i hate how many dumb ass hacks are required here; the one-way
+        -- thing could go away entirely if these were actors!!!!
+        if collision.touchtype == 0 then
+            return
+        end
+        if collision.shape._xxx_is_one_way_platform then
+            return
+        end
+        local actor = self.collider:get_owner(collision.shape)
+        if predicate(actor, collision) then
+            blocked = true
+        end
+    end)
+    return blocked
+end
+
 
 -- TODO this isn't really the right name for this operation, nor for the
 -- callback.  it's just being suspended; the actors aren't actually being
@@ -336,6 +357,12 @@ function Map:draw(aabb)
         end
     end)
 
+    self:draw_actors(sorted_actors)
+end
+
+-- Draw a list of actors, in the given order.  Split out for overriding for
+-- special effects.
+function Map:draw_actors(sorted_actors)
     for _, actor in ipairs(sorted_actors) do
         actor:draw()
     end
