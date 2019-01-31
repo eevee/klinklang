@@ -72,7 +72,7 @@ end
 
 
 
-function Player:damage(source, amount)
+function Player:damage(amount, source)
     -- Apply a force that shoves the player away from the source
     -- FIXME this should maybe be using the direction vector passed to
     -- on_collide instead?  this doesn't take collision boxes into account

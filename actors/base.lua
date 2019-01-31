@@ -91,8 +91,7 @@ function BareActor:blocks(actor, direction)
     return false
 end
 
--- FIXME should probably have health tracking and whatnot
-function BareActor:damage(source, amount)
+function BareActor:damage(amount, source)
 end
 
 -- General API stuff for controlling actors from outside
@@ -125,6 +124,15 @@ local Actor = BareActor:extend{
     sprite_name = nil,
     -- TODO this doesn't even necessarily make sense...?
     facing_left = false,
+
+    -- Optional, used by damage() but has very little default behavior
+    health = nil,
+    -- Starting value for health
+    max_health = nil,
+    -- The default behavior is to instantly vanish on death, but just in case,
+    -- this flag is also set (in damage(), NOT die()!) to avoid the silly
+    -- problem of taking damage while dead
+    is_dead = false,
 
     -- Indicates this is an object that responds to the use key
     is_usable = false,
@@ -160,6 +168,8 @@ function Actor:init(position)
         self.shape._xxx_is_one_way_platform = self.sprite.shape._xxx_is_one_way_platform
         self.shape:move_to(position:unpack())
     end
+
+    self.health = self.max_health
 end
 
 -- Called once per update frame; any state changes should go here
@@ -212,6 +222,22 @@ function Actor:facing_to_vector()
     else
         return Vector(1, 0)
     end
+end
+
+function Actor:damage(amount, source)
+    if self.health == nil or self.is_dead then
+        return
+    end
+
+    self.health = self.health - amount
+    if self.health <= 0 then
+        self.is_dead = true
+        self:die(source)
+    end
+end
+
+function Actor:die(killer)
+    self:destroy()
 end
 
 
