@@ -260,10 +260,11 @@ end
 
 -- FIXME probably make this a method on a Collision object or something
 local function any_normal_faces(collision, direction)
-    for normal in pairs(collision.normals) do
-        if normal * direction > 0 then
-            return true
-        end
+    if collision.left_normal and collision.left_normal * direction > 0 then
+        return true
+    end
+    if collision.right_normal and collision.right_normal * direction > 0 then
+        return true
     end
     return false
 end
