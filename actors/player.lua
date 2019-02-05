@@ -1,4 +1,4 @@
-local Vector = require 'vendor.hump.vector'
+local Vector = require 'klinklang.vendor.hump.vector'
 
 local actors_base = require 'klinklang.actors.base'
 local actors_misc = require 'klinklang.actors.misc'
@@ -84,7 +84,7 @@ function Player:damage(amount, source)
     self.velocity = self.velocity + force
 end
 
-local Gamestate = require 'vendor.hump.gamestate'
+local Gamestate = require 'klinklang.vendor.hump.gamestate'
 local DeadScene = require 'klinklang.scenes.dead'
 -- TODO should other things also be able to die?
 function Player:die()

@@ -1,5 +1,5 @@
-local Gamestate = require 'vendor.hump.gamestate'
-local Vector = require 'vendor.hump.vector'
+local Gamestate = require 'klinklang.vendor.hump.gamestate'
+local Vector = require 'klinklang.vendor.hump.vector'
 
 local actors_base = require 'klinklang.actors.base'
 local util = require 'klinklang.util'
@@ -85,7 +85,7 @@ function TriggerZone:execute_trigger(activator)
         end
     elseif self.action == 'conversation' then
         local actors_npcs = require 'foxflux.actors.npcs'
-        local Gamestate = require 'vendor.hump.gamestate'
+        local Gamestate = require 'klinklang.vendor.hump.gamestate'
         local DialogueScene = require 'klinklang.scenes.dialogue'
         local conversations = require 'foxflux.conversations'
         local convo = conversations.pick_conversation(self.props.conversation, activator.form)

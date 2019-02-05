@@ -1,5 +1,5 @@
-local anim8 = require 'vendor.anim8'
-local Vector = require 'vendor.hump.vector'
+local anim8 = require 'klinklang.vendor.anim8'
+local Vector = require 'klinklang.vendor.hump.vector'
 
 local Object = require 'klinklang.object'
 

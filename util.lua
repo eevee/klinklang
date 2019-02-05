@@ -1,8 +1,8 @@
 --[[
 Argh!  The dreaded util module.  You know what to expect.
 ]]
-local Vector = require 'vendor.hump.vector'
-local json = require 'vendor.dkjson'
+local Vector = require 'klinklang.vendor.hump.vector'
+local json = require 'klinklang.vendor.dkjson'
 
 local Object = require 'klinklang.object'
 

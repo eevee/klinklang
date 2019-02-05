@@ -1,5 +1,5 @@
-local Gamestate = require 'vendor.hump.gamestate'
-local suit = require 'vendor.suit'
+local Gamestate = require 'klinklang.vendor.hump.gamestate'
+local suit = require 'klinklang.vendor.suit'
 
 local BaseScene = require 'klinklang.scenes.base'
 local util = require 'klinklang.util'

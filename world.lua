@@ -1,6 +1,6 @@
-local flux = require 'vendor.flux'
-local tick = require 'vendor.tick'
-local Vector = require 'vendor.hump.vector'
+local flux = require 'klinklang.vendor.flux'
+local tick = require 'klinklang.vendor.tick'
+local Vector = require 'klinklang.vendor.hump.vector'
 
 local AABB = require 'klinklang.aabb'
 local actors_base = require 'klinklang.actors.base'

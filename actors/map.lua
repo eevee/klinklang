@@ -1,4 +1,4 @@
-local Vector = require 'vendor.hump.vector'
+local Vector = require 'klinklang.vendor.hump.vector'
 
 local AABB = require 'klinklang.aabb'
 local actors_base = require 'klinklang.actors.base'

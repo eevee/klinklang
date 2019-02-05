@@ -1,4 +1,4 @@
-local Gamestate = require 'vendor.hump.gamestate'
+local Gamestate = require 'klinklang.vendor.hump.gamestate'
 
 local BaseScene = require 'klinklang.scenes.base'
 

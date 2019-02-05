@@ -1,5 +1,5 @@
-local Gamestate = require 'vendor.hump.gamestate'
-local Vector = require 'vendor.hump.vector'
+local Gamestate = require 'klinklang.vendor.hump.gamestate'
+local Vector = require 'klinklang.vendor.hump.vector'
 
 local BaseScene = require 'klinklang.scenes.base'
 local SceneFader = require 'klinklang.scenes.fader'

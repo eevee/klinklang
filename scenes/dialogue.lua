@@ -1,8 +1,8 @@
 local utf8 = require 'utf8'
 
-local tick = require 'vendor.tick'
-local Gamestate = require 'vendor.hump.gamestate'
-local Vector = require 'vendor.hump.vector'
+local tick = require 'klinklang.vendor.tick'
+local Gamestate = require 'klinklang.vendor.hump.gamestate'
+local Vector = require 'klinklang.vendor.hump.vector'
 
 local AABB = require 'klinklang.aabb'
 local actors_base = require 'klinklang.actors.base'

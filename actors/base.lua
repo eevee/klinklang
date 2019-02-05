@@ -1,4 +1,4 @@
-local Vector = require 'vendor.hump.vector'
+local Vector = require 'klinklang.vendor.hump.vector'
 
 local Object = require 'klinklang.object'
 local util = require 'klinklang.util'
