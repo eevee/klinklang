@@ -321,6 +321,23 @@ function TiledMapLayer:draw()
 end
 
 
+local TiledMapImage = actors_base.BareActor:extend{
+    _type_name = 'TiledMapImage',
+}
+
+function TiledMapImage:init(image, pos, z)
+    self.image = image
+    self.pos = pos or Vector()
+    self.z = z
+end
+
+function TiledMapImage:draw()
+    love.graphics.draw(self.image, self.pos.x, self.pos.y)
+end
+
+
+
 return {
     TiledMapLayer = TiledMapLayer,
+    TiledMapImage = TiledMapImage,
 }

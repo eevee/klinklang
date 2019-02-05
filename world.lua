@@ -395,6 +395,11 @@ function Map:_create_actors()
             if z ~= nil then
                 self:add_actor(actors_map.TiledMapLayer(layer, self.tiled_map, z))
             end
+        elseif layer.type == 'imagelayer' and layer.submap == self.submap then
+            -- FIXME hmm
+            -- FIXME make this handle parallax too!
+            local z = -10001
+            self:add_actor(actors_map.TiledMapImage(layer.image, Vector(layer.offsetx, layer.offsety), z))
         end
     end
 
