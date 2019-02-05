@@ -51,6 +51,10 @@ end
 
 -- FIXME consider renaming this and the other method to "sweep"
 function Collider:slide(shape, attempted, pass_callback)
+    if shape == nil then
+        error("Can't slide a nil shape")
+    end
+
     local hits = {}
     local collisions = {}
     local neighbors = self.blockmap:neighbors(shape, attempted:unpack())

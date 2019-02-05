@@ -622,6 +622,10 @@ end
 -- - player briefly falls when standing on a crate moving downwards -- one frame?
 -- - what's the difference between carry and push, if a carrier can push?
 function MobileActor:nudge(movement, pushers, xxx_no_slide)
+    if self.shape == nil then
+        error(("Can't nudge actor %s without a collision shape"):format(self))
+    end
+
     pushers = pushers or {}
     pushers[self] = true
 
