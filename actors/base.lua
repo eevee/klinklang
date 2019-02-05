@@ -23,7 +23,7 @@ local BareActor = Object:extend{
     is_usable = false,
 
     -- Used for debug printing; should only be used for abstract types
-    __name = 'BareActor',
+    _type_name = 'BareActor',
 
     -- Table of all known actor types, indexed by name
     name = nil,
@@ -39,7 +39,7 @@ function BareActor:extend(...)
 end
 
 function BareActor:__tostring()
-    return ("<%s %s at %s>"):format(self.__name, self.name, self.pos)
+    return ("<%s %s at %s>"):format(self._type_name, self.name, self.pos)
 end
 
 function BareActor:get_named_type(name)
@@ -114,7 +114,7 @@ end
 -- have an update call, and they're drawn all at once by the map rather than
 -- drawing themselves.)
 local Actor = BareActor:extend{
-    __name = 'Actor',
+    _type_name = 'Actor',
     -- TODO consider splitting me into components
 
     -- Should be provided in the class
@@ -269,7 +269,7 @@ local function any_normal_faces(collision, direction)
 end
 
 local MobileActor = Actor:extend{
-    __name = 'MobileActor',
+    _type_name = 'MobileActor',
     -- TODO separate code from twiddles
     velocity = nil,
 
@@ -836,7 +836,7 @@ local function get_jump_velocity(height)
 end
 
 local SentientActor = MobileActor:extend{
-    __name = 'SentientActor',
+    _type_name = 'SentientActor',
 
     -- Active physics parameters
     -- TODO these are a little goofy because friction works differently; may be

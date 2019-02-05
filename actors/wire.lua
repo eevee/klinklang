@@ -17,7 +17,7 @@ local WEST = Vector(-8, 0)
 -- should always be a simple prop i can check to know if i have any input at
 -- all
 local Wirable = actors_base.Actor:extend{
-    __name = 'Wirable',
+    _type_name = 'Wirable',
     nodes = {},
     powered = 0,
     can_emit = true,
