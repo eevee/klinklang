@@ -321,20 +321,60 @@ function TiledMapLayer:draw()
 end
 
 
+-- FIXME parallax is kind of a mess, maybe rethink a bit
 local TiledMapImage = actors_base.BareActor:extend{
     _type_name = 'TiledMapImage',
 }
 
-function TiledMapImage:init(image, pos, z)
-    self.image = image
-    self.pos = pos or Vector()
+function TiledMapImage:init(layer, z)
+    self.image = layer.image
+    -- FIXME this isn't used and also it's not super clear how it'd jive with parallax
+    self.offset = Vector(layer.offsetx, layer.offsety)
     self.z = z
+
+    -- By default, the background repeats horizontally if this is a parallax
+    -- layer, which is indicated by the presence of this prop
+    -- TODO probably could use better twiddles here
+    self.repeat_x = layer:prop('parallax anchor y') ~= nil
+
+    -- Gather parallax properties, if available
+    self.anchor_y = layer:prop('parallax anchor y') or 0
+    self.rate_x = layer:prop('parallax rate x') or 0
+    self.rate_y = layer:prop('parallax rate y') or 0
+    -- TODO this seems like it would be fine for non-parallax cases too
+    self.scale = layer:prop('parallax scale') or 1
+
+    local iw, ih = self.image:getDimensions()
+    self.image_width = iw * self.scale
+    self.image_height = ih * self.scale
 end
 
 function TiledMapImage:draw()
-    love.graphics.draw(self.image, self.pos.x, self.pos.y)
-end
+    -- TODO these do seem a LITTLE invasive
+    local camera = self.map.world.camera
+    local mh = self.map.tiled_map.height
 
+    -- TODO it would be nice to have explicit pixel limits on how far
+    -- apart the pieces can go, but this was complicated enough, so
+    -- TODO probably comment and variableize this better
+    local iw = self.image_width
+    local ih = self.image_height
+    local x0 = camera.x * self.rate_x
+    local y_amount = 0
+    if mh > camera.height then
+        y_amount = camera.y / (mh - camera.height)
+    end
+    local y_camera_offset = self.rate_y * (y_amount - self.anchor_y)
+    local y = (mh - ih) * self.anchor_y + (mh - camera.height) * y_camera_offset
+
+    -- x0 is the offset from the left edge of the map; find the
+    -- rightmost x position before the camera area
+    local x1 = x0 + math.floor((camera.x - x0) / iw) * iw
+    -- TODO this ignores the layer's own offsets?  do they make sense here?
+    for x = x1, x1 + camera.width + iw, iw do
+        love.graphics.draw(self.image, x, y, 0, self.scale)
+    end
+end
 
 
 return {

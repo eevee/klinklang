@@ -374,6 +374,7 @@ function Map:_create_actors()
     -- more appropriate.  i DO like that it starts to move "submap" out of the
     -- map parsing, where it 100% does not belong
     -- TODO imo the collision should be attached to the tile layers too
+    local parallax_z = -20000
     for _, layer in ipairs(self.tiled_map.layers) do
         if layer.type == 'tilelayer' and layer.submap == self.submap then
             local z
@@ -396,10 +397,19 @@ function Map:_create_actors()
                 self:add_actor(actors_map.TiledMapLayer(layer, self.tiled_map, z))
             end
         elseif layer.type == 'imagelayer' and layer.submap == self.submap then
-            -- FIXME hmm
-            -- FIXME make this handle parallax too!
-            local z = -10001
-            self:add_actor(actors_map.TiledMapImage(layer.image, Vector(layer.offsetx, layer.offsety), z))
+            -- FIXME well this is stupid.  the main problem with automatic
+            -- z-numbering of tiled layers is that it's not obvious at a glance
+            -- where the object layer is...
+            -- FIXME slime effect also needs to know what the "background" is
+            -- FIXME maybe i need a more rigorous set of z ranges?
+            local z
+            if layer.name == 'foreground' then
+                z = 10001
+            else
+                z = parallax_z
+                parallax_z = parallax_z + 1
+            end
+            self:add_actor(actors_map.TiledMapImage(layer, z))
         end
     end
 
@@ -503,20 +513,10 @@ end
 function World:draw()
     local w, h = game:getDimensions()
 
-    -- FIXME the parallax background should just be an actor so it's not
-    -- goofily special-cased here...  but it would need to know the camera
-    -- position...
-    if #self.map_stack > 0 then
-        self.map_stack[1].tiled_map:draw_parallax_background(self.camera, w, h)
-    end
-
     local camera_box = self.camera:aabb()
     for i, map in ipairs(self.map_stack) do
         if i > 1 then
             love.graphics.setColor(0, 0, 0, 0.75)
-            -- TODO could draw a rectangle the full size of the map instead?
-            -- would avoid knowing the camera or viewport here...  though i
-            -- guess i own the camera already eh
             love.graphics.rectangle('fill', self.camera.x, self.camera.y, w, h)
             love.graphics.setColor(1, 1, 1)
         end
