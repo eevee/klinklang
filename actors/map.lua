@@ -122,7 +122,7 @@ function TiledMapLayer:_make_shapes_and_actors()
     end
 
     if self.layer.type == 'tilelayer' then
-        local width, height = self.layer.width, self.layer.height
+        local width = self.layer.width
         for t, tile in ipairs(self.layer.tilegrid) do
             if not tile then
                 reify_merged_shape()
@@ -268,18 +268,18 @@ function TiledMapLayer:on_enter(map)
     end
 
     -- Also add all our tile actors, once each of course
-    for tile, actor in pairs(self.tile_actors) do
+    for _, actor in pairs(self.tile_actors) do
         map:add_actor(actor)
     end
 end
 
 function TiledMapLayer:on_leave()
     -- Undo what we did above: remove the tile actors, then the collisions
-    for tile, actor in pairs(self.tile_actors) do
-        map:remove_actor(actor)
+    for _, actor in pairs(self.tile_actors) do
+        self.map:remove_actor(actor)
     end
     if self.layer.type == 'tilelayer' and self.shapes then
-        for shape, tile in pairs(self.shapes) do
+        for shape in pairs(self.shapes) do
             self.map.collider:remove(shape)
         end
     end
