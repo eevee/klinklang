@@ -881,6 +881,7 @@ local SentientActor = MobileActor:extend{
     -- State
     decision_jump_mode = 0,
     decision_walk = 0,
+    decision_move = Vector(),
     in_mid_jump = false,
     jump_count = 0,
     is_dead = false,
@@ -890,7 +891,23 @@ local SentientActor = MobileActor:extend{
 -- Decide to start walking in the given direction.  -1 for left, 1 for right,
 -- or 0 to stop walking.  Persists until changed.
 function SentientActor:decide_walk(direction)
-    self.decision_walk = direction
+    self:decide_move(direction, nil)
+end
+
+-- Decide to start walking in the given direction.  Should be a unit vector,
+-- unless you explicitly want a multiplier on movement acceleration (which will
+-- still be capped by max_speed).  Persists until changed.
+-- Arguments are separate so one or either can be 'nil', which is interpreted
+-- as no change.
+-- FIXME there should be a better way to override this (can i move freely up
+-- and down) than by twiddling input
+function SentientActor:decide_move(vx, vy)
+    self.decision_move = Vector(
+        vx or self.decision_move.x,
+        vy or self.decision_move.y)
+    if vx then
+        self.decision_walk = vx
+    end
 end
 
 -- Decide to jump.

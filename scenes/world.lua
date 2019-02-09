@@ -161,87 +161,69 @@ function WorldScene:_refresh_canvas()
     self.canvas = love.graphics.newCanvas(w, h)
 end
 
-function WorldScene:update(dt)
-    -- FIXME could get rid of this entirely if actors had to go through me to
-    -- collide
-    game.debug_hits = {}
-    game.debug_rays = {}
-
-    -- Handle movement input.
-    -- Input comes in two flavors: "instant" actions that happen once when a
-    -- button is pressed, and "continuous" actions that happen as long as a
-    -- button is held down.
-    -- "Instant" actions need to be handled in keypressed, but "continuous"
-    -- actions need to be handled with an explicit per-frame check.  The
-    -- difference is that a press might happen in another scene (e.g. when the
-    -- game is paused), which for instant actions should be ignored, but for
-    -- continuous actions should start happening as soon as we regain control —
-    -- even though we never know a physical press happened.
-    -- Walking has the additional wrinkle that there are two distinct inputs.
-    -- If both are held down, then we want to obey whichever was held more
-    -- recently, which means we also need to track whether they were held down
-    -- last frame.
-    local is_left_down = game.input:down('left')
-    local is_right_down = game.input:down('right')
-    local is_up_down = game.input:down('up')
-    local is_down_down = game.input:down('down')
-    if is_left_down and is_right_down then
-        if self.was_left_down and self.was_right_down then
-            -- Continuing to hold both keys; do nothing
-        elseif self.was_left_down then
-            -- Was holding left, also pressed right, so move right
-            self.player:decide_walk(1)
-        elseif self.was_right_down then
-            -- Was holding right, also pressed left, so move left
-            self.player:decide_walk(-1)
+-- Given two baton inputs, returns -1 if the left is held, 1 if the right is
+-- held, and 0 if neither is held.  If BOTH are held, returns either the most
+-- recently-pressed, or nil to indicate no change from the previous frame.
+local function read_key_axis(a, b)
+    local a_down = game.input:down(a)
+    local b_down = game.input:down(b)
+    if a_down and b_down then
+        local a_pressed = game.input:pressed(a)
+        local b_pressed = game.input:pressed(b)
+        if a_pressed and b_pressed then
+            -- Miraculously, both were pressed simultaneously, so stop
+            return 0
+        elseif a_pressed then
+            return -1
+        elseif b_pressed then
+            return 1
         else
-            -- Miraculously went from holding neither to holding both, so let's
-            -- not move at all
-            self.player:decide_walk(0)
+            -- Neither was pressed this frame, so we don't know!  Preserve the
+            -- previous frame's behavior
+            return nil
         end
-    elseif is_left_down then
-        self.player:decide_walk(-1)
-    elseif is_right_down then
-        self.player:decide_walk(1)
+    elseif a_down then
+        return -1
+    elseif b_down then
+        return 1
     else
-        self.player:decide_walk(0)
+        return 0
     end
-    self.was_left_down = is_left_down
-    self.was_right_down = is_right_down
+end
+
+function WorldScene:read_player_input(dt)
+    -- Converts player input to decisions.
+    -- Note that actions come in two flavors: instant actions that happen WHEN
+    -- a button is pressed, and continuous actions that happen WHILE a button
+    -- is pressed.  The former check 'down'; the latter check 'pressed'.
+    -- FIXME reconcile this with a joystick; baton can do that for me, but then
+    -- it considers holding left+right to be no movement at all, which is bogus
+    local walk_x = read_key_axis('left', 'right')
+    local walk_y = read_key_axis('up', 'down')
+    self.player:decide_move(walk_x, walk_y)
+
     -- FIXME this is such a fucking mess lmao
-    if is_up_down and is_down_down then
-        if self.was_up_down and self.was_down_down then
-        elseif self.was_up_down then
-            self.player:decide_climb(1)
-        elseif self.was_down_down then
-            self.player:decide_climb(-1)
-        else
-            self.player:decide_pause_climbing()
-        end
-    elseif is_up_down then
-        -- TODO up+jump doesn't work correctly, but it's a little fiddly, since
-        -- you should only resume climbing once you reach the peak of the jump?
-        self.player:decide_climb(1)
-    elseif is_down_down then
+    -- TODO up+jump doesn't work correctly, but it's a little fiddly, since
+    -- you should only resume climbing once you reach the peak of the jump?
+    local climb = read_key_axis('ascend', 'descend')
+    if climb == -1 then
         -- Only start climbing down if this is a NEW press, so that down+jump
         -- doesn't immediately regrab on the next frame
-        if not self.was_down_down then
-            self.player:decide_climb(-1)
+        if not game.input:pressed('descend') then
+            climb = nil
         end
-    else
-        self.player:decide_pause_climbing()
     end
-    self.was_up_down = is_up_down
-    self.was_down_down = is_down_down
+    if climb == 0 then
+        self.player:decide_pause_climbing()
+    elseif climb ~= nil then
+        self.player:decide_climb(climb)
+    end
+
     -- Jumping is slightly more subtle.  The initial jump is an instant action,
-    -- but /continuing/ to jump is a continuous action.  So we handle the
-    -- initial jump in keypressed, but abandon a jump here as soon as the key
-    -- is no longer held.
-    -- FIXME no longer true, but input is handled globally so catching a
-    -- spacebar from dialogue is okay
+    -- but /continuing/ to jump is a continuous action.
     if game.input:pressed('jump') then
         -- Down + jump also means let go
-        if is_down_down then
+        if game.input:down('descend') then
             self.player:decide_climb(nil)
         end
         self.player:decide_jump()
@@ -258,6 +240,7 @@ function WorldScene:update(dt)
             -- Do nothing
         elseif self.player.form == 'stone' then
             -- Do nothing
+            -- FIXME oh this absolutely does not belong here
         else
             -- Use inventory item, or nearby thing
             -- FIXME this should be separate keys maybe?
@@ -268,6 +251,15 @@ function WorldScene:update(dt)
             end
         end
     end
+end
+
+function WorldScene:update(dt)
+    -- FIXME could get rid of this entirely if actors had to go through me to
+    -- collide
+    game.debug_hits = {}
+    game.debug_rays = {}
+
+    self:read_player_input(dt)
 
     -- Update the music to match the player's current position
     -- FIXME shouldn't this happen /after/ the actor updates...??  but also
