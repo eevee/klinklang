@@ -206,7 +206,7 @@ function WorldScene:read_player_input(dt)
     -- TODO up+jump doesn't work correctly, but it's a little fiddly, since
     -- you should only resume climbing once you reach the peak of the jump?
     local climb = read_key_axis('ascend', 'descend')
-    if climb == -1 then
+    if climb == 1 then
         -- Only start climbing down if this is a NEW press, so that down+jump
         -- doesn't immediately regrab on the next frame
         if not game.input:pressed('descend') then
