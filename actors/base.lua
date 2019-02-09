@@ -332,7 +332,20 @@ function MobileActor:get_fluid_resistance()
     return 1
 end
 
+function MobileActor:get_gravity()
+    -- TODO move gravity to, like, the world, or map, or somewhere?  though it
+    -- might also vary per map, so maybe something like Map:get_gravity(shape)?
+    -- but variable gravity feels like something that would be handled by
+    -- zones, which should already participate in collision, so........  i
+    -- dunno think about this later
+    return gravity
+end
+
 -- TODO again, a prop would be nice
+-- TODO this can probably just be merged into get_gravity, right?  Well.....
+-- maybe not since get_gravity is called in several places so it should be as
+-- quick as possible.  honestly i would like if it were only checked once per
+-- frame or something but
 function MobileActor:get_gravity_multiplier()
     local mult = self.gravity_multiplier
     if self.velocity.y > 0 then
@@ -354,7 +367,7 @@ function MobileActor:on_collide_with(actor, collision)
     -- upwards-facing surface.  Expressing that correctly is hard.
     -- FIXME un-xxx this
     if collision.shape._xxx_is_one_way_platform then
-        if not any_normal_faces(collision, -gravity) then
+        if not any_normal_faces(collision, -self:get_gravity()) then
             return true
         end
     end
@@ -459,6 +472,7 @@ function MobileActor:_collision_callback(collision, pushers, already_hit)
         local ground_actor  -- actor carrying us, if any
         local new_friction
         local normals = {collision.left_normal, collision.right_normal}
+        local gravity = self:get_gravity()
         for i = 1, 2 do
             local normal = normals[i]
             if normal then
@@ -725,7 +739,7 @@ function MobileActor:update(dt)
     -- deliberate movement and momentum, not gravity.
     local vellen = self.velocity:len()
     if vellen > 1e-8 then
-        local friction_vector
+        local decel_vector
         if self.ground_normal then
             decel_vector = self.ground_normal:perpendicular() * (self.friction_decel * dt)
             if decel_vector * self.velocity > 0 then
@@ -752,7 +766,7 @@ function MobileActor:update(dt)
     -- TODO factor the ground_friction constant into this, and also into slope
     -- resistance
     -- Gravity
-    self.velocity = self.velocity + gravity * (self:get_gravity_multiplier() * dt)
+    self.velocity = self.velocity + self:get_gravity() * (self:get_gravity_multiplier() * dt)
     self.velocity.y = math.min(self.velocity.y, terminal_velocity / fluidres)
 
     ----------------------------------------------------------------------------
@@ -920,7 +934,7 @@ function SentientActor:push(dv)
     SentientActor.__super.push(self, dv)
 
     -- This flag disables trimming our upwards velocity when releasing jump
-    if dv * gravity < 0 then
+    if dv * self:get_gravity() < 0 then
         self.in_mid_jump = false
     end
 end
@@ -1115,6 +1129,7 @@ function SentientActor:update(dt)
         -- of gravity, though, so it doesn't interfere with jumping.
         if not self.too_steep then
             local slope = self.ground_normal:perpendicular()
+            local gravity = self:get_gravity()
             if slope * gravity > 0 then
                 slope = -slope
             end
