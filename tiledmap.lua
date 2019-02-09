@@ -318,7 +318,6 @@ function TiledTileset:init(path, data, resource_manager)
     -- will silently overwrite the former
     local spritesets = {}
     local default_anchors = {}
-    local grid = anim8.newGrid(tw, th, iw, ih, data.margin, data.margin, data.spacing)
     for id = 0, self.tilecount - 1 do
         if self.tileprops[id] and self.tileprops[id]['sprite name'] then
             local props = self.tileprops[id]
@@ -344,13 +343,23 @@ function TiledTileset:init(path, data, resource_manager)
             end
 
             -- Other misc properties
-            -- FIXME this is a bad name, since it doesn't have to be an animation
             if props['animation flipped'] then
+                -- TODO deprecated
+                -- TODO also where is this used exactly it seems goofy
                 args.flipped = true
             end
-            if props['sprite left view'] then
-                args.leftwards = true
+            if props['sprite flipped'] then
+                args.flipped = true
             end
+
+            local facing = 'right'
+            if props['sprite facing'] then
+                facing = props['sprite facing']
+            elseif props['sprite left view'] then
+                -- TODO deprecated
+                facing = 'left'
+            end
+            args.facing = facing
 
             local shape = self.tiles[id]:get_collision()
             local anchor = self.tiles[id]:get_anchor()
@@ -365,6 +374,10 @@ function TiledTileset:init(path, data, resource_manager)
                     spritesets[sprite_name] = spriteset
                 end
 
+                if not default_anchors[sprite_name] then
+                    default_anchors[sprite_name] = {}
+                end
+
                 args.name = pose_name
                 if shape then
                     args.shape = _xxx_oneway_aware_shape_clone(shape)
@@ -373,12 +386,12 @@ function TiledTileset:init(path, data, resource_manager)
                     if shape then
                         args.shape:move(-anchor.x, -anchor.y)
                     end
-                    if not default_anchors[sprite_name] then
-                        default_anchors[sprite_name] = anchor
+                    if not default_anchors[sprite_name][facing] then
+                        default_anchors[sprite_name][facing] = anchor
                     end
                     args.anchor = anchor
                 else
-                    args.anchor = default_anchors[sprite_name] or Vector()
+                    args.anchor = default_anchors[sprite_name][facing] or Vector()
                 end
 
                 spriteset:add_pose(args)

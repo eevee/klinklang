@@ -33,6 +33,7 @@ end
 --      that this point (a Vector) on the sprite appears at the desired
 --      position.
 --   shape: An optional collision shape.  Somewhat clumsy at the moment.
+-- FIXME i think the 'inheritance' behavior for side-view is totally accidental since it don't work for top-down.  maybe copy shape + anchor from default pose if it doesn't yet exist?  but urgh wait, i want to avoid changing collision shape as much as humanly possible, so i really do only want one of them, but it only gets copied around because (a) i generate both left+right right from the beginning and (b) changing pose doesn't change shape by default.  i should do something about all this, sometime.
 --   frames: A list of Quads defining how to cut out each frame.
 --   durations: Frame durations, in seconds.  Passed directly to anim8.
 --   onloop: Behavior for the end of the loop.  Passed directly to anim8.
@@ -43,6 +44,8 @@ end
 --      asymmetrical pose, call add_pose twice: once with leftwards false, once
 --      with it true.  Note that the actual frames are still assumed to face
 --      right, unless flipped is true.
+-- FIXME that behavior exists for a reason but also is kind of absurd
+-- FIXME it is now possible to have only SOME facings for a particular sprite, oof
 function SpriteSet:add_pose(args)
     local pose_name = args.name
     local anchor = args.anchor
@@ -51,12 +54,12 @@ function SpriteSet:add_pose(args)
     local durations = args.durations
     local onloop = args.onloop
     local flipped = args.flipped
-    local leftwards = args.leftwards
+    local facing = args.facing or 'right'
 
     local pose
     if self.poses[pose_name] then
         pose = self.poses[pose_name]
-        if pose[leftwards and 'left' or 'right'].explicit then
+        if pose[facing] and pose[facing].explicit then
             error(("Pose %s already exists for sprite %s"):format(pose_name, self.name))
         end
     else
@@ -66,45 +69,51 @@ function SpriteSet:add_pose(args)
 
     -- FIXME this is pretty hokey and seems really specific to platformers
     local anim = anim8.newAnimation(frames, durations, onloop)
-    local flipped_shape
-    if shape then
-        flipped_shape = shape:flipx(0)
-    end
     local normal_data = {
         animation = anim,
         shape = shape,
         anchor = anchor,
     }
-    -- FIXME this assumes the frames are all the same size; either avoid
-    -- requiring that (which may be impossible) or explicitly enforce it
-    local _, _, w, _ = frames[1]:getViewport()
-    local flipped_data = {
-        animation = anim:clone():flipH(),
-        shape = flipped_shape,
-        anchor = Vector(w - anchor.x, anchor.y),
-    }
 
-    -- Handle flippedness
-    local left_data, right_data
-    if flipped then
-        left_data, right_data = normal_data, flipped_data
-    else
-        left_data, right_data = flipped_data, normal_data
-    end
+    if facing == 'up' or facing == 'down' then
+        normal_data.explicit = true
+        pose[facing] = normal_data
+    else  -- left or right
+        local flipped_shape
+        if shape then
+            flipped_shape = shape:flipx(0)
+        end
+        -- FIXME this assumes the frames are all the same size; either avoid
+        -- requiring that (which may be impossible) or explicitly enforce it
+        local _, _, w, _ = frames[1]:getViewport()
+        local flipped_data = {
+            animation = anim:clone():flipH(),
+            shape = flipped_shape,
+            anchor = Vector(w - anchor.x, anchor.y),
+        }
 
-    -- Handle asymmetry
-    if leftwards then
-        left_data.explicit = true
-    else
-        right_data.explicit = true
-    end
+        -- Handle flippedness
+        local left_data, right_data
+        if flipped then
+            left_data, right_data = normal_data, flipped_data
+        else
+            left_data, right_data = flipped_data, normal_data
+        end
 
-    -- Assign the pose facings
-    if not pose.left or not pose.left.explicit then
-        pose.left = left_data
-    end
-    if not pose.right or not pose.right.explicit then
-        pose.right = right_data
+        -- Handle asymmetry
+        if facing == 'left' then
+            left_data.explicit = true
+        else
+            right_data.explicit = true
+        end
+
+        -- Assign the pose facings
+        if not pose.left or not pose.left.explicit then
+            pose.left = left_data
+        end
+        if not pose.right or not pose.right.explicit then
+            pose.right = right_data
+        end
     end
 
     if not self.default_pose then
@@ -186,6 +195,15 @@ function Sprite:_add_loop_callback(callback)
     end
 end
 
+function Sprite:set_facing(facing)
+    if facing ~= self.facing then
+        self.facing = facing
+        -- Restart the animation if we're changing direction
+        self:_set_pose(self.pose)
+    end
+end
+
+-- TODO deprecated
 function Sprite:set_facing_left(facing_left)
     local new_facing
     if facing_left then
@@ -194,13 +212,10 @@ function Sprite:set_facing_left(facing_left)
         new_facing = 'right'
     end
 
-    if new_facing ~= self.facing then
-        self.facing = new_facing
-        -- Restart the animation if we're changing direction
-        self:_set_pose(self.pose)
-    end
+    self:set_facing(new_facing)
 end
 
+-- TODO deprecated
 function Sprite:set_facing_right(facing_right)
     self:set_facing_left(not facing_right)
 end
