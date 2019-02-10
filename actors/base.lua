@@ -124,6 +124,9 @@ local Actor = BareActor:extend{
     sprite_name = nil,
     -- TODO this doesn't even necessarily make sense...?
     facing_left = false,
+    -- FIXME replace facing_left with this probably
+    -- FIXME the default facing for top-down mode should be /down/...
+    facing = 'right',
 
     -- Optional, used by damage() but has very little default behavior
     health = nil,
@@ -332,12 +335,28 @@ function MobileActor:get_fluid_resistance()
     return 1
 end
 
+-- Essentially: is the vertical axis gravity, or another direction of movement?
+-- If this returns true, then the actor will use platformer behavior: vertical
+-- movement is ignored, jumping is enabled, and contact with the ground is
+-- tracked.
+-- If this returns false, then the actor will use top-down RPG behavior: free
+-- vertical movement is possible, gravity is not applied at all, jumping is
+-- disabled, and ground contact is ignored.  (I call this "top-down mode", but
+-- it's also useful in a platformer for flying critters which also have free
+-- vertical movement.)
+function MobileActor:has_gravity()
+    return true
+end
+
 function MobileActor:get_gravity()
     -- TODO move gravity to, like, the world, or map, or somewhere?  though it
     -- might also vary per map, so maybe something like Map:get_gravity(shape)?
     -- but variable gravity feels like something that would be handled by
     -- zones, which should already participate in collision, so........  i
     -- dunno think about this later
+    -- TODO should this return a zero vector if has_gravity() is on?  seems
+    -- reasonable, but also you shouldn't be checking for gravity at all if
+    -- has_gravity is off, but,
     return gravity
 end
 
@@ -365,7 +384,8 @@ function MobileActor:on_collide_with(actor, collision)
 
     -- One-way platforms only block us when we collide with an
     -- upwards-facing surface.  Expressing that correctly is hard.
-    -- FIXME un-xxx this
+    -- FIXME un-xxx this and get it off the shape
+    -- FIXME make this less about gravity and more about a direction
     if collision.shape._xxx_is_one_way_platform then
         if not any_normal_faces(collision, -self:get_gravity()) then
             return true
@@ -466,7 +486,7 @@ function MobileActor:_collision_callback(collision, pushers, already_hit)
     -- This has to be done HERE because after all collisions are resolved, we
     -- slide any remaining velocity, which means we no longer know that we
     -- actually HIT the ground rather than merely sliding along it!
-    if not passable and collision.touchtype > 0 then
+    if self:has_gravity() and not passable and collision.touchtype > 0 then
         local mindot = 0  -- 0 is vertical, which we don't want
         local ground  -- normalized ground normal
         local ground_actor  -- actor carrying us, if any
@@ -717,6 +737,9 @@ end
 
 -- Updates the various "ground we're on" properties to match the values found
 -- in the collision callback.
+-- TODO maybe this should just track a ground_actor?  though that would be
+-- strictly worse than the current behavior, which separately tracks friction
+-- and terrain when straddling two objects
 function MobileActor:update_ground()
     self.ground_normal = self.new_ground_normal
     self.ground_friction = self.new_ground_friction
@@ -737,10 +760,16 @@ function MobileActor:update(dt)
     -- Include the dt factor from the beginning, to make capping easier.
     -- Also, doing this before anything else ensures that it only considers
     -- deliberate movement and momentum, not gravity.
+    -- TODO i don't like that this can make it impossible to move if friction
+    -- is too high?  can friction be expressed in a way that makes that more
+    -- difficult?
     local vellen = self.velocity:len()
     if vellen > 1e-8 then
         local decel_vector
-        if self.ground_normal then
+        if not self:has_gravity() then
+            decel_vector = self.velocity * (-self.friction_decel * dt / vellen)
+            decel_vector:trimInplace(vellen)
+        elseif self.ground_normal then
             decel_vector = self.ground_normal:perpendicular() * (self.friction_decel * dt)
             if decel_vector * self.velocity > 0 then
                 decel_vector = -decel_vector
@@ -766,7 +795,9 @@ function MobileActor:update(dt)
     -- TODO factor the ground_friction constant into this, and also into slope
     -- resistance
     -- Gravity
-    self.velocity = self.velocity + self:get_gravity() * (self:get_gravity_multiplier() * dt)
+    if self:has_gravity() then
+        self.velocity = self.velocity + self:get_gravity() * (self:get_gravity_multiplier() * dt)
+    end
     self.velocity.y = math.min(self.velocity.y, terminal_velocity / fluidres)
 
     ----------------------------------------------------------------------------
@@ -901,6 +932,7 @@ end
 -- as no change.
 -- FIXME there should be a better way to override this (can i move freely up
 -- and down) than by twiddling input
+-- FIXME making this a unit vector is greatly at odds with the 'nil' support
 function SentientActor:decide_move(vx, vy)
     self.decision_move = Vector(
         vx or self.decision_move.x,
@@ -951,7 +983,7 @@ function SentientActor:push(dv)
     SentientActor.__super.push(self, dv)
 
     -- This flag disables trimming our upwards velocity when releasing jump
-    if dv * self:get_gravity() < 0 then
+    if self.in_mid_jump and dv * self:get_gravity() < 0 then
         self.in_mid_jump = false
     end
 end
@@ -982,6 +1014,7 @@ function SentientActor:on_collide_with(actor, collision)
 end
 
 function SentientActor:update(dt)
+    -- TODO why is decision_climb special-cased in so many places here?
     if self.is_dead or self.is_locked then
         -- Ignore conscious decisions; just apply physics
         -- FIXME i think "locked" only makes sense for the player?
@@ -990,7 +1023,8 @@ function SentientActor:update(dt)
     end
 
     -- Check whether climbing is possible
-    -- FIXME i'd like to also stop climbing when we hit an object?
+    -- FIXME i'd like to also stop climbing when we hit an object?  downwards i mean
+    -- TODO does climbing make sense in no-gravity mode?
     if self.decision_climb and not (
         (self.decision_climb <= 0 and self.ptrs.climbable_up) or
         (self.decision_climb >= 0 and self.ptrs.climbable_down))
@@ -1001,7 +1035,9 @@ function SentientActor:update(dt)
     local xmult
     local max_speed = self.max_speed
     local xdir = Vector(1, 0)
-    if self.on_ground then
+    if not self:has_gravity() then
+        xmult = 1
+    elseif self.on_ground then
         local uphill = self.decision_walk * self.ground_normal.x < 0
         -- This looks a bit more convoluted than just moving the player right
         -- and letting sliding take care of it, but it means that walking
@@ -1027,7 +1063,53 @@ function SentientActor:update(dt)
     end
 
     -- Explicit movement
-    if self.decision_walk > 0 then
+    if not self:has_gravity() then
+        -- The idea here is to treat your attempted direction times your max
+        -- speed as a goal, attempt to accelerate your current velocity towards
+        -- it, and cap that acceleration at your acceleration speed.
+        -- This works as you'd expect for 1D cases, but extends neatly to 2D.
+        -- TODO use this for 1D as well!  needs to ignore the gravity axis tho
+        local goal = self.decision_move:normalized() * self.max_speed
+        -- NOTE: This is equivalent to delta:trimmed(...), but trimmed() chokes
+        -- on zero vectors.
+        local delta = goal - self.velocity
+        local delta_len = delta:len()
+        local accel_cap = self.xaccel * dt
+        if delta_len > accel_cap then
+            delta = delta * (accel_cap / delta_len)
+            delta_len = accel_cap
+        end
+        -- When inputting no movement at all, an actor is considered to be
+        -- /de/celerating, since they clearly want to stop.  Deceleration is
+        -- slower then acceleration, and this "skid" factor interpolates
+        -- between full decel and full accel using the dot product.
+        -- Slightly tricky to normalize them, since they could be zero.
+        local skid_dot = delta * self.velocity
+        if skid_dot ~= 0 then
+            skid_dot = skid_dot / self.velocity:len() / delta_len
+        end
+        local skid = util.lerp((skid_dot + 1) / 2, self.deceleration, 1)
+        -- And we're done.
+        self.velocity = self.velocity + delta * skid
+
+        -- Update facing, based on the input, not the velocity
+        -- FIXME should this have memory the same way conflicting direction keys do?
+        local abs_vx = math.abs(self.decision_move.x)
+        local abs_vy = math.abs(self.decision_move.y)
+        if abs_vx > abs_vy then
+            if self.decision_move.x < 0 then
+                self.facing = 'left'
+            elseif self.decision_move.x > 0 then
+                self.facing = 'right'
+            end
+        else
+            if self.decision_move.y < 0 then
+                self.facing = 'up'
+            elseif self.decision_move.y > 0 then
+                self.facing = 'down'
+            end
+        end
+    elseif self.decision_walk > 0 then
         -- FIXME hmm is this the right way to handle a maximum walking speed?
         -- it obviously doesn't work correctly in another frame of reference
         if self.velocity.x < max_speed then
@@ -1035,12 +1117,14 @@ function SentientActor:update(dt)
             self.velocity = self.velocity + dx * xdir
         end
         self.facing_left = false
+        self.facing = 'right'
     elseif self.decision_walk < 0 then
         if self.velocity.x > -max_speed then
             local dx = math.min(max_speed + self.velocity.x, self.xaccel * xmult * dt)
             self.velocity = self.velocity - dx * xdir
         end
         self.facing_left = true
+        self.facing = 'left'
     elseif not self.too_steep then
         -- Not walking means we're trying to stop, albeit leisurely
         -- Climbing means you're holding onto something sturdy, so give a deceleration bonus
@@ -1077,6 +1161,7 @@ function SentientActor:update(dt)
         -- Never flip a climbing sprite, since they can only possibly face in
         -- one direction: away from the camera!
         self.facing_left = false
+        self.facing = 'right'
 
         -- FIXME pretty sure this doesn't actually work, since it'll be
         -- overwritten by update() below and never gets to apply to jumping
@@ -1109,7 +1194,8 @@ function SentientActor:update(dt)
     -- logic that would keep critters from walking off of ledges?  or if
     -- the loop were taken out of collider.slide and put in here, so i could
     -- just explicitly slide in a custom direction
-    if was_on_ground and not self.on_ground and
+    if self:has_gravity() and
+        was_on_ground and not self.on_ground and
         self.decision_jump_mode == 0 and self.decision_climb == nil and
         self.gravity_multiplier > 0 and self.gravity_multiplier_down > 0
     then
@@ -1131,7 +1217,7 @@ function SentientActor:update(dt)
     end
 
     -- Handle our own passive physics
-    if self.on_ground then
+    if self:has_gravity() and self.on_ground then
         self.jump_count = 0
         self.in_mid_jump = false
 
@@ -1164,6 +1250,10 @@ function SentientActor:update(dt)
 end
 
 function SentientActor:handle_jump(dt)
+    if not self:has_gravity() then
+        return
+    end
+
     -- Jumping
     -- This uses the Sonic approach: pressing jump immediately sets (not
     -- increases!) the player's y velocity, and releasing jump lowers the y
@@ -1211,7 +1301,7 @@ end
 -- Figure out a new pose and switch to it.  Default behavior is based on player
 -- logic; feel free to override.
 function SentientActor:update_pose()
-    self.sprite:set_facing_left(self.facing_left)
+    self.sprite:set_facing(self.facing)
     local pose = self:determine_pose()
     if pose then
         self.sprite:set_pose(pose)
@@ -1236,11 +1326,11 @@ function SentientActor:determine_pose()
             self.sprite.anim:pause()
             return
         end
-    elseif self.on_ground then
-        if self.decision_walk ~= 0 then
+    elseif self.on_ground or not self:has_gravity() then
+        if self.decision_move ~= Vector.zero then
             return 'walk'
         end
-    elseif self.velocity.y < 0 and self.in_mid_jump then
+    elseif self.in_mid_jump and self.velocity.y < 0 then
         return 'jump'
     else
         return 'fall'
