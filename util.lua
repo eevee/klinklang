@@ -47,6 +47,10 @@ local function random_float(a, b)
     return a + math.random() * (b - a)
 end
 
+local function lerp(t, a, b)
+    return (1 - t) * a + t * b
+end
+
 
 --------------------------------------------------------------------------------
 -- LÖVE-specific helpers
@@ -123,6 +127,7 @@ return {
     sign = sign,
     clamp = clamp,
     divmod = divmod,
+    lerp = lerp,
     random_float = random_float,
     any_modifier_keys = any_modifier_keys,
     find_files = find_files,
