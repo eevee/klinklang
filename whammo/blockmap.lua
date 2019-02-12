@@ -8,7 +8,7 @@ local Blockmap = Object:extend()
 
 function Blockmap:init(blocksize)
     self.blocksize = blocksize
-    self.quantum = blocksize / 16
+    self.wiggle_margin = blocksize / 64
     self.blocks = {}
     self.bboxes = setmetatable({}, {__mode = 'k'})
     self.min_x = math.huge
@@ -44,6 +44,15 @@ end
 function Blockmap:add(obj)
     obj:remember_blockmap(self)
     local x0, y0, x1, y1 = obj:bbox()
+
+    -- Pad the bbox very slightly, so that e.g. objects lying exactly on a grid
+    -- line count as being in both cells.  Helps avoid literal edge and corner
+    -- cases when trying to find objects.
+    x0 = x0 - self.wiggle_margin
+    y0 = y0 - self.wiggle_margin
+    x1 = x1 + self.wiggle_margin
+    y1 = y1 + self.wiggle_margin
+
     local a0, b0 = self:to_block_units(x0, y0)
     local a1, b1 = self:to_block_units(x1, y1)
     for a = a0, a1 do
@@ -82,10 +91,8 @@ end
 function Blockmap:neighbors(obj, dx, dy)
     local x0, y0, x1, y1 = obj:extended_bbox(dx, dy)
 
-    -- Pad by a tiny bit so we can detect, e.g., two objects touching exactly
-    -- on a cell edge
-    local a0, b0 = self:to_block_units(x0 - self.quantum, y0 - self.quantum)
-    local a1, b1 = self:to_block_units(x1 + self.quantum, y1 + self.quantum)
+    local a0, b0 = self:to_block_units(x0, y0)
+    local a1, b1 = self:to_block_units(x1, y1)
     local ret = {}
     for a = a0, a1 do
         for b = b0, b1 do
