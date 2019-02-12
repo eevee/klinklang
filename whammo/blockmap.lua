@@ -116,54 +116,94 @@ function Blockmap:neighbors(obj, dx, dy)
     return ret
 end
 
--- FIXME this should take a ray width too
--- FIXME there is probably a smarter way to do this?
--- FIXME would like a visualization of this because i don't totally trust it
--- FIXME checks many of the same blocks twice, seen_blocks is unused
--- FIXME walks the entire map even if the nearest neighbor might be right next to us, hm
-function Blockmap:neighbors_along_ray(x, y, dx, dy)
-    local ex = self.blocksize / 32
-    local ey = ex
-    if dx > 0 then
-        ex = -ex
+-- Casts a ray from the given point in the given direction.  Returns a list of
+-- {a, b} pairs containing coordinates of all the blocks the ray passes
+-- through, in order.
+-- TODO i'd love if this were an iterator, but turning the loops into closures is a bit ugly
+function Blockmap:raycast(x, y, dx, dy)
+    -- TODO if the ray starts outside the grid (extremely unlikely), we should
+    -- find the point where it ENTERS the grid, otherwise the 'while'
+    -- conditions below will stop immediately
+    local a, b = self:to_block_units(x, y)
+
+    if dx == 0 and dy == 0 then
+        -- Special case: the ray goes nowhere, so only return this block
+        return {{a, b}}
     end
-    if dy > 0 then
-        ey = -ey
+
+    -- Use a modified Bresenham.  Use mirroring to move everything into the
+    -- first quadrant, then split it into two octants depending on whether dx
+    -- or dy increases faster, and call that the main axis.  Track an "error"
+    -- value, which is the (negative) distance between the ray and the next
+    -- grid line parallel to the main axis, but scaled up by dx.  Every
+    -- iteration, we move one cell along the main axis and increase the error
+    -- value by dy (the ray's slope, scaled up by dx); when it becomes
+    -- positive, we can subtract dx (1) and move one cell along the minor axis
+    -- as well.  Since the main axis is the faster one, we'll never traverse
+    -- more than one cell on the minor axis for one cell on the main axis, and
+    -- this readily provides every cell the ray hits in order.
+    -- Based on: http://www.idav.ucdavis.edu/education/GraphicsNotes/Bresenhams-Algorithm/Bresenhams-Algorithm.html
+
+    -- Setup: map to the first quadrant.  The "offsets" are the distance
+    -- between the starting point and the next grid point.
+    local step_a = 1
+    local offset_x = 1 - (x / self.blocksize - a)
+    if dx < 0 then
+        dx = -dx
+        step_a = -step_a
+        offset_x = 1 - offset_x
     end
-    local seen_blocks = {}
-    local ret = {}
-    local stepx = dx * self.blocksize
-    local stepy = dy * self.blocksize
-    -- Walk a series of bboxes
-    while true do
-        local x0, y0 = x - ex, y - ey
-        local x1, y1 = x + stepx + ex, y + stepy + ey
-        local a0, b0 = self:to_block_units(x - ex, y - ey)
-        local a1, b1 = self:to_block_units(x + stepx + ex, y + stepy + ey)
-        for a = a0, a1 do
-            for b = b0, b1 do
-                -- Get the block manually, to avoid creating one if not necessary
-                local column = self.blocks[a]
-                local block
-                if column then
-                    block = column[b]
-                end
-                if block then
-                    for neighbor in pairs(block) do
-                        ret[neighbor] = true
-                    end
-                end
+    -- Zero offset means we're on a grid line, so we're actually a full cell
+    -- away from the next grid line
+    if offset_x == 0 then
+        offset_x = 1
+    end
+    local step_b = 1
+    local offset_y = 1 - (y / self.blocksize - b)
+    if dy < 0 then
+        dy = -dy
+        step_b = -step_b
+        offset_y = 1 - offset_y
+    end
+    if offset_y == 0 then
+        offset_y = 1
+    end
+
+    local err = dy * offset_x - dx * offset_y
+
+    local results = {}
+    local min_a, min_b = self:to_block_units(self.min_x, self.min_y)
+    local max_a, max_b = self:to_block_units(self.max_x, self.max_y)
+    if dx > dy then
+        -- Main axis is x/a
+        while min_a <= a and a <= max_a and min_b <= b and b <= max_b do
+            table.insert(results, {a, b})
+
+            if err > 0 then
+                err = err - dx
+                b = b + step_b
+                table.insert(results, {a, b})
             end
+            err = err + dy
+            a = a + step_a
         end
-        x = x + stepx
-        y = y + stepy
-        -- TODO this is technically not right, since we might be firing the ray
-        -- from outside the blockmap /towards/ it.  but that seems unlikely.
-        if x < self.min_x or x > self.max_x or y < self.min_y or y > self.max_y then
-            break
+    else
+        err = -err
+        -- Main axis is y/b
+        while min_a <= a and a <= max_a and min_b <= b and b <= max_b do
+            table.insert(results, {a, b})
+
+            if err > 0 then
+                err = err - dy
+                a = a + step_a
+                table.insert(results, {a, b})
+            end
+            err = err + dx
+            b = b + step_b
         end
     end
-    return ret
+
+    return results
 end
 
 return Blockmap

@@ -124,27 +124,56 @@ function Collider:slide(shape, attempted, pass_callback)
     end
 end
 
-function Collider:fire_ray(start, direction, collision_check_func)
-    local perp = direction:perpendicular()
-    local startperpdot = perp * start
-    -- TODO this returns EVERY BLOCK along the ray which seems unlikely to be
-    -- useful
-    local nearest, nearestpt = math.huge, nil
-    local neighbors = self.blockmap:neighbors_along_ray(
+-- Fires a ray from the given point in the given direction.  Each candidate
+-- shape is passed to the given callback (not necessarily in order!), which
+-- returns true to continue examining the shape or false to skip it.
+-- Returns the nearest object hit and the closest point of contact.
+-- Don't add, remove, or alter any shapes from the callback function, or the
+-- results are undefined.
+-- FIXME: make distance work
+function Collider:raycast(start, direction, _distance, filter_func)
+    -- TODO this, too, could be an iterator!  although the filter function is still nice
+    if not filter_func then
+        filter_func = function() return true end
+    end
+
+    local nearest_dot = math.huge
+    local nearest_point = nil
+    local nearest_shape = nil
+    local blocks = self.blockmap:raycast(
         start.x, start.y, direction.x, direction.y)
-    local _hits = {}
-    for neighbor in pairs(neighbors) do
-        if not collision_check_func or not collision_check_func(self:get_owner(neighbor)) then
-            local pt, dot = neighbor:intersection_with_ray(start, direction)
-            if dot < nearest then
-                nearest = dot
-                nearestpt = pt
+    local seen_shapes = {}
+    for _, ab in pairs(blocks) do
+        local a, b = unpack(ab)
+        local block = self.blockmap:raw_block(a, b)
+        for shape in pairs(block) do
+            -- TODO this doesn't work so good if there's no owner!  but that should
+            -- be vanishingly rare now.  maybe only occurs when hitting either a
+            -- loose polygon or the edge of the map?
+            if not seen_shapes[shape] and filter_func(self:get_owner(shape)) then
+                local pt, dot = shape:intersection_with_ray(start, direction)
+                if dot < nearest_dot then
+                    nearest_dot = dot
+                    nearest_point = pt
+                    nearest_shape = shape
+                end
+            end
+            seen_shapes[shape] = true
+        end
+
+        -- If the closest hit point we've seen is inside the block we just
+        -- checked, then nothing can be closer, and we're done
+        if nearest_point then
+            local nearest_a, nearest_b = self.blockmap:to_block_units(
+                nearest_point:unpack())
+            if a == nearest_a and b == nearest_b then
+                break
             end
         end
     end
 
-    table.insert(game.debug_rays, {start, direction, nearestpt})
-    return nearestpt, nearest
+    table.insert(game.debug_rays, {start, direction, nearest_point, blocks})
+    return nearest_shape, nearest_point
 end
 
 return {
