@@ -219,12 +219,15 @@ function Actor:set_sprite(sprite_name)
     self.sprite = game.sprites[self.sprite_name]:instantiate(nil, facing)
 end
 
+local FACING_VECTORS = {
+    left = Vector(-1, 0),
+    right = Vector(1, 0),
+    up = Vector(0, -1),
+    down = Vector(0, 1),
+}
+
 function Actor:facing_to_vector()
-    if self.facing_left then
-        return Vector(-1, 0)
-    else
-        return Vector(1, 0)
-    end
+    return FACING_VECTORS[self.facing]
 end
 
 function Actor:damage(amount, source)
@@ -1069,6 +1072,7 @@ function SentientActor:update(dt)
         -- it, and cap that acceleration at your acceleration speed.
         -- This works as you'd expect for 1D cases, but extends neatly to 2D.
         -- TODO use this for 1D as well!  needs to ignore the gravity axis tho
+        -- FIXME this shouldn't normalize the movement vector, but i can't do it in decide_move for reasons described there
         local goal = self.decision_move:normalized() * self.max_speed
         -- NOTE: This is equivalent to delta:trimmed(...), but trimmed() chokes
         -- on zero vectors.
