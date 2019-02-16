@@ -203,23 +203,6 @@ function Sprite:set_facing(facing)
     end
 end
 
--- TODO deprecated
-function Sprite:set_facing_left(facing_left)
-    local new_facing
-    if facing_left then
-        new_facing = 'left'
-    else
-        new_facing = 'right'
-    end
-
-    self:set_facing(new_facing)
-end
-
--- TODO deprecated
-function Sprite:set_facing_right(facing_right)
-    self:set_facing_left(not facing_right)
-end
-
 function Sprite:set_scale(scale)
     self.scale = scale
 end

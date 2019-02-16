@@ -312,11 +312,8 @@ function WorldScene:update(dt)
     end
 
     love.audio.setPosition(self.player.pos.x, self.player.pos.y, 0)
-    local fx = 1
-    if self.player.facing_left then
-        fx = -1
-    end
-    love.audio.setOrientation(fx, 0, 0, -1, 0, 0)
+    local facing = self.player:facing_to_vector()
+    love.audio.setOrientation(facing.x, facing.y, 0, 0, 0, 1)
 
     for _, layer in ipairs(self.layers) do
         if layer.update then

@@ -111,7 +111,7 @@ function Player:resurrect()
         self.velocity = Vector(0, 0)
         -- FIXME this sounds reasonable, but if you resurrect /in place/ it's
         -- weird to change facing direction?  hmm
-        self.facing_left = false
+        self.facing = 'right'
         -- This does a collision check without moving the player, which is a
         -- clever way to check whether they're on flat ground, update their
         -- sprite, etc. before any actual movement (or input!) happens.

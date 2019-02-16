@@ -129,7 +129,7 @@ function StackedSprite:getDimensions()
     return self.sprites[self.sprite_order[1]]:getDimensions()
 end
 
-for _, func in ipairs{'set_scale', 'set_facing_left', 'update', 'draw'} do
+for _, func in ipairs{'set_scale', 'set_facing', 'update', 'draw'} do
     StackedSprite[func] = function(self, ...)
         for _, sprite in pairs(self.sprites) do
             sprite[func](sprite, ...)
@@ -283,7 +283,7 @@ function DialogueScene:init(...)
     end
     for name, speaker in pairs(self.speakers) do
         if speaker.sprite and (speaker.position == 'right' or speaker.position == 'far right' or speaker.position == 'flush right' or (type(speaker.position) == 'number' and (speaker.position < 0 or (speaker.position > 0.5 and speaker.position < 1)))) then
-            speaker.sprite:set_facing_left(true)
+            speaker.sprite:set_facing('left')
         end
 
         if speaker.font then

@@ -122,9 +122,6 @@ local Actor = BareActor:extend{
     shape = nil,
     -- Visuals (should maybe be wrapped in another object?)
     sprite_name = nil,
-    -- TODO this doesn't even necessarily make sense...?
-    facing_left = false,
-    -- FIXME replace facing_left with this probably
     -- FIXME the default facing for top-down mode should be /down/...
     facing = 'right',
 
@@ -1120,14 +1117,12 @@ function SentientActor:update(dt)
             local dx = math.min(max_speed - self.velocity.x, self.xaccel * xmult * dt)
             self.velocity = self.velocity + dx * xdir
         end
-        self.facing_left = false
         self.facing = 'right'
     elseif self.decision_walk < 0 then
         if self.velocity.x > -max_speed then
             local dx = math.min(max_speed + self.velocity.x, self.xaccel * xmult * dt)
             self.velocity = self.velocity - dx * xdir
         end
-        self.facing_left = true
         self.facing = 'left'
     elseif not self.too_steep then
         -- Not walking means we're trying to stop, albeit leisurely
@@ -1164,7 +1159,6 @@ function SentientActor:update(dt)
 
         -- Never flip a climbing sprite, since they can only possibly face in
         -- one direction: away from the camera!
-        self.facing_left = false
         self.facing = 'right'
 
         -- FIXME pretty sure this doesn't actually work, since it'll be
