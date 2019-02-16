@@ -34,6 +34,7 @@ end
 function GenericSlidingDoor:on_enter(...)
     GenericSlidingDoor.__super.on_enter(self, ...)
     -- FIXME this "ray" should really have a /width/
+    -- FIXME scratch that, this "ray" should be a sweep of a rectangle.  also fire_ray no longer exists so this is broken
     local impact, impactdist = self.map.collider:fire_ray(
         self.pos,
         Vector(0, 1),

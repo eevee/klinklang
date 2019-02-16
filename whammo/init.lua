@@ -125,13 +125,18 @@ function Collider:slide(shape, attempted, pass_callback)
 end
 
 -- Fires a ray from the given point in the given direction.  Each candidate
--- shape is passed to the given callback (not necessarily in order!), which
+-- shape is passed to the filter callback (not necessarily in order!), which
 -- returns true to continue examining the shape or false to skip it.
+-- Distance may be a cap on how far the ray can travel, given in multiples of
+-- the direction vector, NOT in units!  (Of course, if direction is a unit
+-- vector, these are equivalent.)  It may also be nil.  Note that objects
+-- passed to the filter callback may be outside the desired range, since the
+-- filter callback is used to skip the math that determines how far away it is!
 -- Returns the nearest object hit and the closest point of contact.
 -- Don't add, remove, or alter any shapes from the callback function, or the
 -- results are undefined.
--- FIXME: make distance work
-function Collider:raycast(start, direction, _distance, filter_func)
+-- TODO maybe rename slide as cast, and use some of these ideas to early-exit
+function Collider:raycast(start, direction, distance, filter_func)
     -- TODO this, too, could be an iterator!  although the filter function is still nice
     if not filter_func then
         filter_func = function() return true end
@@ -144,6 +149,9 @@ function Collider:raycast(start, direction, _distance, filter_func)
         start.x, start.y, direction.x, direction.y)
     local seen_shapes = {}
     for _, ab in pairs(blocks) do
+        -- TODO would be nice to break early when we reach a block that's
+        -- definitely outside the distance range, but that's a little fiddly
+        -- since the nearest corner of the block depends on the direction
         local a, b = unpack(ab)
         local block = self.blockmap:raw_block(a, b)
         for shape in pairs(block) do
@@ -172,7 +180,16 @@ function Collider:raycast(start, direction, _distance, filter_func)
         end
     end
 
-    table.insert(game.debug_rays, {start, direction, nearest_point, blocks})
+    table.insert(game.debug_rays, {start, direction, distance, nearest_point, blocks})
+
+    if distance then
+        -- This is the dot product with the most distant acceptable point
+        local maximum_dot = (start + direction * distance) * direction
+        if nearest_dot > maximum_dot then
+            return nil, math.huge
+        end
+    end
+
     return nearest_shape, nearest_point
 end
 

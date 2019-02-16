@@ -83,11 +83,22 @@ function DebugLayer:draw()
             end
         end
         for _, ray in ipairs(game.debug_rays) do
-            local start, direction, hit = unpack(ray)
+            local start, direction, distance, hit, blocks = unpack(ray)
+            distance = distance or 1024
             love.graphics.setColor(1, 0, 0, 0.5)
-            love.graphics.line(start.x, start.y, start.x + direction.x * 500, start.y + direction.y * 500)
+            love.graphics.line(start.x, start.y, start.x + direction.x * distance, start.y + direction.y * distance)
             if hit then
                 love.graphics.circle('fill', hit.x, hit.y, 4)
+            end
+
+            if game.debug_twiddles.show_blockmap then
+                love.graphics.setColor(1, 0, 0, 1)
+                -- FIXME yikes
+                local blocksize = worldscene.world.active_map.collider.blockmap.blocksize
+                for i, ab in pairs(blocks) do
+                    local a, b = unpack(ab)
+                    love.graphics.print(tostring(i), (a + 0.5) * blocksize, (b + 0.5) * blocksize)
+                end
             end
         end
     end
@@ -354,6 +365,7 @@ function WorldScene:draw()
 
     self:_draw_final_canvas()
 
+    -- FIXME why is this here and not a layer?  is it because of the camera coord inconsistency with layers?
     if game.debug and game.debug_twiddles.show_blockmap then
         self:_draw_blockmap()
     end
@@ -384,6 +396,7 @@ end
 function WorldScene:_draw_blockmap()
     love.graphics.push('all')
     love.graphics.setColor(1, 1, 1, 0.25)
+    love.graphics.setColor(1, 0.5, 0.5, 0.75)
     love.graphics.scale(game.scale, game.scale)
 
     local blockmap = self.collider.blockmap
