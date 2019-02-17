@@ -16,14 +16,33 @@ local Game = Object:extend{
     sprites = SpriteSet._all_sprites,
     is_dirty = false,
     native_size = Vector(960, 540),  -- half of 1080p; 30 x ~17 32x32 tiles
-    minimum_size = Vector(832, 448),  -- allow cropping ~2x4 tiles (optional)
+    minimum_size = nil,
 
     size = nil,  -- vector of the game's intrinsic size
     scale = nil,  -- how much the game is scaled up on display
     screen = nil,  -- aabb of the drawable area on screen
 }
 
-function Game:init()
+-- Creates a new Game, the god object representing the game state.
+-- Keyword arguments:
+--   native_size: a Vector containing the game's preferred size.  Resizing the
+--      window will set the game size to the nearest integer multiple of this
+--      size.  Defaults to half of 1080p.
+--   minimum_size: an optional Vector containing the game's minimum size, which
+--      should be smaller than the native size.  This allows a little wiggle
+--      room when, e.g., running fullscreen on a 16:10 monitor; the edges can
+--      be trimmed rather than forcing some serious letterboxing.  Defaults to
+--      nil, which forbids trimming edges.  I've found that making this around
+--      15% smaller than the native size allows for the widest range of
+--      fullscreen resolutions.
+function Game:init(args)
+    if args.native_size then
+        self.native_size = args.native_size
+    end
+    if args.minimum_size then
+        self.minimum_size = args.minimum_size
+    end
+
     self.resource_manager = ResourceManager()
 
     self.debug_twiddles = {
