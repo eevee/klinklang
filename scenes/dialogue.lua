@@ -16,6 +16,7 @@ local TextScroller = require 'klinklang.ui.textscroller'
 --   - remove all the places i do speaker.x or self.default_x
 --   - implement all the StackedSprite API stuff even for single sprites (e.g. set_talking)
 -- - do...  something...?  to make passing speakers in easier and more consistent...
+-- - document this because i forget how it works rather a lot.  also better error checking or something idk
 
 local function _evaluate_condition(condition)
     if condition == nil then
@@ -151,11 +152,13 @@ local DialogueScene = BaseScene:extend{
 
     text_margin_x = 16,
     text_margin_y = 12,
+    dialogue_height = 80,
     text_scroll_speed = 64,
     background_opacity = 0.5,
     override_sprite_bottom = nil,
 
     -- Default speaker settings; set in a subclass (or just monkeypatch)
+    -- FIXME this should be a default SPEAKER object
     default_background = nil,
     default_color = {1, 1, 1},
     default_shadow = {0, 0, 0, 0.5},
@@ -164,6 +167,7 @@ local DialogueScene = BaseScene:extend{
 
 -- TODO as with DeadScene, it would be nice if i could formally eat keyboard input
 -- FIXME document the shape of speakers/script, once we know what it is
+-- FIXME fonts with line heights < 1 (like m5x7) don't actually work well here, most notably in menus.  i think the text draws the same but lies about its height or something, so any excess ascender space is still there, which goofs things up?  should probably draw such text so that it's centered within its allocated space, i.e. every line is offset upwards by (1 - lineheight) * font height / 2?
 function DialogueScene:init(...)
     local args
     if select('#', ...) == 1 then
@@ -182,22 +186,7 @@ function DialogueScene:init(...)
     self.wrapped = nil
     self.tick = tick.group()
 
-    -- FIXME unhardcode some more of this, adjust it on resize
-    local w, h = game:getDimensions()
-    self.speaker_height = 128
-    -- XXX this used to be recalculated per speaker, so the box could
-    -- technically be a different size for each...  but the speaker scale was
-    -- computed upfront anyway so that didn't really work and maybe it's a bad
-    -- idea anyway
-    local boxheight = 80
-    local screen = AABB(0, 0, game:getDimensions())
-    self.dialogue_box = screen:get_chunk(0, -boxheight):with_margin(64, 0)
-    self.dialogue_box.y = self.dialogue_box.y - 32
-    self.dialogue_box = screen:get_chunk(0, -boxheight)
-    self.text_box = self.dialogue_box:with_margin(self.text_margin_x, self.text_margin_y)
-    -- FIXME cerise is slightly too big, arrgghhh
-    self.speaker_scale = math.ceil((h - boxheight) / self.speaker_height)
-    self.speaker_scale = 1
+    self:recompute_layout()
 
     -- TODO a good start, but
     self.speakers = {}
@@ -319,6 +308,27 @@ function DialogueScene:init(...)
     self.script_index = 0
 end
 
+-- Assigns self.text_box, self.dialogue_box, etc., based on the game resolution
+function DialogueScene:recompute_layout()
+    local w, h = game:getDimensions()
+
+    local screen = AABB(0, 0, game:getDimensions())
+    -- XXX what was this for?
+    --self.dialogue_box = screen:get_chunk(0, -self.dialogue_height):with_margin(64, 0)
+    --self.dialogue_box.y = self.dialogue_box.y - 32
+    self.dialogue_box = screen:get_chunk(0, -self.dialogue_height)
+
+    self.text_box = self.dialogue_box:with_margin(self.text_margin_x, self.text_margin_y)
+
+    -- FIXME it would be nice to do this automatically again, albeit with some
+    -- wiggle room for portraits like cerise who can clip off the top of the
+    -- screen without causing any problems (maybe even use the collision
+    -- box...?)
+    --self.speaker_height = 128
+    --self.speaker_scale = math.ceil((h - self.dialogue_height) / self.speaker_height)
+    self.speaker_scale = 1
+end
+
 function DialogueScene:enter(previous_scene, is_bottom)
     -- FIXME this is such a stupid fucking hack but gamestate doesn't distinguish between being pushed on top of something vs being "pushed" on top of their dummy state that's fucking broken!!
     if previous_scene and not previous_scene.xxx_eevee_fuck_ass then
@@ -329,6 +339,7 @@ function DialogueScene:enter(previous_scene, is_bottom)
     end
 
     -- Recalculate stuff that depends on screen size first
+    -- FIXME oh this seems very rude, given that it also calls the wrapped scene's resize with no arguments
     self:resize()
 
     self:_advance_script()
@@ -641,68 +652,11 @@ function DialogueScene:draw()
     -- Draw the dialogue box, which is slightly complicated because it involves
     -- drawing the ends and then repeating the middle bit to fit the screen
     -- size
-    local font_height = (self.phrase_speaker.font_height or self.font_height) / (self.phrase_speaker.font_prescale or 1)
     self:_draw_background(self.dialogue_box)
 
     -- Print the text
-    local texts = {}
     if self.state == 'menu' then
-        -- FIXME i don't reeeally like this clumsy-ass two separate cases thing
-        local lines = 0
-        local is_bottom = false
-        for m = self.menu_top, #self.menu_items do
-            local item = self.menu_items[m]
-            local start_line = 1
-            if m == self.menu_top then
-                start_line = self.menu_top_line
-            end
-            for l = start_line, #item.lines do
-                table.insert(texts, item.texts[l])
-                if m == self.menu_cursor then
-                    love.graphics.setColor(1, 1, 1, 0.25)
-                    love.graphics.rectangle('fill', self.text_margin_x * 3/4, self.dialogue_box.y + self.text_margin_y + font_height * lines, self.dialogue_box.width - self.text_margin_x * 6/4, font_height)
-                end
-                if m == #self.menu_items and l == #item.lines then
-                    is_bottom = true
-                end
-                lines = lines + 1
-                if lines >= self.max_lines then
-                    break
-                end
-            end
-            if lines >= self.max_lines then
-                break
-            end
-        end
-
-        -- Draw little triangles to indicate scrollability
-        -- FIXME magic numbers here...  should use sprites?  ugh
-        love.graphics.setColor(1, 1, 1)
-        if not (self.menu_top == 1 and self.menu_top_line == 1) then
-            local x = self.text_box.x
-            local y = self.text_box.y
-            love.graphics.polygon('fill', x, y - 4, x + 2, y, x - 2, y)
-        end
-        if not is_bottom then
-            local x = self.text_box.x
-            local y = self.text_box.y + self.text_box.height
-            love.graphics.polygon('fill', x, y + 4, x + 2, y, x - 2, y)
-        end
-
-        -- FIXME this is duplicated from textscroller, but...  i don't quite see how to get from there to here
-        -- Center the text within the available space
-        local x, y = self.text_box.x, self.text_box.y + math.floor((self.text_box.height - self.max_lines * font_height) / 2)
-        local scale = 1 / (self.phrase_speaker.font_prescale or 1)
-        for _, text in ipairs(texts) do
-            -- Draw the text, twice: once for a drop shadow, then the text itself
-            love.graphics.setColor(self.phrase_speaker.shadow or self.default_shadow)
-            love.graphics.draw(text, x, y + 1, 0, scale)
-
-            love.graphics.setColor(self.phrase_speaker.color or self.default_color)
-            love.graphics.draw(text, x, y, 0, scale)
-
-            y = y + font_height
-        end
+        self:draw_menu()
     else
         -- There may be more available lines than will fit in the textbox; if
         -- so, only show the last few lines
@@ -726,6 +680,96 @@ function DialogueScene:draw()
     end
 
     love.graphics.pop()
+end
+
+function DialogueScene:draw_menu()
+    -- TODO this would be nice, etc.
+    -- TODO it seems increasingly like there should be a Menu type that does all these things, as unintrusively as possible
+    local menu_box = self.menu_box or self.dialogue_box
+    local menu_text_box = self.menu_text_box or self.text_box
+
+    -- Center the text within the available space
+    local font_height = (self.phrase_speaker.font_height or self.font_height) / (self.phrase_speaker.font_prescale or 1)
+    local x, y = menu_text_box.x, menu_text_box.y + math.floor((menu_text_box.height - self.max_lines * font_height) / 2)
+
+    local lines = 0
+    local is_bottom = false
+    for m = self.menu_top, #self.menu_items do
+        local item = self.menu_items[m]
+        local start_line = 1
+        if m == self.menu_top then
+            start_line = self.menu_top_line
+        end
+        local end_line = start_line
+        local lineno = lines
+        for l = start_line, #item.lines do
+            end_line = l
+            if m == #self.menu_items and l == #item.lines then
+                is_bottom = true
+            end
+            lines = lines + 1
+            if lines >= self.max_lines then
+                break
+            end
+        end
+        self:draw_menu_item(item, start_line, end_line, lineno, m == self.menu_cursor)
+        if lines >= self.max_lines then
+            break
+        end
+    end
+
+    -- Draw little triangles to indicate scrollability
+    -- FIXME magic numbers here...  should use sprites?  ugh
+    love.graphics.setColor(1, 1, 1)
+    if not (self.menu_top == 1 and self.menu_top_line == 1) then
+        self:draw_menu_up_arrow()
+    end
+    if not is_bottom then
+        self:draw_menu_down_arrow()
+    end
+end
+
+function DialogueScene:draw_menu_item(item, line0, line1, lineno, is_selected)
+    -- Center the text within the available space
+    -- FIXME having to recompute this for every item is silly
+    local font_height = (self.phrase_speaker.font_height or self.font_height) / (self.phrase_speaker.font_prescale or 1)
+    local x, y = self.text_box.x, self.text_box.y + math.floor((self.text_box.height - self.max_lines * font_height) / 2)
+    y = y + font_height * lineno
+
+    if is_selected then
+        local numlines = line1 - line0 + 1
+        love.graphics.setColor(1, 1, 1, 0.25)
+        love.graphics.rectangle(
+            'fill',
+            self.text_box.x - self.text_margin_x / 4,
+            y,
+            self.text_box.width + self.text_margin_x / 2,
+            font_height * numlines)
+    end
+
+    local scale = 1 / (self.phrase_speaker.font_prescale or 1)
+    for l = line0, line1 do
+        -- Draw the text, twice: once for a drop shadow, then the text itself
+        love.graphics.setColor(self.phrase_speaker.shadow or self.default_shadow)
+        love.graphics.draw(item.texts[l], x, y + 1, 0, scale)
+
+        love.graphics.setColor(self.phrase_speaker.color or self.default_color)
+        love.graphics.draw(item.texts[l], x, y, 0, scale)
+
+        y = y + font_height
+    end
+end
+
+function DialogueScene:draw_menu_up_arrow()
+    local x = self.text_box.x
+    local y = self.text_box.y
+    love.graphics.polygon('fill', x, y - 4, x + 2, y, x - 2, y)
+end
+
+function DialogueScene:draw_menu_down_arrow()
+    local x = self.text_box.x
+    local y = self.text_box.y + self.text_box.height
+    love.graphics.polygon('fill', x, y + 4, x + 2, y, x - 2, y)
 end
 
 -- TODO this should definitely be 'textbox', right?  'background' sounds like
@@ -809,6 +853,9 @@ end
 function DialogueScene:resize(w, h)
     -- FIXME adjust wrap width, reflow current text, etc.
 
+    self:recompute_layout()
+
+    -- FIXME i don't love that max_lines varies by speaker yet is global to the scene?
     local font_height = (self.phrase_speaker and self.phrase_speaker.font_height) or self.font_height
     self.max_lines = math.floor(self.text_box.height / (font_height / (self.phrase_speaker and self.phrase_speaker.font_prescale or 1)))
 
