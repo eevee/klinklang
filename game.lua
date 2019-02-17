@@ -36,6 +36,7 @@ local Game = Object:extend{
 --      15% smaller than the native size allows for the widest range of
 --      fullscreen resolutions.
 function Game:init(args)
+    args = args or {}
     if args.native_size then
         self.native_size = args.native_size
     end
