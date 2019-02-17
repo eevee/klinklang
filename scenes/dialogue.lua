@@ -1,5 +1,3 @@
-local utf8 = require 'utf8'
-
 local tick = require 'klinklang.vendor.tick'
 local Gamestate = require 'klinklang.vendor.hump.gamestate'
 local Vector = require 'klinklang.vendor.hump.vector'
@@ -8,6 +6,7 @@ local AABB = require 'klinklang.aabb'
 local actors_base = require 'klinklang.actors.base'
 local BaseScene = require 'klinklang.scenes.base'
 local Object = require 'klinklang.object'
+local BorderImage = require 'klinklang.ui.borderimage'
 local TextScroller = require 'klinklang.ui.textscroller'
 
 
@@ -147,6 +146,177 @@ function StackedSprite:draw_anchorless(pos)
 end
 
 
+local DialogueMenu = Object:extend{
+    -- State
+    -- List of items in the menu
+    items = nil,
+    -- Current cursor position
+    cursor = nil,
+    top = nil,
+    top_line = nil,
+}
+
+function DialogueMenu:init(kwargs)
+    self.items = kwargs.items
+    self.box = kwargs.box
+    self.text_box = kwargs.text_box
+    self.font = kwargs.font or love.graphics.getFont()
+    self.font_prescale = kwargs.font_prescale or 1
+    -- FIXME i am real inconsistent about what text/shadow colors are called
+    self.shadow_color = kwargs.shadow
+    self.text_color = kwargs.color
+    -- FIXME also this, though it would break stuff
+    self.background = kwargs.background
+
+    -- TODO i sure do repeat this a lot; can i encapsulate it, somehow
+    self.font_height = math.ceil(self.font:getHeight() * self.font:getLineHeight() / self.font_prescale)
+    self.max_lines = math.floor(self.text_box.height / self.font_height)
+    self.margin_y = math.floor((self.text_box.height - self.max_lines * self.font_height) / 2)
+
+    for _, item in ipairs(self.items) do
+        local _textwidth, lines = self.font:getWrap(item.text, self.text_box.width * self.font_prescale)
+        local texts = {}
+        for i, line in ipairs(lines) do
+            texts[i] = love.graphics.newText(self.font, line)
+        end
+        item.texts = texts
+        item.lines = lines
+    end
+
+    self.cursor = 1
+    self.top = 1
+    self.top_line = 1
+end
+
+function DialogueMenu:cursor_up()
+    if self.cursor == 1 then
+        return
+    end
+
+    -- Move up just enough to see the entirety of the newly-selected item.
+    -- If it's already visible, we're done; otherwise, just put it at the top
+    if self.top >= self.cursor - 1 then
+        self.top = self.cursor - 1
+        self.top_line = 1
+    end
+
+    self.cursor = self.cursor - 1
+end
+
+function DialogueMenu:cursor_down()
+    if self.cursor == #self.items then
+        return
+    end
+
+    -- Move down just enough to see the entirety of the newly-selected item.
+    -- First, figure out where it is relative to the top of the dialogue box
+    local relative_row = #self.items[self.top].lines - self.top_line + 1
+    for l = self.top + 1, self.cursor do
+        relative_row = relative_row + #self.items[l].lines
+    end
+    relative_row = relative_row + math.min(self.max_lines, #self.items[self.cursor + 1].lines)
+
+    for i = 1, relative_row - self.max_lines do
+        self.top_line = self.top_line + 1
+        if self.top_line > #self.items[self.top].lines then
+            self.top = self.top + 1
+            self.top_line = 1
+        end
+    end
+
+    self.cursor = self.cursor + 1
+end
+
+function DialogueMenu:accept()
+    return self.items[self.cursor].value
+end
+
+function DialogueMenu:draw()
+    self.background:fill(self.box)
+
+    local lines = 0
+    local is_bottom = false
+    for m = self.top, #self.items do
+        local item = self.items[m]
+        local start_line = 1
+        if m == self.top then
+            start_line = self.top_line
+        end
+        local end_line = start_line
+        local lineno = lines
+        for l = start_line, #item.lines do
+            end_line = l
+            if m == #self.items and l == #item.lines then
+                is_bottom = true
+            end
+            lines = lines + 1
+            if lines >= self.max_lines then
+                break
+            end
+        end
+        self:draw_item(item, start_line, end_line, lineno, m == self.cursor)
+        if lines >= self.max_lines then
+            break
+        end
+    end
+
+    -- Draw little triangles to indicate scrollability
+    -- FIXME magic numbers here...  should use sprites?  ugh
+    love.graphics.setColor(1, 1, 1)
+    if not (self.top == 1 and self.top_line == 1) then
+        self:draw_up_arrow()
+    end
+    if not is_bottom then
+        self:draw_down_arrow()
+    end
+end
+
+function DialogueMenu:draw_item(item, line0, line1, lineno, is_selected)
+    -- Center the text within the available space
+    local x = self.text_box.x
+    local y = self.text_box.y + self.margin_y + self.font_height * lineno
+
+    if is_selected then
+        local numlines = line1 - line0 + 1
+        love.graphics.setColor(1, 1, 1, 0.25)
+        -- FIXME magic numbers; this used to use the text margin, but that
+        -- seems bad too?  maybe should ADD a margin when computing text here
+        -- idk
+        love.graphics.rectangle(
+            'fill',
+            self.text_box.x - 4,
+            y,
+            self.text_box.width + 8,
+            self.font_height * numlines)
+    end
+
+    local scale = 1 / self.font_prescale
+    for l = line0, line1 do
+        -- Draw the text, twice: once for a drop shadow, then the text itself
+        love.graphics.setColor(self.shadow_color)
+        love.graphics.draw(item.texts[l], x, y + 1, 0, scale)
+
+        love.graphics.setColor(self.text_color)
+        love.graphics.draw(item.texts[l], x, y, 0, scale)
+
+        y = y + self.font_height
+    end
+end
+
+function DialogueMenu:draw_up_arrow()
+    local x = self.text_box.x
+    local y = self.text_box.y
+    love.graphics.polygon('fill', x, y - 4, x + 2, y, x - 2, y)
+end
+
+function DialogueMenu:draw_down_arrow()
+    local x = self.text_box.x
+    local y = self.text_box.y + self.text_box.height
+    love.graphics.polygon('fill', x, y + 4, x + 2, y, x - 2, y)
+end
+
+
+
 local DialogueScene = BaseScene:extend{
     __tostring = function(self) return "dialoguescene" end,
 
@@ -156,6 +326,16 @@ local DialogueScene = BaseScene:extend{
     text_scroll_speed = 64,
     background_opacity = 0.5,
     override_sprite_bottom = nil,
+
+    -- Mapping of position names to actual locations.  Feel free to override
+    named_positions = {
+        ['flush left'] = 0,
+        ['far left'] = 1/16,
+        ['left'] = 1/4,
+        ['right'] = 3/4,
+        ['far right'] = 15/16,
+        ['flush right'] = 1,
+    },
 
     -- Default speaker settings; set in a subclass (or just monkeypatch)
     -- FIXME this should be a default SPEAKER object
@@ -168,6 +348,7 @@ local DialogueScene = BaseScene:extend{
 -- TODO as with DeadScene, it would be nice if i could formally eat keyboard input
 -- FIXME document the shape of speakers/script, once we know what it is
 -- FIXME fonts with line heights < 1 (like m5x7) don't actually work well here, most notably in menus.  i think the text draws the same but lies about its height or something, so any excess ascender space is still there, which goofs things up?  should probably draw such text so that it's centered within its allocated space, i.e. every line is offset upwards by (1 - lineheight) * font height / 2?
+-- TODO this really has just three big parts (text, menu, portraits) and maybe it would be good if those were all their own objects that this merely coordinated?
 function DialogueScene:init(...)
     local args
     if select('#', ...) == 1 then
@@ -186,60 +367,119 @@ function DialogueScene:init(...)
     self.wrapped = nil
     self.tick = tick.group()
 
-    self:recompute_layout()
+    -- FIXME should pass font in as an argument, somewhere
+    self.font = love.graphics.getFont()
+    self.font_prescale = 1
+    self.font_height = math.ceil(self.font:getHeight() * self.font:getLineHeight())
 
     -- TODO a good start, but
     self.speakers = {}
     local claimed_positions = {}
     local seeking_position = {}
-    for name, speaker in pairs(args.speakers) do
+    for name, config in pairs(args.speakers) do
+        local speaker = {
+            name = name,
+        }
+        self.speakers[name] = speaker
+
         -- FIXME maybe speakers should only provide a spriteset so i'm not
         -- changing out from under them
-        if speaker.isa and speaker:isa(actors_base.BareActor) then
-            local actor = speaker
-            speaker = {
+        if config.isa and config:isa(actors_base.BareActor) then
+            print('warning: passing actors to DialogueScene is deprecated!')
+            local actor = config
+            config = {
                 position = actor.dialogue_position,
                 color = actor.dialogue_color,
                 shadow = actor.dialogue_shadow,
                 font_prescale = actor.dialogue_font_prescale,
+                sprite = actor.dialogue_sprite_name or actor.dialogue_sprites,
+                background = actor.dialogue_background,
+                chatter_sfx = actor.dialogue_chatter_sound,
+                font = actor.dialogue_font,
             }
-            if actor.dialogue_sprite_name then
-                speaker.sprite = game.sprites[actor.dialogue_sprite_name]:instantiate()
-            elseif actor.dialogue_sprites then
-                speaker.sprite = StackedSprite(actor.dialogue_sprites)
+        end
+
+        -- Sprite: may be a sprite name, a list of StackedSprite configuration,
+        -- or an instantiated sprite
+        -- FIXME always a stacked sprite!!
+        if type(config.sprite) == 'string' then
+            -- Sprite name
+            speaker.sprite = game.sprites[config.sprite]:instantiate()
+        elseif type(config.sprite) == 'table' then
+            if config.sprite.isa then
+                -- Probably a sprite
+                speaker.sprite = config.sprite
             else
-                error()
+                -- Stacked sprite
+                speaker.sprite = StackedSprite(config.sprite)
             end
-            if actor.dialogue_background then
-                speaker.background = game.resource_manager:load(actor.dialogue_background)
-            end
-            if actor.dialogue_chatter_sound then
-                speaker.chatter_sfx = game.resource_manager:get(actor.dialogue_chatter_sound)
-            end
-            if actor.dialogue_font then
-                speaker.font = game.resource_manager:get(actor.dialogue_font)
-            end
-        end
-        self.speakers[name] = speaker
-        -- FIXME this is redundant with StackedSprite, but oh well
-        speaker.visible = true
-
-        if speaker.sprite then
-            speaker.sprite:set_scale(self.speaker_scale)
+        else
+            -- TODO wait, isn't it allowed to not have a sprite?
+            --error(("Can't make speaker '%s' a sprite from: %s"):format(name, config.sprite))
         end
 
-        if type(speaker.position) == 'table' then
+        -- Store position for now, so conflicts can be resolved below
+        if type(config.position) == 'table' then
             -- This is a list of preferred positions; the speaker will actually
             -- get the first one not otherwise spoken for
-            seeking_position[name] = speaker.position
-        elseif speaker.position then
-            claimed_positions[speaker.position] = true
+            seeking_position[name] = config.position
+        elseif config.position then
+            claimed_positions[config.position] = true
+            -- Note that this may still be a string; it'll be fixed below
+            speaker.position = config.position
         elseif speaker.sprite then
             error(("Speaker %s has a sprite but no position"):format(name))
         end
+
+        speaker.color = config.color or self.default_color
+        speaker.shadow_color = config.shadow_color or self.default_shadow
+
+        -- FIXME make this always be a sliced and diced bg
+        if config.background == nil then
+            speaker.background = self.default_background
+        elseif type(config.background) == 'string' then
+            speaker.background = game.resource_manager:load(config.background)
+        else
+            speaker.background = speaker.background
+        end
+        -- Convert plain images to border images
+        if speaker.background and speaker.background.typeOf and speaker.background:typeOf('Texture') then
+            local w, h = speaker.background:getDimensions()
+            -- Default to assuming the middle half is the center
+            speaker.background = BorderImage(
+                speaker.background,
+                AABB(w / 4, h / 4, w / 2, h / 2))
+        end
+
+        if type(config.chatter_sfx) == 'string' then
+            -- XXX why is this get, not load?
+            speaker.chatter_sfx = game.resource_manager:get(config.chatter_sfx)
+        else
+            speaker.chatter_sfx = config.chatter_sfx
+        end
+
+        -- Font stuff is a bit tricky, since we don't want to mix a speaker's font
+        -- with the default prescale, or vice versa
+        if type(config.font) == 'string' then
+            -- Note that this uses get, not load, so that it can grab named fonts
+            -- TODO is that goofy, it feels goofy
+            speaker.font = game.resource_manager:get(config.font)
+        else
+            speaker.font = config.font
+        end
+        if speaker.font then
+            speaker.font_prescale = config.font_prescale or 1
+        else
+            speaker.font = self.font
+            speaker.font_prescale = self.font_prescale
+        end
+        speaker.font_height = math.ceil(speaker.font:getHeight() * speaker.font:getLineHeight() / speaker.font_prescale)
+
+        -- FIXME this is redundant with StackedSprite, but oh well
+        speaker.visible = true
     end
 
-    -- Resolve position preferences
+    -- Resolve position preferences and assign positions
     while true do
         local new_positions = {}
         local any_remaining = false
@@ -247,11 +487,10 @@ function DialogueScene:init(...)
             any_remaining = true
             for _, position in ipairs(positions) do
                 if not claimed_positions[position] then
+                    -- Detect and avoid ambiguous conflicts
+                    -- TODO maybe there are some better rules for this, like if
+                    -- one only has one pref left but the other has two
                     if new_positions[position] then
-                        -- This is mainly to prevent nondeterministic results
-                        -- TODO maybe there are some better rules for this,
-                        -- like if one only has one pref left but the other has
-                        -- two
                         error(("position conflict: %s and %s both want %s, please resolve manually")
                             :format(name, new_positions[position], position))
                     end
@@ -265,20 +504,27 @@ function DialogueScene:init(...)
         end
 
         for position, name in pairs(new_positions) do
-            self.speakers[name].position = position
+            self.speakers[name] = position
             seeking_position[name] = nil
             claimed_positions[position] = true
         end
     end
+    -- Finally, convert position names to numbers
     for name, speaker in pairs(self.speakers) do
-        if speaker.sprite and (speaker.position == 'right' or speaker.position == 'far right' or speaker.position == 'flush right' or (type(speaker.position) == 'number' and (speaker.position < 0 or (speaker.position > 0.5 and speaker.position < 1)))) then
-            speaker.sprite:set_facing('left')
+        if speaker.position and type(speaker.position) == 'string' then
+            if not self.named_positions[speaker.position] then
+                error(("Speaker %s has an unrecognized position: %s"):format(name, speaker.position))
+            end
+            speaker.position_name = speaker.position
+            speaker.position = self.named_positions[speaker.position]
         end
 
-        if speaker.font then
-            speaker.font_height = math.ceil(speaker.font:getHeight() * speaker.font:getLineHeight() / (speaker.font_prescale or 1))
+        if speaker.sprite and (speaker.position < 0 or (speaker.position > 0.5 and speaker.position <= 1)) then
+            speaker.sprite:set_facing('left')
         end
     end
+
+    self:recompute_layout()
 
     self.script = args.script
     assert(self.script, "Can't play dialogue without a script")
@@ -292,10 +538,6 @@ function DialogueScene:init(...)
         end
     end
 
-    -- FIXME should pass font in as an argument, somewhere
-    self.font = love.graphics.getFont()
-    self.font_height = math.ceil(self.font:getHeight() * self.font:getLineHeight())
-    
     -- State of the current phrase
     self.curphrase = 1
     self.scroller = nil  -- TextScroller that holds the actual text
@@ -327,6 +569,12 @@ function DialogueScene:recompute_layout()
     --self.speaker_height = 128
     --self.speaker_scale = math.ceil((h - self.dialogue_height) / self.speaker_height)
     self.speaker_scale = 1
+
+    for _, speaker in pairs(self.speakers) do
+        if speaker.sprite then
+            speaker.sprite:set_scale(self.speaker_scale)
+        end
+    end
 end
 
 function DialogueScene:enter(previous_scene, is_bottom)
@@ -371,15 +619,22 @@ function DialogueScene:update(dt)
     -- Do some things
     if dt > 0 and not self.hesitating then
         if game.input:pressed('accept') then
-            if self.state == 'menu' then
-                self:_cursor_accept()
-            else
-                self:_advance_script()
+            if self.menu then
+                local label = self.menu:accept()
+                self.menu = nil
+                -- FIXME lol this -1 is a dumb hack because _advance_script always starts by moving ahead by 1
+                self.script_index = self.labels[label] - 1
+                self.state = 'waiting'
             end
+            self:_advance_script()
         elseif game.input:pressed('up') then
-            self:_cursor_up()
+            if self.menu then
+                self.menu:cursor_up()
+            end
         elseif game.input:pressed('down') then
-            self:_cursor_down()
+            if self.menu then
+                self.menu:cursor_down()
+            end
         end
     end
 
@@ -397,6 +652,7 @@ function DialogueScene:update(dt)
             self.state = 'waiting'
             self.phrase_timer = 0
             self:_hesitate()
+            -- TODO would be fine if always stacked...
             if self.phrase_speaker.sprite and self.phrase_speaker.sprite.set_talking then
                 self.phrase_speaker.sprite:set_talking(false)
             end
@@ -427,19 +683,20 @@ function DialogueScene:_say_phrase(step, phrase_index)
         text = text()
     end
 
-    --self.scroller:set_font(self.font, self.phrase_speaker.font_prescale or 1)
-    --self.scroller:set_text(text)
+    -- TODO wait does this actually need to know the color?  can't i do the shadow bit myself from outside?
+    -- TODO uh, i think this broke chatter sounds  :(
     self.scroller = TextScroller(
-        self.phrase_speaker.font or self.font,
-        self.phrase_speaker.font_prescale or 1,
+        self.phrase_speaker.font,
+        self.phrase_speaker.font_prescale,
         text,
         self.text_scroll_speed,
         self.text_box.width,
         self.text_box.height,
-        self.phrase_speaker.color or self.default_color,
-        self.phrase_speaker.shadow_color or self.default_shadow)
+        self.phrase_speaker.color,
+        self.phrase_speaker.shadow_color)
 
     self.state = 'speaking'
+    -- TODO if stacked...
     if self.phrase_speaker.sprite and self.phrase_speaker.sprite.set_talking then
         self.phrase_speaker.sprite:set_talking(true)
     end
@@ -455,6 +712,7 @@ function DialogueScene:_advance_script()
         self.scroller:fill()
         self.state = 'waiting'
         self:_hesitate()
+        -- TODO if stacked...
         if self.phrase_speaker.sprite and self.phrase_speaker.sprite.set_talking then
             self.phrase_speaker.sprite:set_talking(false)
         end
@@ -473,6 +731,7 @@ function DialogueScene:_advance_script()
             -- so just continue from here
             self.state = 'speaking'
             self.scroller:resume()
+            -- TODO if stacked...
             if self.phrase_speaker.sprite and self.phrase_speaker.sprite.set_talking then
                 self.phrase_speaker.sprite:set_talking(true)
             end
@@ -510,6 +769,7 @@ function DialogueScene:_advance_script()
         if step.pose ~= nil then
             -- TODO this is super hokey at the moment dang
             local speaker = self.speakers[step.speaker]
+            -- XXX why do i need this?
             speaker.pose = step.pose
             if speaker.sprite then
                 -- FIXME uhh, passing a direct speaker doesn't give a SpeakerSprite
@@ -535,26 +795,25 @@ function DialogueScene:_advance_script()
             self:_hesitate(0.25)
             self.phrase_speaker = self.speakers[step.speaker]
             self:resize()  -- FIXME have to do this after changing speaker but not sure it's always right...?
-            self.menu_items = {}
-            self.menu_cursor = 1
-            self.menu_top = 1
-            self.menu_top_line = 1
-            local font = self.phrase_speaker.font or self.font
+            local items = {}
             for _, item in ipairs(step.menu) do
                 if _evaluate_condition(item.condition) then
-                    local jump = item[1]
-                    local _textwidth, lines = font:getWrap(item[2], self.text_box.width * (self.phrase_speaker.font_prescale or 1))
-                    local texts = {}
-                    for i, line in ipairs(lines) do
-                        texts[i] = love.graphics.newText(font, line)
-                    end
-                    table.insert(self.menu_items, {
-                        jump = jump,
-                        lines = lines,
-                        texts = texts,
+                    table.insert(items, {
+                        value = item[1],
+                        text = item[2],
                     })
                 end
             end
+            self.menu = DialogueMenu{
+                items = items,
+                box = self.menu_box,
+                text_box = self.menu_text_box,
+                background = self.phrase_speaker.background,
+                shadow = self.phrase_speaker.shadow_color,
+                color = self.phrase_speaker.color,
+                font = self.phrase_speaker.font,
+                font_prescale = self.phrase_speaker.font_prescale,
+            }
             break
         end
 
@@ -581,63 +840,6 @@ function DialogueScene:_advance_script()
     end
 end
 
-function DialogueScene:_cursor_up()
-    if self.state ~= 'menu' then
-        return
-    end
-    if self.menu_cursor == 1 then
-        return
-    end
-
-    -- Move up just enough to see the entirety of the newly-selected item.
-    -- If it's already visible, we're done; otherwise, just put it at the top
-    if self.menu_top >= self.menu_cursor - 1 then
-        self.menu_top = self.menu_cursor - 1
-        self.menu_top_line = 1
-    end
-
-    self.menu_cursor = self.menu_cursor - 1
-end
-
-function DialogueScene:_cursor_down()
-    if self.state ~= 'menu' then
-        return
-    end
-    if self.menu_cursor == #self.menu_items then
-        return
-    end
-
-    -- Move down just enough to see the entirety of the newly-selected item.
-    -- First, figure out where it is relative to the top of the dialogue box
-    local relative_row = #self.menu_items[self.menu_top].lines - self.menu_top_line + 1
-    for l = self.menu_top + 1, self.menu_cursor do
-        relative_row = relative_row + #self.menu_items[l].lines
-    end
-    relative_row = relative_row + math.min(self.max_lines, #self.menu_items[self.menu_cursor + 1].lines)
-
-    for i = 1, relative_row - self.max_lines do
-        self.menu_top_line = self.menu_top_line + 1
-        if self.menu_top_line > #self.menu_items[self.menu_top].lines then
-            self.menu_top = self.menu_top + 1
-            self.menu_top_line = 1
-        end
-    end
-
-    self.menu_cursor = self.menu_cursor + 1
-end
-
-function DialogueScene:_cursor_accept()
-    if self.state ~= 'menu' then
-        return
-    end
-
-    local item = self.menu_items[self.menu_cursor]
-    -- FIXME lol this -1 is a dumb hack because _advance_script always starts by moving ahead by 1
-    self.script_index = self.labels[item.jump] - 1
-    self.state = 'waiting'
-    self:_advance_script()
-end
-
 function DialogueScene:draw()
     if self.wrapped then
         self.wrapped:draw()
@@ -652,11 +854,12 @@ function DialogueScene:draw()
     -- Draw the dialogue box, which is slightly complicated because it involves
     -- drawing the ends and then repeating the middle bit to fit the screen
     -- size
+    -- TODO get ridda this, put it in the menu bit too
     self:_draw_background(self.dialogue_box)
 
     -- Print the text
-    if self.state == 'menu' then
-        self:draw_menu()
+    if self.menu then
+        self.menu:draw()
     else
         -- There may be more available lines than will fit in the textbox; if
         -- so, only show the last few lines
@@ -682,165 +885,42 @@ function DialogueScene:draw()
     love.graphics.pop()
 end
 
-function DialogueScene:draw_menu()
-    -- TODO this would be nice, etc.
-    -- TODO it seems increasingly like there should be a Menu type that does all these things, as unintrusively as possible
-    local menu_box = self.menu_box or self.dialogue_box
-    local menu_text_box = self.menu_text_box or self.text_box
-
-    -- Center the text within the available space
-    local font_height = (self.phrase_speaker.font_height or self.font_height) / (self.phrase_speaker.font_prescale or 1)
-    local x, y = menu_text_box.x, menu_text_box.y + math.floor((menu_text_box.height - self.max_lines * font_height) / 2)
-
-    local lines = 0
-    local is_bottom = false
-    for m = self.menu_top, #self.menu_items do
-        local item = self.menu_items[m]
-        local start_line = 1
-        if m == self.menu_top then
-            start_line = self.menu_top_line
-        end
-        local end_line = start_line
-        local lineno = lines
-        for l = start_line, #item.lines do
-            end_line = l
-            if m == #self.menu_items and l == #item.lines then
-                is_bottom = true
-            end
-            lines = lines + 1
-            if lines >= self.max_lines then
-                break
-            end
-        end
-        self:draw_menu_item(item, start_line, end_line, lineno, m == self.menu_cursor)
-        if lines >= self.max_lines then
-            break
-        end
-    end
-
-    -- Draw little triangles to indicate scrollability
-    -- FIXME magic numbers here...  should use sprites?  ugh
-    love.graphics.setColor(1, 1, 1)
-    if not (self.menu_top == 1 and self.menu_top_line == 1) then
-        self:draw_menu_up_arrow()
-    end
-    if not is_bottom then
-        self:draw_menu_down_arrow()
-    end
-end
-
-function DialogueScene:draw_menu_item(item, line0, line1, lineno, is_selected)
-    -- Center the text within the available space
-    -- FIXME having to recompute this for every item is silly
-    local font_height = (self.phrase_speaker.font_height or self.font_height) / (self.phrase_speaker.font_prescale or 1)
-    local x, y = self.text_box.x, self.text_box.y + math.floor((self.text_box.height - self.max_lines * font_height) / 2)
-    y = y + font_height * lineno
-
-    if is_selected then
-        local numlines = line1 - line0 + 1
-        love.graphics.setColor(1, 1, 1, 0.25)
-        love.graphics.rectangle(
-            'fill',
-            self.text_box.x - self.text_margin_x / 4,
-            y,
-            self.text_box.width + self.text_margin_x / 2,
-            font_height * numlines)
-    end
-
-    local scale = 1 / (self.phrase_speaker.font_prescale or 1)
-    for l = line0, line1 do
-        -- Draw the text, twice: once for a drop shadow, then the text itself
-        love.graphics.setColor(self.phrase_speaker.shadow or self.default_shadow)
-        love.graphics.draw(item.texts[l], x, y + 1, 0, scale)
-
-        love.graphics.setColor(self.phrase_speaker.color or self.default_color)
-        love.graphics.draw(item.texts[l], x, y, 0, scale)
-
-        y = y + font_height
-    end
-end
-
-function DialogueScene:draw_menu_up_arrow()
-    local x = self.text_box.x
-    local y = self.text_box.y
-    love.graphics.polygon('fill', x, y - 4, x + 2, y, x - 2, y)
-end
-
-function DialogueScene:draw_menu_down_arrow()
-    local x = self.text_box.x
-    local y = self.text_box.y + self.text_box.height
-    love.graphics.polygon('fill', x, y + 4, x + 2, y, x - 2, y)
-end
-
 -- TODO this should definitely be 'textbox', right?  'background' sounds like
 -- the entire scene background
 function DialogueScene:_draw_background(box)
-    local background = self.phrase_speaker.background or self.default_background
+    local background = self.phrase_speaker.background
     if not background then
         return
     end
 
-    local BOXSCALE = 1  -- FIXME this was 2 for isaac
-    local boxrepeatleft, boxrepeatright = 192, 224
-    -- FIXME stash these!  hell make this its own UI thing too.
-    local boxquadl = love.graphics.newQuad(0, 0, boxrepeatleft, background:getHeight(), background:getDimensions())
-    love.graphics.draw(background, boxquadl, box.x, box.y, 0, BOXSCALE)
-    local boxquadm = love.graphics.newQuad(boxrepeatleft, 0, boxrepeatright - boxrepeatleft, background:getHeight(), background:getDimensions())
-    love.graphics.draw(background, boxquadm, box.x + boxrepeatleft * BOXSCALE, box.y, 0, (box.width - background:getWidth()) / (boxrepeatright - boxrepeatleft) + 1, BOXSCALE)
-    local boxquadr = love.graphics.newQuad(boxrepeatright, 0, background:getWidth() - boxrepeatright, background:getHeight(), background:getDimensions())
-    love.graphics.draw(background, boxquadr, box.x + box.width - (background:getWidth() - boxrepeatright) * BOXSCALE, box.y, 0, BOXSCALE)
+    -- FIXME isaac scaled the box by 2, oof
+    background:fill(box)
 end
 
 function DialogueScene:_draw_chevron()
     local size = 4
     local x = self.text_box.x + self.text_box.width
     local y = math.floor(self.text_box.y + self.text_box.height)
-    love.graphics.setColor(self.phrase_speaker.color or self.default_color)
+    love.graphics.setColor(self.phrase_speaker.color)
     love.graphics.polygon('fill', x, y + size, x - size, y, x + size, y)
 end
 
 function DialogueScene:_draw_speaker(speaker)
     local sprite = speaker.sprite
     local sw, sh = sprite:getDimensions()
-    local x, relx
-    if type(speaker.position) == 'number' then
-        if speaker.position < 0 then
-            -- Number of pixels in from right margin (mainly useful for putting
-            -- a portrait of a fixed size at a specific place on/in the
-            -- dialogue box)
-            -- FIXME honestly it, uh, seems like it'd be nicer to stick with
-            -- 'left' and 'right' (preset positions) but just be able to alter
-            -- them?
-            x = self.dialogue_box.x + self.dialogue_box.width + speaker.position - sw
-        elseif speaker.position < 1 then
-            -- Proportionate distance from left
-            relx = speaker.position
-        else
-            -- Number of pixels in from left margin
-            x = self.dialogue_box.x + speaker.position
-        end
+    local x
+    if speaker.position < 0 then
+        -- Number of pixels in from right margin (mainly useful for putting a
+        -- portrait of a fixed size at a specific place on/in the dialogue box)
+        x = self.dialogue_box.x + self.dialogue_box.width + speaker.position - sw
+    elseif speaker.position < 1 then
+        -- Proportionate distance from left
+        x = math.floor(self.dialogue_box.x + (self.dialogue_box.width - sw) * speaker.position + 0.5)
     else
-        local relx
-        if speaker.position == 'flush left' then
-            relx = 0
-        elseif speaker.position == 'far left' then
-            relx = 1/16
-        elseif speaker.position == 'left' then
-            relx = 1/4
-        elseif speaker.position == 'right' then
-            relx = 3/4
-        elseif speaker.position == 'far right' then
-            relx = 15/16
-        elseif speaker.position == 'flush right' then
-            relx = 1
-        else
-            print("unrecognized speaker position:", speaker.position)
-            relx = 0
-        end
+        -- Number of pixels in from left margin
+        x = self.dialogue_box.x + speaker.position
     end
-    if relx ~= nil then
-        x = math.floor(self.dialogue_box.x + (self.dialogue_box.width - sw) * relx + 0.5)
-    end
+
     local pos = Vector(x, (self.override_sprite_bottom or self.dialogue_box.y) - sh)
     if self.phrase_speaker == speaker then
         love.graphics.setColor(1, 1, 1)
@@ -852,12 +932,7 @@ end
 
 function DialogueScene:resize(w, h)
     -- FIXME adjust wrap width, reflow current text, etc.
-
     self:recompute_layout()
-
-    -- FIXME i don't love that max_lines varies by speaker yet is global to the scene?
-    local font_height = (self.phrase_speaker and self.phrase_speaker.font_height) or self.font_height
-    self.max_lines = math.floor(self.text_box.height / (font_height / (self.phrase_speaker and self.phrase_speaker.font_prescale or 1)))
 
     -- FIXME maybe should have a wrapperscene base class that automatically
     -- passes resize events along?
