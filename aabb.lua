@@ -21,6 +21,14 @@ function AABB:init(x, y, width, height)
     self.y1 = self.bottom
 end
 
+function AABB.from_bounds(class, x0, y0, x1, y1)
+    return class(x0, y0, x1 - x0, y1 - y0)
+end
+
+function AABB.at_origin(class, width, height)
+    return class(0, 0, width, height)
+end
+
 function AABB.from_screen(class)
     return class(0, 0, love.graphics.getDimensions())
 end
