@@ -635,7 +635,7 @@ function DialogueScene:draw()
     love.graphics.push('all')
     game:transform_viewport()
     love.graphics.setColor(0, 0, 0, self.background_opacity)
-    love.graphics.rectangle('fill', game.screen:xywh())
+    love.graphics.rectangle('fill', 0, 0, game.size:unpack())
     love.graphics.setColor(1, 1, 1)
 
     -- Draw the dialogue box, which is slightly complicated because it involves
@@ -728,6 +728,8 @@ function DialogueScene:draw()
     love.graphics.pop()
 end
 
+-- TODO this should definitely be 'textbox', right?  'background' sounds like
+-- the entire scene background
 function DialogueScene:_draw_background(box)
     local background = self.phrase_speaker.background or self.default_background
     if not background then
