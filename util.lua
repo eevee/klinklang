@@ -43,6 +43,13 @@ local function divmod(n, b)
     return math.floor(n / b), n % b
 end
 
+-- Like divmod, but 1-based rather than zero-based.  For example, divmod1(24,
+-- 12) would return (2, 12), because the 24th hour is actually the 12th in the
+-- second set of 12.
+local function divmod1(n, b)
+    return math.floor((n - 1) / b) + 1, (n - 1) % b + 1
+end
+
 local function random_float(a, b)
     return a + math.random() * (b - a)
 end
@@ -127,6 +134,7 @@ return {
     sign = sign,
     clamp = clamp,
     divmod = divmod,
+    divmod1 = divmod1,
     lerp = lerp,
     random_float = random_float,
     any_modifier_keys = any_modifier_keys,
