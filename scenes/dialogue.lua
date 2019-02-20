@@ -702,7 +702,6 @@ end
 function DialogueScene:show_menu(step)
     self.state = 'menu'
     self:_hesitate(0.25)
-    self.phrase_speaker = self.speakers[step.speaker]
 
     local items = {}
     for _, item in ipairs(step.menu) do
@@ -714,15 +713,17 @@ function DialogueScene:show_menu(step)
         end
     end
 
+    local speaker = self.speakers[step.speaker]
     self.menu = DialogueMenu{
         items = items,
         box = self.menu_box,
         text_box = self.menu_text_box,
-        background = self.phrase_speaker.background,
-        shadow = self.phrase_speaker.shadow_color,
-        color = self.phrase_speaker.color,
-        font = self.phrase_speaker.font,
-        font_prescale = self.phrase_speaker.font_prescale,
+        -- TODO should this just get a speaker?
+        background = speaker.background,
+        shadow = speaker.shadow_color,
+        color = speaker.color,
+        font = speaker.font,
+        font_prescale = speaker.font_prescale,
     }
 end
 
