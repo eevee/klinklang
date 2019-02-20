@@ -440,7 +440,7 @@ function DialogueScene:init(...)
         elseif type(config.background) == 'string' then
             speaker.background = game.resource_manager:load(config.background)
         else
-            speaker.background = speaker.background
+            speaker.background = config.background
         end
         -- Convert plain images to border images
         if speaker.background and speaker.background.typeOf and speaker.background:typeOf('Texture') then

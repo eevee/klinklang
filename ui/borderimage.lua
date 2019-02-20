@@ -45,7 +45,7 @@ function BorderImage:init(path_or_image, center)
 
     self.center = center
 
-    -- Everything else is done in _lazy_init
+    -- Everything else is done in load
 end
 
 -- Initialize, if it hasn't been done already.  This is usually called for you.
