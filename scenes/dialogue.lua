@@ -841,15 +841,10 @@ function DialogueScene:_advance_script()
 end
 
 function DialogueScene:draw()
-    if self.wrapped then
-        self.wrapped:draw()
-    end
+    self:draw_backdrop()
 
     love.graphics.push('all')
     game:transform_viewport()
-    love.graphics.setColor(0, 0, 0, self.background_opacity)
-    love.graphics.rectangle('fill', 0, 0, game.size:unpack())
-    love.graphics.setColor(1, 1, 1)
 
     -- Draw the dialogue box, which is slightly complicated because it involves
     -- drawing the ends and then repeating the middle bit to fit the screen
@@ -883,6 +878,16 @@ function DialogueScene:draw()
     end
 
     love.graphics.pop()
+end
+
+function DialogueScene:draw_backdrop()
+    if self.wrapped then
+        self.wrapped:draw()
+    end
+
+    love.graphics.setColor(0, 0, 0, self.background_opacity)
+    love.graphics.rectangle('fill', 0, 0, love.graphics.getDimensions())
+    love.graphics.setColor(1, 1, 1)
 end
 
 -- TODO this should definitely be 'textbox', right?  'background' sounds like
