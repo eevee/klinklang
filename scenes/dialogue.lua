@@ -524,8 +524,6 @@ function DialogueScene:init(...)
         end
     end
 
-    self:recompute_layout()
-
     self.script = args.script
     assert(self.script, "Can't play dialogue without a script")
     self.labels = {}  -- name -> index
@@ -587,10 +585,9 @@ function DialogueScene:enter(previous_scene, is_bottom)
     end
 
     -- Recalculate stuff that depends on screen size first
-    -- FIXME oh this seems very rude, given that it also calls the wrapped scene's resize with no arguments
-    self:resize()
+    self:recompute_layout()
 
-    self:_advance_script()
+    self:run_from(1)
 end
 
 function DialogueScene:update(dt)
@@ -613,7 +610,7 @@ function DialogueScene:update(dt)
             self.hesitate_delay:stop()
             self.hesitating = false
         end
-        self:_advance_script()
+        self:advance()
     end
 
     -- Do some things
@@ -622,11 +619,11 @@ function DialogueScene:update(dt)
             if self.menu then
                 local label = self.menu:accept()
                 self.menu = nil
-                -- FIXME lol this -1 is a dumb hack because _advance_script always starts by moving ahead by 1
-                self.script_index = self.labels[label] - 1
                 self.state = 'waiting'
+                self:run_from(label)
+            elseif not self.hesitating then
+                self:advance()
             end
-            self:_advance_script()
         elseif game.input:pressed('up') then
             if self.menu then
                 self.menu:cursor_up()
@@ -702,11 +699,35 @@ function DialogueScene:_say_phrase(step, phrase_index)
     end
 end
 
-function DialogueScene:_advance_script()
-    if self.hesitating then
-        return
+function DialogueScene:show_menu(step)
+    self.state = 'menu'
+    self:_hesitate(0.25)
+    self.phrase_speaker = self.speakers[step.speaker]
+
+    local items = {}
+    for _, item in ipairs(step.menu) do
+        if _evaluate_condition(item.condition) then
+            table.insert(items, {
+                value = item[1],
+                text = item[2],
+            })
+        end
     end
 
+    self.menu = DialogueMenu{
+        items = items,
+        box = self.menu_box,
+        text_box = self.menu_text_box,
+        background = self.phrase_speaker.background,
+        shadow = self.phrase_speaker.shadow_color,
+        color = self.phrase_speaker.color,
+        font = self.phrase_speaker.font,
+        font_prescale = self.phrase_speaker.font_prescale,
+    }
+end
+
+-- Advance the script, including advancing through a current multi-part step
+function DialogueScene:advance()
     if self.state == 'speaking' then
         -- Advance in mid-scroll: fill the textbox
         self.scroller:fill()
@@ -719,6 +740,7 @@ function DialogueScene:_advance_script()
         return
     elseif self.state == 'menu' then
         -- We're at a menu prompt and can't advance without other input
+        -- TODO unclear if this check belongs here
         return
     end
 
@@ -726,6 +748,7 @@ function DialogueScene:_advance_script()
     -- First see if the scroller is waiting for us to do something
     -- TODO shouldn't i know what i'm waiting /for/
     if self.scroller and self.scroller.waiting then
+        local step = self.script[self.script_index]
         if not self.scroller.finished then
             -- We paused in the middle of a phrase (because it was too long),
             -- so just continue from here
@@ -736,21 +759,37 @@ function DialogueScene:_advance_script()
                 self.phrase_speaker.sprite:set_talking(true)
             end
             return
-        elseif self.curphrase < #self.script[self.script_index] then
+        elseif self.curphrase < #step then
             -- Advance to the next phrase in the current step
-            self:_say_phrase(self.script[self.script_index], self.curphrase + 1)
+            self:_say_phrase(step, self.curphrase + 1)
+            return
+        elseif step.menu then
+            self:show_menu(step)
             return
         end
     end
 
+    self:run_from(self.script_index + 1)
+end
+
+-- Jump to the given index/label in the script and continue running from the
+-- beginning of that step
+function DialogueScene:run_from(script_index)
+    local next_script_index = script_index
+    -- Resolve labels
+    if type(next_script_index) == 'string' then
+        next_script_index = self.labels[next_script_index]
+    end
+
     while true do
-        if self.script_index >= #self.script then
+        self.script_index = next_script_index
+        if self.script_index > #self.script then
             -- TODO actually not sure what should happen here
             self.state = 'done'
             Gamestate.pop()
             return
         end
-        self.script_index = self.script_index + 1
+        next_script_index = self.script_index + 1
         local step = self.script[self.script_index]
 
         -- Early stage
@@ -787,34 +826,11 @@ function DialogueScene:_advance_script()
         -- Middle stage: talking and whatnot
         if #step > 0 then
             self.phrase_speaker = self.speakers[step.speaker]
-            self:resize()  -- FIXME have to do this after changing speaker but not sure it's always right...?
             self:_say_phrase(step, 1)
-            break
+            return
         elseif step.menu then
-            self.state = 'menu'
-            self:_hesitate(0.25)
-            self.phrase_speaker = self.speakers[step.speaker]
-            self:resize()  -- FIXME have to do this after changing speaker but not sure it's always right...?
-            local items = {}
-            for _, item in ipairs(step.menu) do
-                if _evaluate_condition(item.condition) then
-                    table.insert(items, {
-                        value = item[1],
-                        text = item[2],
-                    })
-                end
-            end
-            self.menu = DialogueMenu{
-                items = items,
-                box = self.menu_box,
-                text_box = self.menu_text_box,
-                background = self.phrase_speaker.background,
-                shadow = self.phrase_speaker.shadow_color,
-                color = self.phrase_speaker.color,
-                font = self.phrase_speaker.font,
-                font_prescale = self.phrase_speaker.font_prescale,
-            }
-            break
+            self:show_menu(step)
+            return
         end
 
         -- Late stage: what to do next
@@ -833,8 +849,7 @@ function DialogueScene:_advance_script()
         elseif step.jump then
             -- FIXME would be nice to scan the script for bad jumps upfront
             if _evaluate_condition(step.condition) then
-                -- FIXME fuck this -1
-                self.script_index = self.labels[step.jump] - 1
+                next_script_index = self.labels[step.jump]
             end
         end
     end
@@ -853,9 +868,8 @@ function DialogueScene:draw()
     self:_draw_background(self.dialogue_box)
 
     -- Print the text
-    if self.menu then
-        self.menu:draw()
-    else
+    -- FIXME this is unnecessary if the menu goes on top of the box
+    if true then
         -- There may be more available lines than will fit in the textbox; if
         -- so, only show the last few lines
         -- FIXME should prompt to scroll when we hit the bottom, probably
@@ -866,6 +880,9 @@ function DialogueScene:draw()
         if self.state == 'waiting' then
             self:_draw_chevron()
         end
+    end
+    if self.menu then
+        self.menu:draw()
     end
 
     -- Draw the speakers
