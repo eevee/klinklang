@@ -246,7 +246,8 @@ function WorldScene:read_player_input(dt)
     -- FIXME this stupid dt thing is so we don't try to do a second "use" after
     -- switching maps (which does a zero update), ugghhh.  i don't know where
     -- else this belongs though?
-    if dt > 0 and game.input:pressed('use') then
+    -- FIXME this definitely shouldn't be in the worldscene; change me to decide_use or something
+    if false and dt > 0 and game.input:pressed('use') then
         if self.player.is_locked then
             -- Do nothing
         elseif self.player.form == 'stone' then
@@ -374,6 +375,9 @@ end
 -- Note: pos is the center of the hint; sprites should have their anchors at
 -- their centers too
 function WorldScene:_draw_use_key_hint(anchor)
+    -- FIXME move this into fox flux as an actor (like neon phase), see if
+    -- there's anything useful that can be factored out of it i guess?
+    do return end
     local letter, sprite
     -- TODO just get the actual key/button from game.input
     if game.input:getActiveDevice() == 'joystick' then
