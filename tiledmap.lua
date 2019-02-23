@@ -19,7 +19,7 @@ local function relative_path(a, b)
         b = b:gsub("^%.%./", "")
         a = a:gsub("[^/]+/?$", "")
     end
-    if not a:find("/$") then
+    if a ~= "" and not a:find("/$") then
         a = a .. "/"
     end
     return a .. b
