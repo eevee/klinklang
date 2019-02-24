@@ -345,8 +345,10 @@ function Map:draw(aabb)
     end
 
     -- TODO this has actually /increased/ z-fighting, good job.  
+    -- FIXME the counter appears /in front/ of npcs while fading in??  what??
     table.sort(sorted_actors, function(actor1, actor2)
         -- FIXME this is only for top-down mode, which is currently per-actor, yikes
+        -- FIXME i think this makes the sort non-transitive, whhhoooopps
         if actor1.pos and actor2.pos and actor1.pos.y ~= actor2.pos.y then
             return actor1.pos.y < actor2.pos.y
         end
@@ -503,6 +505,15 @@ function World:_set_active(map)
             map.tiled_map.width - map.tiled_map.camera_margin_right,
             map.tiled_map.height - map.tiled_map.camera_margin_bottom)
     end
+
+    -- XXX this looks copy/pasted from update at the moment, but there's a
+    -- crucial difference: update may someday change to limit the rate of
+    -- camera movement or whatever, but this MUST be instant since we're
+    -- switching maps and there is no sensible "previous" camera position!
+    -- FIXME i don't think i need to set the camera size every frame though
+    local w, h = game:getDimensions()
+    self.camera:set_size(w, h)
+    self.camera:aim_at(self.player.pos.x, self.player.pos.y)
 end
 
 function World:update(dt)

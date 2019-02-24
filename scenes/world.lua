@@ -555,31 +555,17 @@ function WorldScene:load_map(tiled_map, spot_name)
 
     self.map_region = self.map:prop('region', '')
 
-    -- Rez the player if necessary.  This MUST happen after moving the player
-    -- (and SHOULD happen after populating the world, anyway) because it does a
-    -- zero-duration update, and if the player is still touching whatever
-    -- killed them, they'll instantly die again.
-    -- FIXME maybe make it not do a zero-duration update
+    -- Rez the player if necessary
     -- FIXME in general this seems like it does not remotely belong here, but
-    -- also that seems like the same general question as stashing maps vs not
+    -- also that seems like the same general question as stashing maps vs not.
+    -- note that part of the reason for the order of this function is that
+    -- there used to be an update(0), and if the player hadn't moved and rezzed
+    -- by then, it would still be touching the thing that killed it and would
+    -- instantly die again oops
     if self.player.is_dead then
         -- TODO should this be a more general 'reset'?
         self.player:resurrect()
     end
-
-    -- FIXME i don't know what i was doing here.  especially subtracting the
-    -- map height, What??  clearly i want a separate api for "ignore any state
-    -- and jump to here" though
-    self.camera.x = self.player.pos.x
-    self.camera.y = self.player.pos.y - self.map.height
-
-    -- Advance the world by zero time to put it in a consistent state (e.g.
-    -- figure out what's on the ground, update the camera)
-    -- FIXME i would love to not do this because it keeps causing minor but
-    -- irritating surprises.  we can update the camera, sure, but i think a
-    -- newly-spawned actor should be able to deal with inconsistent state on
-    -- its own
-    self:update(0)
 end
 
 function WorldScene:reload_map()
