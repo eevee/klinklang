@@ -17,17 +17,6 @@ local TextScroller = require 'klinklang.ui.textscroller'
 -- - do...  something...?  to make passing speakers in easier and more consistent...
 -- - document this because i forget how it works rather a lot.  also better error checking or something idk
 
-local function _evaluate_condition(condition)
-    if condition == nil then
-        return true
-    elseif type(condition) == 'string' then
-        return game.progress.flags[condition]
-    else
-        return condition()
-    end
-end
-
-
 -- TODO maybe this should be a /speaker/ object?
 local StackedSprite = Object:extend{
     is_talking = false,
@@ -364,6 +353,8 @@ function DialogueScene:init(...)
 
     BaseScene.init(self)
 
+    self.callback_args = args.callback_args or {}
+
     self.wrapped = nil
     self.tick = tick.group()
 
@@ -657,6 +648,16 @@ function DialogueScene:update(dt)
     end
 end
 
+function DialogueScene:evaluate_condition(condition)
+    if condition == nil then
+        return true
+    elseif type(condition) == 'string' then
+        return game.progress.flags[condition]
+    else
+        return condition(unpack(self.callback_args))
+    end
+end
+
 function DialogueScene:_hesitate(time)
     -- Just in case this is a very short phrase, or the player tried to fill
     -- out the box just before it finished naturally (and missed), wait for a
@@ -705,7 +706,7 @@ function DialogueScene:show_menu(step)
 
     local items = {}
     for _, item in ipairs(step.menu) do
-        if _evaluate_condition(item.condition) then
+        if self:evaluate_condition(item.condition) then
             table.insert(items, {
                 value = item[1],
                 text = item[2],
@@ -801,8 +802,8 @@ function DialogueScene:run_from(script_index)
         -- Run arbitrary code
         if step.execute then
             -- FIXME you could reasonably have this alongside a jump, etc
-            if _evaluate_condition(step.condition) then
-                step.execute()
+            if self:evaluate_condition(step.condition) then
+                step.execute(unpack(self.callback_args))
             end
         end
         -- Change poses
@@ -849,7 +850,7 @@ function DialogueScene:run_from(script_index)
             return
         elseif step.jump then
             -- FIXME would be nice to scan the script for bad jumps upfront
-            if _evaluate_condition(step.condition) then
+            if self:evaluate_condition(step.condition) then
                 next_script_index = self.labels[step.jump]
             end
         end
