@@ -266,18 +266,10 @@ function TiledMapLayer:on_enter(map)
     for shape, tile in pairs(self.shapes) do
         map.collider:add(shape, self.tile_actors[tile])
     end
-
-    -- Also add all our tile actors, once each of course
-    for _, actor in pairs(self.tile_actors) do
-        map:add_actor(actor)
-    end
 end
 
 function TiledMapLayer:on_leave()
-    -- Undo what we did above: remove the tile actors, then the collisions
-    for _, actor in pairs(self.tile_actors) do
-        self.map:remove_actor(actor)
-    end
+    -- Undo what we did above: remove the collisions
     if self.layer.type == 'tilelayer' and self.shapes then
         for shape in pairs(self.shapes) do
             self.map.collider:remove(shape)
