@@ -600,7 +600,7 @@ function DialogueScene:check_script()
                             end
                         else
                             -- Layer => pose
-                            local layer = sprite.sprite_poses[k]
+                            local layer = sprite.sprites[k]
                             if not layer then
                                 table.insert(errors, ("Step %d: speaker '%s' has no layer '%s'"):format(i, step.speaker, k))
                             elseif v ~= false and not layer.spriteset.poses[v] then
