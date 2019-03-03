@@ -347,7 +347,7 @@ function Map:draw(aabb)
     -- TODO this has actually /increased/ z-fighting, good job.  
     -- FIXME the counter appears /in front/ of npcs while fading in??  what??
     table.sort(sorted_actors, function(actor1, actor2)
-        -- FIXME this is only for top-down mode, which is currently per-actor, yikes
+        -- FIXME this is only for top-down mode, which is currently per-actor, yikes!!
         -- FIXME i think this makes the sort non-transitive, whhhoooopps
         if actor1.pos and actor2.pos and actor1.pos.y ~= actor2.pos.y then
             return actor1.pos.y < actor2.pos.y
