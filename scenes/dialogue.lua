@@ -177,6 +177,8 @@ function DialogueMenu:init(kwargs)
     self.max_lines = math.floor(self.text_box.height / self.font_height)
     self.margin_y = math.floor((self.text_box.height - self.max_lines * self.font_height) / 2)
 
+    self.line_offset = math.floor(self.font:getHeight() * (self.font:getLineHeight() - 1) / self.font_prescale * 0.75)
+
     for _, item in ipairs(self.items) do
         local _textwidth, lines = self.font:getWrap(item.text, self.text_box.width * self.font_prescale)
         local texts = {}
@@ -294,6 +296,8 @@ function DialogueMenu:draw_item(item, line0, line1, lineno, is_selected)
             self.font_height * numlines)
     end
 
+    y = y + self.line_offset
+
     local scale = 1 / self.font_prescale
     for l = line0, line1 do
         -- Draw the text, twice: once for a drop shadow, then the text itself
@@ -374,6 +378,7 @@ function DialogueScene:init(...)
     self.tick = tick.group()
 
     -- FIXME should pass font in as an argument, somewhere
+    -- FIXME lol now that this is baked into speakers upfront, there is NO WAY to change it whatsoever
     self.font = love.graphics.getFont()
     self.font_prescale = 1
     self.font_height = math.ceil(self.font:getHeight() * self.font:getLineHeight())
@@ -747,7 +752,7 @@ function DialogueScene:evaluate_condition(condition)
     elseif type(condition) == 'string' then
         return game.progress.flags[condition]
     else
-        return condition(unpack(self.callback_args))
+        return condition(self, unpack(self.callback_args))
     end
 end
 
@@ -780,7 +785,7 @@ function DialogueScene:_say_phrase(step, phrase_index)
         self.phrase_speaker.font,
         self.phrase_speaker.font_prescale,
         text,
-        self.text_scroll_speed,
+        self.text_scroll_speed * (step.speed or 1),
         self.text_box.width,
         self.text_box.height,
         self.phrase_speaker.color,
@@ -896,7 +901,7 @@ function DialogueScene:run_from(script_index)
         if step.execute then
             -- FIXME you could reasonably have this alongside a jump, etc
             if self:evaluate_condition(step.condition) then
-                step.execute(unpack(self.callback_args))
+                step.execute(self, unpack(self.callback_args))
             end
         end
         -- Change poses
@@ -973,7 +978,10 @@ function DialogueScene:draw()
         -- There may be more available lines than will fit in the textbox; if
         -- so, only show the last few lines
         -- FIXME should prompt to scroll when we hit the bottom, probably
-        self.scroller:draw(self.text_box.x, self.text_box.y)
+        -- FIXME oh this is grody, plz font type
+        local line_offset = math.floor(self.scroller.font:getHeight() * (self.scroller.font:getLineHeight() - 1) / self.scroller.font_prescale * 0.75)
+
+        self.scroller:draw(self.text_box.x, self.text_box.y + line_offset)
 
         -- Draw a small chevron if we're waiting
         -- FIXME more magic numbers
@@ -982,6 +990,8 @@ function DialogueScene:draw()
         end
     end
     if self.menu then
+        -- FIXME just pop when appropriate dude
+        love.graphics.setColor(1, 1, 1)
         self.menu:draw()
     end
 
