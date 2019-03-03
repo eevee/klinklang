@@ -542,6 +542,10 @@ function DialogueScene:init(...)
         end
     end
 
+    if game.debug then
+        self:check_script()
+    end
+
     -- State of the current phrase
     self.curphrase = 1
     self.scroller = nil  -- TextScroller that holds the actual text
@@ -552,6 +556,80 @@ function DialogueScene:init(...)
     self.hesitating = false
 
     self.script_index = 0
+end
+
+-- Skim through the script for obvious errors.  Only called in debug mode.  Not
+-- 100% foolproof, since it only checks this one script (not all of them), but
+-- it should save some mild annoyance when testing by hand.
+function DialogueScene:check_script()
+    local errors = {}
+    for i, step in ipairs(self.script) do
+        -- Jump targets must exist
+        if step.jump then
+            if not self.labels[step.jump] then
+                table.insert(errors, ("Step %d: invalid jump target '%s'"):format(i, step.jump))
+            end
+        end
+
+        -- Speakers must exist, and their poses must be valid
+        if step.speaker then
+            local speaker = self.speakers[step.speaker]
+            if not speaker then
+                table.insert(errors, ("Step %d: invalid speaker '%s'"):format(i, step.speaker))
+            elseif step.pose then
+                local sprite = speaker.sprite
+                if step.pose == false then
+                    -- This is always fine
+                elseif type(step.pose) == 'string' then
+                    -- This is a metapose, check that it exists
+                    if not sprite.sprite_metaposes[step.pose] then
+                        table.insert(errors, ("Step %d: invalid metapose '%s'"):format(i, step.pose))
+                    end
+                else
+                    -- This is a table of metaposes and/or layer poses
+                    for k, v in pairs(step.pose) do
+                        if type(k) == 'number' then
+                            -- Metapose
+                            if not sprite.sprite_metaposes[v] then
+                                table.insert(errors, ("Step %d: invalid metapose '%s'"):format(i, v))
+                            end
+                        else
+                            -- Layer => pose
+                            local layer = sprite.sprite_poses[k]
+                            if not layer then
+                                table.insert(errors, ("Step %d: speaker '%s' has no layer '%s'"):format(i, step.speaker, k))
+                            elseif v ~= false and not layer.spriteset.poses[v] then
+                                table.insert(errors, ("Step %d: speaker '%s' layer '%s' has no pose '%s'"):format(i, step.speaker, k, v))
+                            end
+                        end
+                    end
+                end
+            end
+        elseif step.pose then
+            -- Poses can't exist without speakers
+            table.insert(errors, ("Step %d: pose given without speaker"):format(i))
+        end
+
+        -- Dialogue parts must be strings
+        for _, phrase in ipairs(step) do
+            if type(phrase) ~= 'string' then
+                table.insert(errors, ("Step %d: phrase is not a string"):format(i))
+            end
+        end
+
+        -- Menu labels must exist
+        if step.menu then
+            for _, choice in ipairs(step.menu) do
+                if not self.labels[choice[1]] then
+                    table.insert(errors, ("Step %d: invalid menu target '%s' "):format(i, choice[1]))
+                end
+            end
+        end
+    end
+
+    if #errors > 0 then
+        error("Dialogue script contains errors:\n  " .. table.concat(errors, "\n  "))
+    end
 end
 
 -- Assigns self.text_box, self.dialogue_box, etc., based on the game resolution
