@@ -58,6 +58,8 @@ function StackedSprite:init(data)
     end
 end
 
+-- A pose may be a single string (a metapose), or a table whose listy parts are
+-- metaposes and whose hashy parts are layer -> pose pairs.
 function StackedSprite:change_pose(pose)
     if pose == false then
         for name, sprite in pairs(self.sprites) do
@@ -66,23 +68,36 @@ function StackedSprite:change_pose(pose)
         return
     end
 
-    if type(pose) == 'string' or #pose == 0 then
+    if type(pose) == 'string' then
         pose = {pose}
     end
 
+    -- Combine changes from metaposes and individual layer changes
+    local changes = {}
+    -- Use ipairs separately, to guarantee that metaposes are applied in the
+    -- given order
     for _, metapose_name in ipairs(pose) do
-        local metapose
-        if type(metapose_name) == 'table' then
-            metapose = metapose_name
-        else
-            metapose = self.sprite_metaposes[metapose_name]
+        local metapose = self.sprite_metaposes[metapose_name]
+        if not metapose then
+            error(("No such metapose '%s'"):format(metapose_name))
         end
         for layer_name, subpose in pairs(metapose) do
-            -- TODO consult current is_talking
-            self.sprite_poses[layer_name] = subpose
-            if subpose ~= false then
-                self.sprites[layer_name]:set_pose(subpose)
-            end
+            changes[layer_name] = subpose
+        end
+    end
+    for key, value in pairs(pose) do
+        -- Skip any numeric keys, which were handled in the loop above
+        if type(key) ~= 'number' then
+            changes[key] = value
+        end
+    end
+
+    -- Apply the changes
+    for layer_name, subpose in pairs(changes) do
+        -- TODO consult current is_talking
+        self.sprite_poses[layer_name] = subpose
+        if subpose ~= false then
+            self.sprites[layer_name]:set_pose(subpose)
         end
     end
 end
@@ -816,6 +831,11 @@ function DialogueScene:run_from(script_index)
                 -- FIXME uhh, passing a direct speaker doesn't give a SpeakerSprite
                 if speaker.sprite.change_pose then
                     speaker.sprite:change_pose(step.pose)
+                    if step.pose == false then
+                        speaker.visible = false
+                    else
+                        speaker.visible = true
+                    end
                 elseif step.pose == false then
                     speaker.visible = false
                 else
