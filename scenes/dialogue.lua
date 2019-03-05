@@ -680,50 +680,6 @@ function DialogueScene:enter(previous_scene, is_bottom)
 end
 
 function DialogueScene:update(dt)
-    -- Let the player hold the B button for max dialogue speed, but stop at
-    -- menus
-    -- FIXME this causes a character or two to show while trying to execute a
-    -- scenefade
-    -- FIXME put this in baton
-    local holding_b = love.keyboard.isScancodeDown('d')
-    for i, joystick in ipairs(love.joystick.getJoysticks()) do
-        if joystick:isGamepad() then
-            if joystick:isGamepadDown('b') then
-                holding_b = true
-                break
-            end
-        end
-    end
-    if game.debug and holding_b then
-        if self.hesitate_delay then
-            self.hesitate_delay:stop()
-            self.hesitating = false
-        end
-        self:advance()
-    end
-
-    -- Do some things
-    if dt > 0 and not self.hesitating then
-        if game.input:pressed('accept') then
-            if self.menu then
-                local label = self.menu:accept()
-                self.menu = nil
-                self.state = 'waiting'
-                self:run_from(label)
-            elseif not self.hesitating then
-                self:advance()
-            end
-        elseif game.input:pressed('up') then
-            if self.menu then
-                self.menu:cursor_up()
-            end
-        elseif game.input:pressed('down') then
-            if self.menu then
-                self.menu:cursor_down()
-            end
-        end
-    end
-
     self.tick:update(dt)
 
     for _, speaker in pairs(self.speakers) do
@@ -741,6 +697,53 @@ function DialogueScene:update(dt)
             -- TODO would be fine if always stacked...
             if self.phrase_speaker.sprite and self.phrase_speaker.sprite.set_talking then
                 self.phrase_speaker.sprite:set_talking(false)
+            end
+        end
+    end
+
+    -- Check input LAST.  This way, text won't start scrolling until the next
+    -- tick, which is important for e.g. scene transitions (so that our first
+    -- drawn frame while "frozen" doesn't have one or two letters already
+    -- showing).
+
+    -- Also let the player hold the B button for max dialogue speed, but stop
+    -- at menus
+    local holding_b = love.keyboard.isScancodeDown('d')
+    for i, joystick in ipairs(love.joystick.getJoysticks()) do
+        if joystick:isGamepad() then
+            if joystick:isGamepadDown('b') then
+                holding_b = true
+                break
+            end
+        end
+    end
+    if game.debug and holding_b then
+        if self.hesitate_delay then
+            self.hesitate_delay:stop()
+            self.hesitating = false
+        end
+        self:advance()
+        return
+    end
+
+    -- Handle regular input
+    if dt > 0 and not self.hesitating then
+        if game.input:pressed('accept') then
+            if self.menu then
+                local label = self.menu:accept()
+                self.menu = nil
+                self.state = 'waiting'
+                self:run_from(label)
+            elseif not self.hesitating then
+                self:advance()
+            end
+        elseif game.input:pressed('up') then
+            if self.menu then
+                self.menu:cursor_up()
+            end
+        elseif game.input:pressed('down') then
+            if self.menu then
+                self.menu:cursor_down()
             end
         end
     end
@@ -886,7 +889,7 @@ function DialogueScene:run_from(script_index)
         if self.script_index > #self.script then
             -- TODO actually not sure what should happen here
             self.state = 'done'
-            Gamestate.pop()
+            self:exit()
             return
         end
         next_script_index = self.script_index + 1
@@ -941,7 +944,7 @@ function DialogueScene:run_from(script_index)
         -- Late stage: what to do next
         if step.bail then
             self.state = 'done'
-            Gamestate.pop()
+            self:exit()
             return
         elseif step.pause then
             -- TODO this is kind of hacky, but fixes the problem that an
@@ -958,6 +961,10 @@ function DialogueScene:run_from(script_index)
             end
         end
     end
+end
+
+function DialogueScene:exit()
+    Gamestate.pop()
 end
 
 function DialogueScene:draw()
