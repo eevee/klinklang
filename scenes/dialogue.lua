@@ -7,6 +7,7 @@ local actors_base = require 'klinklang.actors.base'
 local BaseScene = require 'klinklang.scenes.base'
 local Object = require 'klinklang.object'
 local BorderImage = require 'klinklang.ui.borderimage'
+local ElasticFont = require 'klinklang.ui.elasticfont'
 local TextScroller = require 'klinklang.ui.textscroller'
 
 
@@ -164,26 +165,21 @@ function DialogueMenu:init(kwargs)
     self.items = kwargs.items
     self.box = kwargs.box
     self.text_box = kwargs.text_box
-    self.font = kwargs.font or love.graphics.getFont()
-    self.font_prescale = kwargs.font_prescale or 1
+    self.font = ElasticFont:coerce(kwargs.font)
     -- FIXME i am real inconsistent about what text/shadow colors are called
     self.shadow_color = kwargs.shadow
     self.text_color = kwargs.color
     -- FIXME also this, though it would break stuff
     self.background = kwargs.background
 
-    -- TODO i sure do repeat this a lot; can i encapsulate it, somehow
-    self.font_height = math.ceil(self.font:getHeight() * self.font:getLineHeight() / self.font_prescale)
-    self.max_lines = math.floor(self.text_box.height / self.font_height)
-    self.margin_y = math.floor((self.text_box.height - self.max_lines * self.font_height) / 2)
-
-    self.line_offset = math.floor(self.font:getHeight() * (self.font:getLineHeight() - 1) / self.font_prescale * 0.75)
+    self.max_lines = math.floor(self.text_box.height / self.font.full_height)
+    self.margin_y = math.floor((self.text_box.height - self.max_lines * self.font.full_height) / 2)
 
     for _, item in ipairs(self.items) do
-        local _textwidth, lines = self.font:getWrap(item.text, self.text_box.width * self.font_prescale)
+        local _textwidth, lines = self.font:wrap(item.text, self.text_box.width)
         local texts = {}
         for i, line in ipairs(lines) do
-            texts[i] = love.graphics.newText(self.font, line)
+            texts[i] = self.font:render_elastic(line)
         end
         item.texts = texts
         item.lines = lines
@@ -280,7 +276,7 @@ end
 function DialogueMenu:draw_item(item, line0, line1, lineno, is_selected)
     -- Center the text within the available space
     local x = self.text_box.x
-    local y = self.text_box.y + self.margin_y + self.font_height * lineno
+    local y = self.text_box.y + self.margin_y + self.font.full_height * lineno
 
     if is_selected then
         local numlines = line1 - line0 + 1
@@ -293,21 +289,21 @@ function DialogueMenu:draw_item(item, line0, line1, lineno, is_selected)
             self.text_box.x - 4,
             y,
             self.text_box.width + 8,
-            self.font_height * numlines)
+            self.font.full_height * numlines)
     end
 
-    y = y + self.line_offset
+    y = y + self.font.line_offset
 
-    local scale = 1 / self.font_prescale
+    local scale = 1 / self.font.scale
     for l = line0, line1 do
         -- Draw the text, twice: once for a drop shadow, then the text itself
         love.graphics.setColor(self.shadow_color)
-        love.graphics.draw(item.texts[l], x, y + 1, 0, scale)
+        item.texts[l]:draw(x, y + 1, 0, scale)
 
         love.graphics.setColor(self.text_color)
-        love.graphics.draw(item.texts[l], x, y, 0, scale)
+        item.texts[l]:draw(x, y, 0, scale)
 
-        y = y + self.font_height
+        y = y + self.font.full_height
     end
 end
 
@@ -377,11 +373,7 @@ function DialogueScene:init(...)
     self.wrapped = nil
     self.tick = tick.group()
 
-    -- FIXME should pass font in as an argument, somewhere
-    -- FIXME lol now that this is baked into speakers upfront, there is NO WAY to change it whatsoever
-    self.font = love.graphics.getFont()
-    self.font_prescale = 1
-    self.font_height = math.ceil(self.font:getHeight() * self.font:getLineHeight())
+    self.font = ElasticFont:coerce(args.font)
 
     -- TODO a good start, but
     self.speakers = {}
@@ -402,7 +394,6 @@ function DialogueScene:init(...)
                 position = actor.dialogue_position,
                 color = actor.dialogue_color,
                 shadow = actor.dialogue_shadow,
-                font_prescale = actor.dialogue_font_prescale,
                 sprite = actor.dialogue_sprite_name or actor.dialogue_sprites,
                 background = actor.dialogue_background,
                 chatter_sfx = actor.dialogue_chatter_sound,
@@ -469,22 +460,14 @@ function DialogueScene:init(...)
             speaker.chatter_sfx = config.chatter_sfx
         end
 
-        -- Font stuff is a bit tricky, since we don't want to mix a speaker's font
-        -- with the default prescale, or vice versa
         if type(config.font) == 'string' then
             -- Note that this uses get, not load, so that it can grab named fonts
             -- TODO is that goofy, it feels goofy
-            speaker.font = game.resource_manager:get(config.font)
+            -- FIXME this should be planned out better.
+            speaker.font = ElasticFont:coerce(game.resource_manager:get(config.font))
         else
-            speaker.font = config.font
+            speaker.font = ElasticFont:coerce(config.font or self.font)
         end
-        if speaker.font then
-            speaker.font_prescale = config.font_prescale or 1
-        else
-            speaker.font = self.font
-            speaker.font_prescale = self.font_prescale
-        end
-        speaker.font_height = math.ceil(speaker.font:getHeight() * speaker.font:getLineHeight() / speaker.font_prescale)
 
         -- FIXME this is redundant with StackedSprite, but oh well
         speaker.visible = true
@@ -649,6 +632,8 @@ function DialogueScene:recompute_layout()
 
     self.text_box = self.dialogue_box:with_margin(self.text_margin_x, self.text_margin_y)
 
+    self.font:set_scale(game.scale)
+
     -- FIXME it would be nice to do this automatically again, albeit with some
     -- wiggle room for portraits like cerise who can clip off the top of the
     -- screen without causing any problems (maybe even use the collision
@@ -658,6 +643,7 @@ function DialogueScene:recompute_layout()
     self.speaker_scale = 1
 
     for _, speaker in pairs(self.speakers) do
+        speaker.font:set_scale(game.scale)
         if speaker.sprite then
             speaker.sprite:set_scale(self.speaker_scale)
         end
@@ -786,7 +772,6 @@ function DialogueScene:_say_phrase(step, phrase_index)
     -- TODO uh, i think this broke chatter sounds  :(
     self.scroller = TextScroller(
         self.phrase_speaker.font,
-        self.phrase_speaker.font_prescale,
         text,
         self.text_scroll_speed * (step.speed or 1),
         self.text_box.width,
@@ -825,7 +810,6 @@ function DialogueScene:show_menu(step)
         shadow = speaker.shadow_color,
         color = speaker.color,
         font = speaker.font,
-        font_prescale = speaker.font_prescale,
     }
 end
 
@@ -985,10 +969,7 @@ function DialogueScene:draw()
         -- There may be more available lines than will fit in the textbox; if
         -- so, only show the last few lines
         -- FIXME should prompt to scroll when we hit the bottom, probably
-        -- FIXME oh this is grody, plz font type
-        local line_offset = math.floor(self.scroller.font:getHeight() * (self.scroller.font:getLineHeight() - 1) / self.scroller.font_prescale * 0.75)
-
-        self.scroller:draw(self.text_box.x, self.text_box.y + line_offset)
+        self.scroller:draw(self.text_box.x, self.text_box.y + self.scroller.font.line_offset)
 
         -- Draw a small chevron if we're waiting
         -- FIXME more magic numbers
