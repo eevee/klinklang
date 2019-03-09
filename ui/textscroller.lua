@@ -1,6 +1,7 @@
 local utf8 = require 'utf8'
 
 local Object = require 'klinklang.object'
+local ElasticFont = require 'klinklang.ui.elasticfont'
 
 -- TODO wishlist:
 -- - fancier text that should maybe be its own type
@@ -28,9 +29,8 @@ local TextScroller = Object:extend{
     byte_offset = 0,  -- in current line
 }
 
-function TextScroller:init(font, font_prescale, text, speed, width, height, color, shadow_color)
-    self.font = font
-    self.font_prescale = font_prescale or 1
+function TextScroller:init(font, text, speed, width, height, color, shadow_color)
+    self.font = ElasticFont:coerce(font)
     self.text = text
     self.speed = speed
     self.width = width
@@ -38,11 +38,10 @@ function TextScroller:init(font, font_prescale, text, speed, width, height, colo
     self.color = color
     self.shadow_color = shadow_color
 
-    self.font_height = font:getHeight() * font:getLineHeight() / self.font_prescale
-    self.max_lines = math.floor(self.height / self.font_height)
-    self.y0 = math.floor(self.height % self.font_height / 2)
+    self.max_lines = math.floor(self.height / self.font.full_height)
+    self.y0 = math.floor(self.height % self.font.full_height / 2)
 
-    local _textwidth, lines = font:getWrap(text, self.width * self.font_prescale)
+    local _textwidth, lines = self.font:wrap(text, self.width)
     self.phrase_lines = lines
     self.phrase_texts = {}
 end
@@ -67,7 +66,7 @@ function TextScroller:fill()
     end
 
     for l = self.line, lastline do
-        self.phrase_texts[l] = love.graphics.newText(self.font, self.phrase_lines[l])
+        self.phrase_texts[l] = self.font:render_elastic(self.phrase_lines[l])
     end
     self.line = lastline + 1
     self.byte_offset = 0
@@ -99,7 +98,7 @@ function TextScroller:update(dt)
             self.byte_offset = second_char_offset - 1
         else
             -- There is no second byte, so we've hit the end of the line
-            self.phrase_texts[self.line] = love.graphics.newText(font, self.phrase_lines[self.line])
+            self.phrase_texts[self.line] = self.font:render_elastic(self.phrase_lines[self.line])
             self.line = self.line + 1
             self.byte_offset = 0
 
@@ -143,15 +142,13 @@ function TextScroller:update(dt)
     -- haven't shown any of the current line yet, or we might shift
     -- everything up just to draw a blank line.
     if need_redraw and self.byte_offset > 0 then
-        self.phrase_texts[self.line] = love.graphics.newText(
-            font,
+        self.phrase_texts[self.line] = self.font:render_elastic(
             string.sub(self.phrase_lines[self.line], 1, self.byte_offset))
     end
 end
 
 function TextScroller:draw(x, y)
     y = y + self.y0
-    local scale = 1 / self.font_prescale
     -- Don't use self.line here, because it might be a line we haven't started
     -- drawing at all yet
     local first_line = math.max(1, #self.phrase_texts - self.max_lines + 1)
@@ -160,12 +157,12 @@ function TextScroller:draw(x, y)
         local text = self.phrase_texts[i]
         -- Draw the text, twice: once for a drop shadow, then the text itself
         love.graphics.setColor(self.shadow_color)
-        love.graphics.draw(text, x, y + 1, 0, scale)
+        text:draw(x, y + 1)
 
         love.graphics.setColor(self.color)
-        love.graphics.draw(text, x, y, 0, scale)
+        text:draw(x, y)
 
-        y = y + self.font_height
+        y = y + self.font.full_height
     end
 end
 

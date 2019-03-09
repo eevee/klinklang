@@ -294,14 +294,13 @@ function DialogueMenu:draw_item(item, line0, line1, lineno, is_selected)
 
     y = y + self.font.line_offset
 
-    local scale = 1 / self.font.scale
     for l = line0, line1 do
         -- Draw the text, twice: once for a drop shadow, then the text itself
         love.graphics.setColor(self.shadow_color)
-        item.texts[l]:draw(x, y + 1, 0, scale)
+        item.texts[l]:draw(x, y + 1)
 
         love.graphics.setColor(self.text_color)
-        item.texts[l]:draw(x, y, 0, scale)
+        item.texts[l]:draw(x, y)
 
         y = y + self.font.full_height
     end

@@ -17,9 +17,10 @@ function ElasticText:update_render()
     self.text = self.elastic_font:render(self.string)
 end
 
--- FIXME should this automatically apply the font's scale?
-function ElasticText:draw(...)
-    love.graphics.draw(self.text, ...)
+-- TODO should this use the font's line offset too??  that seems slightly out of scope
+function ElasticText:draw(x, y, rot, sx, sy, ...)
+    local scale = self.elastic_font.scale
+    love.graphics.draw(self.text, x, y, rot, (sx or 1) / scale, (sy or 1) / scale, ...)
 end
 
 
@@ -38,9 +39,6 @@ function ElasticFont:init(path, size, line_height, props)
     self.size = size
     self.line_height = line_height or 1
     self.props = props
-
-    self.path = 'assets/fonts/Comfortaa-Regular.ttf'
-    self.size = 20
 
     local font = love.graphics.newFont(self.path, self.size)
     font:setLineHeight(self.line_height)
