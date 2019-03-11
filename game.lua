@@ -90,7 +90,9 @@ function Game:getDimensions()
 end
 
 function Game:transform_viewport()
-    love.graphics.setScissor(self.screen:xywh())
+    -- FIXME this doesn't work if this is stacked with, like, fucking anything
+    -- else.  in particular it fucks up redirecting a scene draw onto a canvas
+    --love.graphics.setScissor(self.screen:xywh())
     love.graphics.translate(self.screen.x, self.screen.y)
     love.graphics.scale(self.scale, self.scale)
 end
