@@ -340,6 +340,13 @@ function WorldScene:draw()
     love.graphics.push('all')
     love.graphics.setCanvas{self.canvas, stencil=true}
     love.graphics.clear()
+    -- Since we're drawing to a canvas, any external transform shenanigans
+    -- don't make sense here, so reset to origin.  They'll be restored when we
+    -- draw the final canvas, which is important for e.g. capturing our output
+    -- onto another canvas
+    -- FIXME since we ALREADY draw to a canvas it's a little silly to have to
+    -- capture onto another one
+    love.graphics.origin()
 
     -- FIXME where does this belong...?  the camera is in the world, but we
     -- have some layers that may care about world coordinates.  maybe they
