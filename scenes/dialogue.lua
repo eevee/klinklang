@@ -879,14 +879,14 @@ function DialogueScene:run_from(script_index)
         local step = self.script[self.script_index]
 
         -- Early stage
-        -- Flags
-        if step.set then
-            game.progress.flags[step.set] = true
-        end
-        -- Run arbitrary code
-        if step.execute then
-            -- FIXME you could reasonably have this alongside a jump, etc
-            if self:evaluate_condition(step.condition) then
+        -- FIXME you could reasonably have a condition alongside a jump, too
+        if self:evaluate_condition(step.condition) then
+            -- Flags
+            if step.set then
+                game.progress.flags[step.set] = true
+            end
+            -- Run arbitrary code
+            if step.execute then
                 step.execute(self, unpack(self.callback_args))
             end
         end
