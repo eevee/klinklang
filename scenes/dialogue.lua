@@ -691,18 +691,8 @@ function DialogueScene:update(dt)
     -- drawn frame while "frozen" doesn't have one or two letters already
     -- showing).
 
-    -- Also let the player hold the B button for max dialogue speed, but stop
-    -- at menus
-    local holding_b = love.keyboard.isScancodeDown('d')
-    for i, joystick in ipairs(love.joystick.getJoysticks()) do
-        if joystick:isGamepad() then
-            if joystick:isGamepadDown('b') then
-                holding_b = true
-                break
-            end
-        end
-    end
-    if game.debug and holding_b then
+    -- Also let devs accelerate through text (but stop at menus)
+    if game.debug and game.input:down('debug fast-forward') then
         if self.hesitate_delay then
             self.hesitate_delay:stop()
             self.hesitating = false
