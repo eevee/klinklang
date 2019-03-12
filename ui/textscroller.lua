@@ -23,7 +23,6 @@ local ElasticFont = require 'klinklang.ui.elasticfont'
 local TextScroller = Object:extend{
     waiting = false,  -- have we run out of space?  FIXME or something else
     finished = false,  -- have we reached the end of the text?
-    last_was_space = true,  -- was the last character we scrolled a space?
     clock = 0,  -- when this rolls over, show a new character
     line = 1,  -- current line being scrolled (possibly doesn't exist yet)
     byte_offset = 0,  -- in current line
@@ -44,6 +43,11 @@ function TextScroller:init(font, text, speed, width, height, color, shadow_color
     local _textwidth, lines = self.font:wrap(text, self.width)
     self.phrase_lines = lines
     self.phrase_texts = {}
+end
+
+-- Feel free to replace this to do a thing per character, such as, I dunno, play a voice sound
+-- FIXME this is a really stupid interface
+function TextScroller:oncharacter(ch)
 end
 
 function TextScroller:first_line_offset()
@@ -82,7 +86,6 @@ function TextScroller:update(dt)
     end
 
     self.clock = self.clock + dt * self.speed
-    local font = self.font
     local need_redraw = (self.clock >= 1)
     -- Show as many new characters as necessary, based on time elapsed
     while self.clock >= 1 do
@@ -95,7 +98,16 @@ function TextScroller:update(dt)
         -- return one byte past the end of the string as an offset.)
         local second_char_offset = utf8.offset(self.phrase_lines[self.line], 2, self.byte_offset + 1)
         if second_char_offset then
+            local char = string.sub(self.phrase_lines[self.line], self.byte_offset + 1, second_char_offset - 1)
+
             self.byte_offset = second_char_offset - 1
+
+            -- Count a non-whitespace character against the timer
+            if not char:match('%s') then
+                self.clock = self.clock - 1
+            end
+
+            self:oncharacter(char)
         else
             -- There is no second byte, so we've hit the end of the line
             self.phrase_texts[self.line] = self.font:render_elastic(self.phrase_lines[self.line])
@@ -114,27 +126,6 @@ function TextScroller:update(dt)
                 self.waiting = true
                 break
             end
-        end
-        -- Count a non-whitespace character against the timer.
-        -- Note that this is a byte slice of the end of a UTF-8 character,
-        -- but spaces are a single byte in UTF-8, so it's fine.
-        if string.sub(self.phrase_lines[self.line], self.byte_offset, self.byte_offset) == " " then
-            self.last_was_space = true
-        else
-            if self.last_was_space and self.chatter_enabled and self.phrase_speaker.chatter_sfx and not self.script[self.script_index].silent then
-                -- FIXME this probably doesn't belong here?  unless it does?  maybe as a callback?
-                local sfx = self.phrase_speaker.chatter_sfx:clone()
-                -- Pitch is exponential!
-                sfx:setPitch(math.pow(2, math.random()))
-                sfx:play()
-
-                self.chatter_enabled = false
-                self.tick:delay(function()
-                    self.chatter_enabled = true
-                end, sfx:getDuration() / 4)
-            end
-            self.last_was_space = false
-            self.clock = self.clock - 1
         end
     end
     -- Re-render the visible part of the current line if the above loop

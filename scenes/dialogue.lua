@@ -777,6 +777,25 @@ function DialogueScene:_say_phrase(step, phrase_index)
         self.text_box.height,
         self.phrase_speaker.color,
         self.phrase_speaker.shadow_color)
+    local chatter_sfx = self.phrase_speaker.chatter_sfx
+    if chatter_sfx and not self.script[self.script_index].silent then
+        local last_was_alpha = false
+        function self.scroller.oncharacter(scroller, ch)
+            local is_alpha = ch:match('%w')
+            if last_was_alpha and self.chatter_enabled then
+                local sfx = chatter_sfx:clone()
+                -- Pitch is exponential!
+                sfx:setPitch(math.pow(2, math.random()))
+                sfx:play()
+
+                self.chatter_enabled = false
+                self.tick:delay(function()
+                    self.chatter_enabled = true
+                end, sfx:getDuration() / 4)
+            end
+            last_was_alpha = is_alpha
+        end
+    end
 
     self.state = 'speaking'
     -- TODO if stacked...
