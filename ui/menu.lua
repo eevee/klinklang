@@ -2,6 +2,7 @@
 local Vector = require 'klinklang.vendor.hump.vector'
 
 local Object = require 'klinklang.object'
+local ElasticFont = require 'klinklang.ui.elasticfont'
 
 local Menu = Object:extend{}
 
@@ -10,14 +11,22 @@ function Menu:init(choices)
     self.cursor = 1
     self.cursor_sprite = game.sprites['menu cursor']:instantiate()
 
+    self.font = ElasticFont:coerce(choices.font)
+    self.cursor_indent = choices.cursor_indent or 0
+
     self.width = 0
     self.height = 0
     for _, choice in ipairs(self.choices) do
-        choice.text = love.graphics.newText(m5x7, choice.label)
-        choice.text_width = choice.text:getWidth()
+        choice.text = self.font:render_elastic(choice.label)
+        -- FIXME this is cumbersome, maybe return original dimensions from render_elastic or add a method on text idk
+        local original_text = self.font:render(choice.label)
+        choice.text_width = original_text:getWidth()
+        choice.text_height = original_text:getHeight()
         self.width = math.max(self.width, choice.text_width)
-        self.height = self.height + choice.text:getHeight()
+        self.height = self.height + choice.text_height
     end
+
+    self.width = self.width + self.cursor_indent
 end
 
 function Menu:update(dt)
@@ -33,9 +42,9 @@ function Menu:draw(args)
     local margin = args.margin or 0
     local marginx = args.marginx or margin
     local marginy = args.marginy or margin
-    local bgcolor = args.bgcolor
-    local shadowcolor = args.shadowcolor
-    local textcolor = args.textcolor or {255, 255, 255}
+    local bgcolor = args.bgcolor or nil
+    local shadowcolor = args.shadowcolor or nil
+    local textcolor = args.textcolor or {1, 1, 1}
 
     -- FIXME hardcoded, bleh
     local cursor_width = 16
@@ -64,17 +73,22 @@ function Menu:draw(args)
     end
 
     x = x + marginx + cursor_width
-    y = y + marginy
+    y = y + marginy + self.font.line_offset
     for i, choice in ipairs(self.choices) do
+        local dx = 0
+        if i == self.cursor then
+            dx = self.cursor_indent
+        end
+
         if shadowcolor then
             love.graphics.setColor(shadowcolor)
-            love.graphics.draw(choice.text, x, y + 2)
+            choice.text:draw(x + dx, y + 2)
         end
         love.graphics.setColor(textcolor)
-        love.graphics.draw(choice.text, x, y)
-        local th = choice.text:getHeight()
+        choice.text:draw(x + dx, y)
+        local th = choice.text_height
         if i == self.cursor then
-            self.cursor_sprite:draw_at(Vector(x - cursor_width, y + th / 2))
+            self.cursor_sprite:draw_at(Vector(x + dx - cursor_width, y + th / 2 - self.font.line_offset))
         end
         y = y + th
     end

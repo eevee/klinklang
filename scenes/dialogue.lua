@@ -151,6 +151,7 @@ function StackedSprite:draw_anchorless(pos)
 end
 
 
+-- TODO i already have ui.menu, which you might think would be useful here,
 local DialogueMenu = Object:extend{
     -- State
     -- List of items in the menu
