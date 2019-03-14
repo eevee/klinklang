@@ -45,6 +45,7 @@ function Menu:draw(args)
     local bgcolor = args.bgcolor or nil
     local shadowcolor = args.shadowcolor or nil
     local textcolor = args.textcolor or {1, 1, 1}
+    local selectedcolor = args.selectedcolor or textcolor
 
     -- FIXME hardcoded, bleh
     local cursor_width = 16
@@ -84,10 +85,16 @@ function Menu:draw(args)
             love.graphics.setColor(shadowcolor)
             choice.text:draw(x + dx, y + 2)
         end
-        love.graphics.setColor(textcolor)
+        if i == self.cursor then
+            love.graphics.setColor(selectedcolor)
+        else
+            love.graphics.setColor(textcolor)
+        end
         choice.text:draw(x + dx, y)
+
         local th = choice.text_height
         if i == self.cursor then
+            love.graphics.setColor(1, 1, 1)
             self.cursor_sprite:draw_at(Vector(x + dx - cursor_width, y + th / 2 - self.font.line_offset))
         end
         y = y + th
