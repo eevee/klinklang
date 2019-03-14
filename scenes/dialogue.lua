@@ -693,7 +693,7 @@ function DialogueScene:update(dt)
     -- showing).
 
     -- Also let devs accelerate through text (but stop at menus)
-    if game.debug and game.input:down('debug fast-forward') then
+    if game.debug and game.input:down('debug fast-forward') and not self.menu then
         if self.hesitate_delay then
             self.hesitate_delay:stop()
             self.hesitating = false
