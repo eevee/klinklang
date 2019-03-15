@@ -113,6 +113,11 @@ function ElasticFont:set_scale(scale)
     end
 end
 
+-- Returns the UNSCALED width of the given text.
+function ElasticFont:get_width(string)
+    return self.original_font:getWidth(string)
+end
+
 -- Wraps text to an UNSCALED width, a la Font:getWrap.
 function ElasticFont:wrap(string, width)
     return self.original_font:getWrap(string, width)
