@@ -51,7 +51,7 @@ local function divmod1(n, b)
 end
 
 local function random_float(a, b)
-    return a + math.random() * (b - a)
+    return a + love.math.random() * (b - a)
 end
 
 local function lerp(t, a, b)
