@@ -21,7 +21,7 @@ function Menu:init(choices)
         choice.text = self.font:render_elastic(choice.label)
         choice.text_width = self.font:get_width(choice.label)
         -- FIXME hmm assumes one line, but there's no wrapping support here anyway
-        choice.text_height = original_text:getHeight()
+        choice.text_height = self.font.full_height
         self.width = math.max(self.width, choice.text_width)
         self.height = self.height + choice.text_height
     end

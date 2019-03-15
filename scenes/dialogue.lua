@@ -153,6 +153,10 @@ end
 
 -- TODO i already have ui.menu, which you might think would be useful here,
 local DialogueMenu = Object:extend{
+    -- FIXME cursor width interaction with text_box and wrapping
+    cursor_width = 0,
+    cursor_indent = 0,
+
     -- State
     -- List of items in the menu
     items = nil,
@@ -172,6 +176,7 @@ function DialogueMenu:init(kwargs)
     self.text_color = kwargs.color
     -- FIXME also this, though it would break stuff
     self.background = kwargs.background
+    self.selected_background = {1, 1, 1, 0.25}
 
     self.max_lines = math.floor(self.text_box.height / self.font.full_height)
     self.margin_y = math.floor((self.text_box.height - self.max_lines * self.font.full_height) / 2)
@@ -276,21 +281,29 @@ end
 
 function DialogueMenu:draw_item(item, line0, line1, lineno, is_selected)
     -- Center the text within the available space
-    local x = self.text_box.x
+    local x = self.text_box.x + self.cursor_width
     local y = self.text_box.y + self.margin_y + self.font.full_height * lineno
 
     if is_selected then
-        local numlines = line1 - line0 + 1
-        love.graphics.setColor(1, 1, 1, 0.25)
-        -- FIXME magic numbers; this used to use the text margin, but that
-        -- seems bad too?  maybe should ADD a margin when computing text here
-        -- idk
-        love.graphics.rectangle(
-            'fill',
-            self.text_box.x - 4,
-            y,
-            self.text_box.width + 8,
-            self.font.full_height * numlines)
+        x = x + self.cursor_indent
+
+        if self.selected_background then
+            local numlines = line1 - line0 + 1
+            love.graphics.setColor(self.selected_background)
+            -- FIXME magic numbers; this used to use the text margin, but that
+            -- seems bad too?  maybe should ADD a margin when computing text here
+            -- idk
+            love.graphics.rectangle(
+                'fill',
+                self.text_box.x - 4,
+                y,
+                self.text_box.width + 8,
+                self.font.full_height * numlines)
+        end
+        if self.cursor_sprite then
+            love.graphics.setColor(1, 1, 1)
+            self.cursor_sprite:draw_at(Vector(x - self.cursor_width, y + math.floor(self.font.full_height / 2)))
+        end
     end
 
     y = y + self.font.line_offset
@@ -300,7 +313,11 @@ function DialogueMenu:draw_item(item, line0, line1, lineno, is_selected)
         love.graphics.setColor(self.shadow_color)
         item.texts[l]:draw(x, y + 1)
 
-        love.graphics.setColor(self.text_color)
+        if is_selected and self.selected_color then
+            love.graphics.setColor(self.selected_color)
+        else
+            love.graphics.setColor(self.text_color)
+        end
         item.texts[l]:draw(x, y)
 
         y = y + self.font.full_height
@@ -347,6 +364,9 @@ local DialogueScene = BaseScene:extend{
     default_color = {1, 1, 1},
     default_shadow = {0, 0, 0, 0.5},
     inactive_speaker_color = {0.75, 0.75, 0.75},
+
+    -- Utility types
+    DialogueMenu = DialogueMenu,
 }
 
 -- TODO as with DeadScene, it would be nice if i could formally eat keyboard input
@@ -374,6 +394,9 @@ function DialogueScene:init(...)
     self.tick = tick.group()
 
     self.font = ElasticFont:coerce(args.font)
+
+    self.cursor_sfx = args.cursor_sfx
+    self.accept_sfx = args.accept_sfx
 
     -- TODO a good start, but
     self.speakers = {}
@@ -706,6 +729,9 @@ function DialogueScene:update(dt)
     if dt > 0 and not self.hesitating then
         if game.input:pressed('accept') then
             if self.menu then
+                if self.accept_sfx then
+                    self.accept_sfx:clone():play()
+                end
                 local label = self.menu:accept()
                 self.menu = nil
                 self.state = 'waiting'
@@ -715,10 +741,16 @@ function DialogueScene:update(dt)
             end
         elseif game.input:pressed('up') then
             if self.menu then
+                if self.cursor_sfx then
+                    self.cursor_sfx:clone():play()
+                end
                 self.menu:cursor_up()
             end
         elseif game.input:pressed('down') then
             if self.menu then
+                if self.cursor_sfx then
+                    self.cursor_sfx:clone():play()
+                end
                 self.menu:cursor_down()
             end
         end
@@ -810,7 +842,7 @@ function DialogueScene:show_menu(step)
     end
 
     local speaker = self.speakers[step.speaker]
-    self.menu = DialogueMenu{
+    self.menu = self.DialogueMenu{
         items = items,
         box = self.menu_box,
         text_box = self.menu_text_box,
