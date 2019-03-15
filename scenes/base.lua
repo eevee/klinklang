@@ -12,4 +12,7 @@ function BaseScene:init()
     self.init = self.scene_init
 end
 
+function BaseScene:resize()
+end
+
 return BaseScene
