@@ -1,6 +1,7 @@
 -- FIXME this would be pretty handy if it were finished and fleshed out!
 local Vector = require 'klinklang.vendor.hump.vector'
 
+local AABB = require 'klinklang.aabb'
 local Object = require 'klinklang.object'
 local ElasticFont = require 'klinklang.ui.elasticfont'
 
@@ -43,6 +44,8 @@ function Menu:draw(args)
     local marginx = args.marginx or margin
     local marginy = args.marginy or margin
     local bgcolor = args.bgcolor or nil
+    local background = args.background or nil
+    local shadow = args.shadow or 2
     local shadowcolor = args.shadowcolor or nil
     local textcolor = args.textcolor or {1, 1, 1}
     local selectedcolor = args.selectedcolor or textcolor
@@ -68,7 +71,9 @@ function Menu:draw(args)
 
     love.graphics.push('all')
 
-    if bgcolor then
+    if background then
+        background:fill(AABB(x, y, mw, mh))
+    elseif bgcolor then
         love.graphics.setColor(bgcolor)
         love.graphics.rectangle('fill', x, y, mw, mh)
     end
@@ -83,7 +88,7 @@ function Menu:draw(args)
 
         if shadowcolor then
             love.graphics.setColor(shadowcolor)
-            choice.text:draw(x + dx, y + 2)
+            choice.text:draw(x + dx, y + shadow)
         end
         if i == self.cursor then
             love.graphics.setColor(selectedcolor)
