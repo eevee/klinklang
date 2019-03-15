@@ -19,9 +19,8 @@ function Menu:init(choices)
     self.height = 0
     for _, choice in ipairs(self.choices) do
         choice.text = self.font:render_elastic(choice.label)
-        -- FIXME this is cumbersome, maybe return original dimensions from render_elastic or add a method on text idk
-        local original_text = self.font:render(choice.label)
-        choice.text_width = original_text:getWidth()
+        choice.text_width = self.font:get_width(choice.label)
+        -- FIXME hmm assumes one line, but there's no wrapping support here anyway
         choice.text_height = original_text:getHeight()
         self.width = math.max(self.width, choice.text_width)
         self.height = self.height + choice.text_height
