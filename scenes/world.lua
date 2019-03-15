@@ -316,12 +316,23 @@ function WorldScene:update(dt)
     -- TODO if the slowdown is due to the updates, not the draw, then this is
     -- not going to help!  might be worth timing this and giving up if it takes
     -- more time than it's trying to simulate
+    -- FIXME this actually completely breaks Cherry Kisses, because it allows
+    -- several dialogue scenes to pile up in the same frame, before gamestate
+    -- can kick in and block the next update.  (note that this is a problem in
+    -- general.)  even ignoring that, this is still bogus because it doesn't
+    -- update input between the updates!  and my physics code no longer needs
+    -- this anyway.  if i still want this, it should be hoisted waaaayy up,
+    -- like to Game, and only after i have a better answer for Gamestate and
+    -- particularly multiple pushes per frame
+    --[[
     local updatect = math.max(1, math.min(MAX_UPDATES,
         math.ceil(dt * MIN_FRAMERATE)))
     local subdt = dt / updatect
     for i = 1, updatect do
         self.world:update(subdt)
     end
+    ]]
+    self.world:update(dt)
 
     love.audio.setPosition(self.player.pos.x, self.player.pos.y, 0)
     local facing = self.player:facing_to_vector()
