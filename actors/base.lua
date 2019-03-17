@@ -565,58 +565,88 @@ local function slide_along_normals(hits, direction)
     local minleftnorm
     local minrightdot = 0
     local minrightnorm
+    local blocked_left = false
+    local blocked_right = false
 
-    -- So, here's the problem.  At first blush, this seems easy enough: just
-    -- pick the normal that restricts us the most, which is the one that faces
-    -- most towards us (i.e. has the most negative dot product), and slide
-    -- along that.  Alas, there are two major problems there.
-    -- 1. We might be blocked on /both sides/ and thus can't move at all.  To
-    -- detect this, we have to sort normals into "left" and "right", find the
-    -- worst normal on each side, and then reconcile at the end.
-    -- 2. Each hit might be a corner collision and have multiple normals.
-    -- While hitting more objects and thus encountering more normals will
-    -- /reduce/ our available slide area, hitting a corner /increases/ it.  So
-    -- within a single hit, we have to do the same thing in reverse, finding
-    -- the BEST normal on each side and counting that one.
-    -- FIXME there are also two problems with the data we get out of whammo
-    -- atm: (a) a corner collision might produce more than two normals which
-    -- feels ambiguous (but maybe it isn't; remember those normals are from
-    -- both us and the thing we hit?  maybe draw a diagram to check on this),
-    -- and (b) MultiShape blindly crams all the normals into a single table,
-    -- even though normals from different shapes combine differently.  for the
-    -- latter problem, maybe we should just return a left_normal and
-    -- right_normal in each hit?  i mean we do the dot products in whammo
-    -- itself already, so that'd save us a lot of effort.  only drawback i can
-    -- think of is that moving by zero would make all those normals kind of
-    -- meaningless, but i think we could just look at the overall direction of
-    -- contact...?  whatever that means?
-    for shape, collision in pairs(hits) do
+    -- Each collision tracks two normals: the nearest surface blocking movement
+    -- on the left, and the nearest on the right (relative to the direction of
+    -- movement).  Most collisions only have one or the other, meaning we hit a
+    -- wall on that side.  If a single collision has BOTH normals, that means
+    -- this is a corner-corner collision, which is ambiguous: we could slide
+    -- either way, and we'll pick whichever is closest to our direction of
+    -- movement.
+    -- If there are two DIFFERENT collisions, one with only a left normal and
+    -- one with only a right normal, then we're stuck: we're completely blocked
+    -- by separate objects on both sides, like being wedged into the corner of
+    -- a room.
+    -- However, if there's a collision with ONLY (e.g.) a left normal and
+    -- another collision with BOTH normals, we're fine: the corner-corner
+    -- collision allows us to move either direction, so we'll use whichever
+    -- left normal is most oppressive.
+    -- Of course, if there are a zillion collisions that all have only left
+    -- normals, that's also fine, and we'll slide along the most oppressive of
+    -- those, too.
+    -- FIXME this is not the case for MultiShape of course, which needs fixing
+    -- so that each of its sub-parts is a separate collision...  unless the
+    -- collision table gets a flag indicating it was a corner collision or not?
+
+    for _, collision in pairs(hits) do
         if collision.touchtype >= 0 and not collision.passable then
             -- TODO comment stuff in shapes.lua
-            -- TODO update comments here, delete dead code
             -- TODO explain why i used <= below (oh no i don't remember, but i think it was related to how this is done against the last slide only)
             -- FIXME i'm now using normals compared against our /last slide/ on our /velocity/ and it's unclear what ramifications that could have (especially since it already had enough ramifications to need the <=) -- think about this i guess lol
 
-            -- A zero dot product means a perfect slide, so don't count it as a
-            -- blocking normal
-            if collision.left_normal and collision.left_normal_dot ~= 0 and collision.left_normal_dot <= minleftdot then
-                minleftdot = collision.left_normal_dot
-                minleftnorm = collision.left_normal
+            if collision.left_normal then
+                if collision.left_normal_dot <= minleftdot then
+                    minleftdot = collision.left_normal_dot
+                    minleftnorm = collision.left_normal
+                end
+                -- If we have a left normal but NOT a right normal, then we're
+                -- blocked on the left side
+                if not collision.right_normal then
+                    blocked_left = true
+                end
             end
-            if collision.right_normal and collision.right_normal_dot ~= 0 and collision.right_normal_dot <= minrightdot then
-                minrightdot = collision.right_normal_dot
-                minrightnorm = collision.right_normal
+            if collision.right_normal then
+                if collision.right_normal_dot <= minrightdot then
+                    minrightdot = collision.right_normal_dot
+                    minrightnorm = collision.right_normal
+                end
+                if not collision.left_normal then
+                    blocked_right = true
+                end
             end
         end
     end
 
     -- If we're blocked on both sides, we can't possibly move at all
-    if minleftnorm and minrightnorm then
+    if blocked_left and blocked_right then
         return Vector(), false
     end
 
-    -- Otherwise, slide along whichever side, or neither
-    local axis = minleftnorm or minrightnorm
+    -- Otherwise, we can probably slide
+    local axis
+    if minleftnorm and minrightnorm then
+        -- We hit a corner somewhere!  If we also hit a wall, then we have to
+        -- slide in that direction.  Otherwise, we pick the normal with the
+        -- BIGGEST dot, which is furthest away from the direction and thus the
+        -- least disruptive.  In the case of a tie, this was a perfect corner
+        -- collision, so we give up and stop.
+        if blocked_left then
+            axis = minleftnorm
+        elseif blocked_right then
+            axis = minrightnorm
+        elseif minrightdot > minleftdot then
+            axis = minrightnorm
+        elseif minleftdot > minrightdot then
+            axis = minleftnorm
+        else
+            return Vector(), false
+        end
+    else
+        axis = minleftnorm or minrightnorm
+    end
+
     if axis then
         return direction - direction:projectOn(axis), true
     else
