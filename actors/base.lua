@@ -621,6 +621,11 @@ local function slide_along_normals(hits, direction)
 
     -- If we're blocked on both sides, we can't possibly move at all
     if blocked_left and blocked_right then
+        -- ...UNLESS we're blocked by walls parallel to us (i.e. dot of 0), in
+        -- which case we can perfectly slide between them!
+        if minleftdot == 0 and minrightdot == 0 then
+            return direction, true
+        end
         return Vector(), false
     end
 
