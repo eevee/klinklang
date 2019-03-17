@@ -561,13 +561,10 @@ end
 -- handled separately.  When we hit a wall, that makes one slide direction
 -- impossible, so we mark it as such.
 local function slide_along_normals(hits, direction)
-    local perp = direction:perpendicular()
     local minleftdot = 0
     local minleftnorm
     local minrightdot = 0
     local minrightnorm
-    local right_possible = true
-    local left_possible = true
 
     -- So, here's the problem.  At first blush, this seems easy enough: just
     -- pick the normal that restricts us the most, which is the one that faces
@@ -595,55 +592,31 @@ local function slide_along_normals(hits, direction)
     -- contact...?  whatever that means?
     for shape, collision in pairs(hits) do
         if collision.touchtype >= 0 and not collision.passable then
-            local maxleftdot = -math.huge
-            local leftnorm
-            local maxrightdot = -math.huge
-            local rightnorm
-
-            maxleftdot = collision.left_normal_dot
-            maxrightdot = collision.right_normal_dot
-            leftnorm = collision.left_normal
-            rightnorm = collision.right_normal
-
             -- TODO comment stuff in shapes.lua
             -- TODO update comments here, delete dead code
             -- TODO explain why i used <= below (oh no i don't remember, but i think it was related to how this is done against the last slide only)
             -- FIXME i'm now using normals compared against our /last slide/ on our /velocity/ and it's unclear what ramifications that could have (especially since it already had enough ramifications to need the <=) -- think about this i guess lol
 
-            if left_possible and leftnorm then
-                if maxleftdot <= minleftdot then
-                    minleftdot = maxleftdot
-                    minleftnorm = leftnorm
-                end
-            else
-                left_possible = false
-                minleftnorm = nil
+            -- A zero dot product means a perfect slide, so don't count it as a
+            -- blocking normal
+            if collision.left_normal and collision.left_normal_dot ~= 0 and collision.left_normal_dot <= minleftdot then
+                minleftdot = collision.left_normal_dot
+                minleftnorm = collision.left_normal
             end
-            if right_possible and rightnorm then
-                if maxrightdot <= minrightdot then
-                    minrightdot = maxrightdot
-                    minrightnorm = rightnorm
-                end
-            else
-                right_possible = false
-                minrightnorm = nil
+            if collision.right_normal and collision.right_normal_dot ~= 0 and collision.right_normal_dot <= minrightdot then
+                minrightdot = collision.right_normal_dot
+                minrightnorm = collision.right_normal
             end
         end
     end
 
-    local axis
-    if not left_possible and not right_possible then
+    -- If we're blocked on both sides, we can't possibly move at all
+    if minleftnorm and minrightnorm then
         return Vector(), false
-    elseif not left_possible then
-        axis = minrightnorm
-    elseif not right_possible then
-        axis = minleftnorm
-    elseif minleftdot > minrightdot then
-        axis = minleftnorm
-    else
-        axis = minrightnorm
     end
 
+    -- Otherwise, slide along whichever side, or neither
+    local axis = minleftnorm or minrightnorm
     if axis then
         return direction - direction:projectOn(axis), true
     else
@@ -656,6 +629,7 @@ end
 -- FIXME a couple remaining bugs:
 -- - player briefly falls when standing on a crate moving downwards -- one frame?
 -- - what's the difference between carry and push, if a carrier can push?
+-- FIXME i do feel like more of this should be back in whammo; i don't think the below loop is especially necessary to have here, for example
 function MobileActor:nudge(movement, pushers, xxx_no_slide)
     if self.shape == nil then
         error(("Can't nudge actor %s without a collision shape"):format(self))
@@ -676,6 +650,7 @@ function MobileActor:nudge(movement, pushers, xxx_no_slide)
     local total_movement = Vector.zero
     local hits
     local stuck_counter = 0
+    local last_direction = movement
     while true do
         local successful
         successful, hits = self.map.collider:slide(self.shape, movement, pass_callback)
@@ -693,6 +668,7 @@ function MobileActor:nudge(movement, pushers, xxx_no_slide)
         end
 
         -- Find the allowed slide direction that's closest to the direction of movement.
+        local slid
         movement, slid = slide_along_normals(hits, movement)
         if not slid then
             break
@@ -714,7 +690,7 @@ function MobileActor:nudge(movement, pushers, xxx_no_slide)
                     -- can't handle single angles correctly, so this is the
                     -- same problem as walking down a hallway exactly your own
                     -- height
-                    print("!!!  BREAKING OUT OF LOOP BECAUSE WE'RE STUCK, OOPS", self, movement, slide, remaining, combined_clock)
+                    print("!!!  BREAKING OUT OF LOOP BECAUSE WE'RE STUCK, OOPS", self, movement, slide, remaining)
                 end
                 break
             end
@@ -846,7 +822,8 @@ function MobileActor:update(dt)
 
     self:update_ground()
 
-    -- Trim velocity as necessary, based on the last surface we slid against
+    -- Trim velocity as necessary, based on our last slide
+    -- FIXME this is clearly wrong and we need to trim it as we go, right?
     -- FIXME this needs to ignore cases where already_hit[owner] == 'nudged'
     -- or...  maybe not?  comment from when i was working on pushing in fox flux:
     --      so if we pushed an object and it was blocked, we'd see 'blocked'
