@@ -388,6 +388,7 @@ function Polygon:slide_towards(other, movement)
                 -- and the shapes can slide against each other.  But we still
                 -- need to check other axes to know if they'll actually touch.
                 slide_axis = fullaxis
+                -- FIXME this is starting to seem kinda goofy?  why does this need a separate case?
             else
                 -- Figure out how much movement is allowed, as a fraction.
                 -- Conceptually, the answer is the movement projected onto the
@@ -487,15 +488,21 @@ function Polygon:slide_towards(other, movement)
         if touchtype == 1 then
             touchdist = 0
         end
-        -- Since we're touching, the slide axis is also a valid normal, along
-        -- with any collision normals
-        normals[-slide_axis] = -slide_axis:normalized()
+        -- Since we're touching, the slide axis is the only valid normal!  Any
+        -- others were near misses that didn't actually collide
+        normals = {
+            [-slide_axis] = -slide_axis:normalized(),
+        }
         if -slide_axis * movenormal < 0 then
             leftnorm = -slide_axis
             maxleftdot = 0
+            rightnorm = nil
+            maxrightdot = -math.huge
         else
             rightnorm = -slide_axis
             maxrightdot = 0
+            leftnorm = nil
+            maxleftdot = -math.huge
         end
 
         return {
