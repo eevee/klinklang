@@ -669,7 +669,7 @@ function MobileActor:nudge(movement, pushers, xxx_no_slide)
 
         -- Find the allowed slide direction that's closest to the direction of movement.
         local slid
-        movement, slid = slide_along_normals(hits, movement)
+        movement, slid = slide_along_normals(hits, remaining)
         if not slid then
             break
         end
