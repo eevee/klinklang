@@ -295,6 +295,8 @@ end
 --      which can be different when two shapes slide
 --   touchtype: 1 for collision, 0 for slide, -1 for already overlapping
 -- FIXME couldn't there be a much simpler version of this for two AABBs?
+-- FIXME incorporate the improvements i made when porting this to rust
+-- FIXME maybe write a little benchmark too
 function Polygon:slide_towards(other, movement)
     -- We cannot possibly collide if the bboxes don't overlap
     local ax0, ay0, ax1, ay1 = self:extended_bbox(movement:unpack())
@@ -435,13 +437,13 @@ function Polygon:slide_towards(other, movement)
                     else
                         -- TODO explain this better, but the idea is: using the greater dot means using the slope that's furthest away from us, which resolves corners nicely because two normals on one side HAVE to be a corner, they can't actually be one in front of the other
                         -- TODO should these do something on a tie?
-                        if perpdot <= PRECISION and ourdot > maxleftdot then
-                            leftnorm = normal
-                            maxleftdot = ourdot
-                        end
-                        if perpdot >= -PRECISION and ourdot > maxrightdot then
+                        if perpdot <= PRECISION and ourdot > maxrightdot then
                             rightnorm = normal
                             maxrightdot = ourdot
+                        end
+                        if perpdot >= -PRECISION and ourdot > maxleftdot then
+                            leftnorm = normal
+                            maxleftdot = ourdot
                         end
                     end
                 end
