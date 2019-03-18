@@ -17,10 +17,14 @@ function ElasticText:update_render()
     self.text = self.elastic_font:render(self.string)
 end
 
+function ElasticText:get_width()
+    return math.ceil(self.text:getWidth() / self.elastic_font.scale)
+end
+
 -- TODO should this use the font's line offset too??  that seems slightly out of scope
 function ElasticText:draw(x, y, rot, sx, sy, ...)
     local scale = self.elastic_font.scale
-    love.graphics.draw(self.text, x, y, rot, (sx or 1) / scale, (sy or 1) / scale, ...)
+    love.graphics.draw(self.text, x, y, rot, (sx or 1) / scale, (sy or sx or 1) / scale, ...)
 end
 
 
