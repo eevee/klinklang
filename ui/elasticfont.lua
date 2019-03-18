@@ -49,6 +49,7 @@ function ElasticFont:init(path, size, line_height, props)
     self.original_font = font
     self.font = font
 
+    self.height = font:getHeight()
     self.full_height = math.ceil(font:getHeight() * self.line_height)
     self.line_offset = math.floor(font:getHeight() * (font:getLineHeight() - 1) * 0.75)
 
@@ -125,6 +126,10 @@ end
 -- Wraps text to an UNSCALED width, a la Font:getWrap.
 function ElasticFont:wrap(string, width)
     return self.original_font:getWrap(string, width)
+end
+
+function ElasticFont:printf(string, x, y, w, a)
+    love.graphics.printf(string, self.font, x, y, w * self.scale, a, 0, 1 / self.scale)
 end
 
 -- Create an ElasticText from a string.
