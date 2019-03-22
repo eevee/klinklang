@@ -73,7 +73,7 @@ function Game:_determine_scale()
     -- size, there's a choice between more cropping or more letterboxing), it
     -- prefers showing more of the game.
     local target_size = self.minimum_size or self.native_size
-    self.scale = math.floor(math.min(sw / target_size.x, sh / target_size.y))
+    self.scale = math.max(1, math.floor(math.min(sw / target_size.x, sh / target_size.y)))
 
     local gw = math.min(math.ceil(sw / self.scale), self.native_size.x)
     local gh = math.min(math.ceil(sh / self.scale), self.native_size.y)

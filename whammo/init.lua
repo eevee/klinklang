@@ -136,6 +136,7 @@ end
 -- Don't add, remove, or alter any shapes from the callback function, or the
 -- results are undefined.
 -- TODO maybe rename slide as cast, and use some of these ideas to early-exit
+-- FIXME there are actually THREE kinds of objects of interest: ignore, return, and stop the ray!  this can't do the latter atm
 function Collider:raycast(start, direction, distance, filter_func)
     -- TODO this, too, could be an iterator!  although the filter function is still nice
     if not filter_func then
