@@ -243,6 +243,10 @@ function WorldScene:read_player_input(dt)
         self.player:decide_abandon_jump()
     end
 
+    if game.input:pressed('use') then
+        self.player:decide_use()
+    end
+
     -- FIXME this stupid dt thing is so we don't try to do a second "use" after
     -- switching maps (which does a zero update), ugghhh.  i don't know where
     -- else this belongs though?

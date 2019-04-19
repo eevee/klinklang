@@ -925,6 +925,7 @@ local SentientActor = MobileActor:extend{
     decision_jump_mode = 0,
     decision_walk = 0,
     decision_move = Vector(),
+    decision_use = false,
     in_mid_jump = false,
     jump_count = 0,
     is_dead = false,
@@ -982,6 +983,11 @@ function SentientActor:decide_pause_climbing()
     if self.decision_climb ~= nil then
         self.decision_climb = 0
     end
+end
+
+-- "Use" something (whatever that means)
+function SentientActor:decide_use()
+    self.decision_use = true
 end
 
 function SentientActor:get_gravity_multiplier()
@@ -1256,6 +1262,12 @@ function SentientActor:update(dt)
     -- Update the pose
     self:update_pose()
 
+    -- Use whatever's now in front of us
+    if self.decision_use then
+        self:use()
+        self.decision_use = false
+    end
+
     return movement, hits
 end
 
@@ -1306,6 +1318,11 @@ function SentientActor:handle_jump(dt)
             self.velocity.y = math.max(self.velocity.y, -self.jumpvel * self.jumpcap)
         end
     end
+end
+
+-- Use something, whatever that means
+-- TODO a basic default implementation might be nice!
+function SentientActor:use()
 end
 
 -- Figure out a new pose and switch to it.  Default behavior is based on player
