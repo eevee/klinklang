@@ -408,6 +408,8 @@ function Polygon:slide_towards(other, movement)
                 local use_normal
                 -- TODO i think i could avoid this entirely by using a cross
                 -- product instead?
+                -- FIXME rust has this, find a failing case first:
+                --if maxamt > Fixed::min_value() && (amount - maxamt).abs() < PRECISION {
                 if math.abs(amount - maxamt) < PRECISION then
                     -- Equal, ish
                     use_normal = true
@@ -423,6 +425,7 @@ function Polygon:slide_towards(other, movement)
                     use_normal = true
                 end
 
+                -- FIXME rust does this code even for the move normal (which i'm not sure is necessary)
                 if use_normal and not fullaxis._is_move_normal then
                     -- FIXME these are no longer de-duplicated, hmm
                     local normal = -fullaxis
@@ -430,18 +433,21 @@ function Polygon:slide_towards(other, movement)
 
                     local ourdot = -(movement * axis)
 
-                    -- Determine if this normal is on our left or right
-                    local perpdot = movenormal * normal
                     if ourdot > 0 then
                         -- Do nothing; this normal faces away from us?
                     else
+                        -- Determine if this surface is on our left or right.
+                        -- The move normal points left from us, so if this dot
+                        -- product is positive, the normal also points left of
+                        -- us, which means the actual surface is on our right
+                        local left_dot = movenormal * normal
                         -- TODO explain this better, but the idea is: using the greater dot means using the slope that's furthest away from us, which resolves corners nicely because two normals on one side HAVE to be a corner, they can't actually be one in front of the other
                         -- TODO should these do something on a tie?
-                        if perpdot <= PRECISION and ourdot > maxrightdot then
+                        if left_dot >= -PRECISION and ourdot > maxrightdot then
                             rightnorm = normal
                             maxrightdot = ourdot
                         end
-                        if perpdot >= -PRECISION and ourdot > maxleftdot then
+                        if left_dot <= PRECISION and ourdot > maxleftdot then
                             leftnorm = normal
                             maxleftdot = ourdot
                         end
