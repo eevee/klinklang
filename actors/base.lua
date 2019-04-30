@@ -367,7 +367,7 @@ end
 -- frame or something but
 function MobileActor:get_gravity_multiplier()
     local mult = self.gravity_multiplier
-    if self.velocity.y > 0 then
+    if self.velocity.y >= 0 then
         mult = mult * self.gravity_multiplier_down
     end
     return mult
@@ -502,7 +502,10 @@ function MobileActor:_collision_callback(collision, pushers, already_hit)
                     mindot = dot
                     ground = normal1
                 end
-                if dot < mindot or (dot == mindot and not ground_actor) then
+                -- FIXME this is an awful lot of clumsiness for two normals.
+                -- this 0 check is here because otherwise vertical contact
+                -- counts as something we're standing on!!
+                if dot < mindot or (dot == mindot and dot < 0 and not ground_actor) then
                     ground_actor = self.map.collider:get_owner(collision.shape)
                     if ground_actor and type(ground_actor) == 'table' and ground_actor.isa then
                         local friction
