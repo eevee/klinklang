@@ -274,8 +274,6 @@ end
 
 local MobileActor = Actor:extend{
     _type_name = 'MobileActor',
-    -- TODO separate code from twiddles
-    velocity = nil,
 
     -- Passive physics parameters
     -- Units are pixels and seconds!
@@ -302,13 +300,20 @@ local MobileActor = Actor:extend{
     cargo = nil,  -- Set of currently-carried objects
 
     -- Physics state
+    -- FIXME there are others!
     on_ground = false,
+    velocity = nil,
+    -- Constant forces that should be applied this frame.  Do NOT use for
+    -- instantaneous changes in velocity; there's push() for that.  This is
+    -- for, e.g., gravity.
+    pending_force = nil,
 }
 
 function MobileActor:init(...)
     MobileActor.__super.init(self, ...)
 
     self.velocity = Vector()
+    self.pending_force = Vector()
 end
 
 function MobileActor:on_enter(...)
@@ -767,6 +772,13 @@ function MobileActor:update(dt)
         self.velocity.x = 0
     end
 
+    -- Gravity
+    -- TODO factor the ground_friction constant into this, and also into slope
+    -- resistance
+    if self:has_gravity() then
+        self.pending_force = self.pending_force + self:get_gravity() * self:get_gravity_multiplier()
+    end
+
     -- Friction -- the general tendency for everything to decelerate.
     -- It always pushes against the direction of motion, but never so much that
     -- it would reverse the motion.  Note that taking the dot product with the
@@ -799,33 +811,29 @@ function MobileActor:update(dt)
         self.velocity = self.velocity + decel_vector * self.ground_friction
     end
 
-    -- Stash the velocity from before we add ambient acceleration.  This makes
-    -- the integration more accurate by excluding abrupt changes (e.g.,
-    -- jumping) from smoothing
-    local last_velocity = self.velocity
+    ----------------------------------------------------------------------------
+    -- Super call to handle regular actor stuff
+    --if self.is_player then print('mobile before super...', self.velocity) end
+    MobileActor.__super.update(self, dt)
+    --if self.is_player then print('...after super...', self.velocity) end
 
+    -- This is basically vt + ½at², and makes the results exactly correct, as
+    -- long as pending_force contains constant sources of acceleration (like
+    -- gravity).  It avoids problems like jump height being eroded too much by
+    -- the first tic of gravity at low framerates.  Not quite sure what it's
+    -- called, but it's similar to Verlet integration and the midpoint method.
+    local dv = self.pending_force * dt
+    local displacement = (self.velocity + 0.5 * dv) * dt
+    self.pending_force = Vector()
+    self.velocity = self.velocity + dv
+
+    -- FIXME how does terminal velocity apply to integration?  if you get
+    -- launched Very Fast the integration will take some of it into account
+    -- still
     local fluidres = self:get_fluid_resistance()
-
-    -- TODO factor the ground_friction constant into this, and also into slope
-    -- resistance
-    -- Gravity
-    if self:has_gravity() then
-        self.velocity = self.velocity + self:get_gravity() * (self:get_gravity_multiplier() * dt)
-    end
     self.velocity.y = math.min(self.velocity.y, terminal_velocity / fluidres)
 
-    ----------------------------------------------------------------------------
-    -- Super call
-    MobileActor.__super.update(self, dt)
-
-    -- This looks a bit funny, but it makes simulation of constant gravity
-    -- /exactly/ correct (modulo terminal velocity and whatnot), AND it avoids
-    -- problems like jump height being eroded too much by the first tic of
-    -- gravity at low framerates.  Not quite sure what it's called, but it's
-    -- similar to Verlet integration and the midpoint method.
-    local ds = (self.velocity + last_velocity) * (dt * 0.5)
-
-    if ds == Vector.zero and self.may_skip_nudge then
+    if displacement == Vector.zero and self.may_skip_nudge then
         return Vector(), {}
     end
 
@@ -840,7 +848,7 @@ function MobileActor:update(dt)
     -- push an object down a gap its own size!  the only problem is that it has
     -- a nontrivial impact on overall speed.  maybe we should only do this when
     -- moving slowly?
-    local goalpos = self.pos + ds / fluidres
+    local goalpos = self.pos + displacement / fluidres
     --[[
     if self.velocity.x ~= 0 then
         goalpos.x = math.floor(goalpos.x * 8 + 0.5) / 8
@@ -1190,6 +1198,32 @@ function SentientActor:update(dt)
     self.ptrs.climbable_up = nil
     self.ptrs.climbable_down = nil
 
+    -- Slope resistance: a sentient actor will resist sliding down a slope
+    if self:has_gravity() and self.on_ground then
+        local gravity = self:get_gravity()
+        self.too_steep = (
+            self.ground_normal * gravity - self.max_slope * gravity > 1e-8)
+
+        -- Slope resistance always pushes upwards along the slope.  It has no
+        -- cap, since it should always exactly oppose gravity, as long as the
+        -- slope is shallow enough.
+        -- Skip it entirely if we're not even moving in the general direction
+        -- of gravity, though, so it doesn't interfere with jumping.
+        -- FIXME this doesn't take into account the gravity multiplier /or/
+        -- fluid resistance, and in general i don't love that it can get out of
+        -- sync like that  :S
+        if not self.too_steep then
+            local slope = self.ground_normal:perpendicular()
+            if slope * gravity > 0 then
+                slope = -slope
+            end
+            local slope_resistance = -(gravity * slope)
+            self.pending_force = self.pending_force + slope_resistance * slope
+        end
+    else
+        self.too_steep = nil
+    end
+
     -- Apply physics
     local was_on_ground = self.on_ground
     local movement, hits = SentientActor.__super.update(self, dt)
@@ -1239,27 +1273,6 @@ function SentientActor:update(dt)
     if self:has_gravity() and self.on_ground then
         self.jump_count = 0
         self.in_mid_jump = false
-
-        self.too_steep = (
-            self.ground_normal * gravity - self.max_slope * gravity > 1e-8)
-
-        -- Slope resistance -- an actor's ability to stay in place on an incline
-        -- It always pushes upwards along the slope.  It has no cap, since it
-        -- should always exactly oppose gravity, as long as the slope is shallow
-        -- enough.
-        -- Skip it entirely if we're not even moving in the general direction
-        -- of gravity, though, so it doesn't interfere with jumping.
-        if not self.too_steep then
-            local slope = self.ground_normal:perpendicular()
-            local gravity = self:get_gravity()
-            if slope * gravity > 0 then
-                slope = -slope
-            end
-            local slope_resistance = -(gravity * slope)
-            self.velocity = self.velocity + slope_resistance * dt * slope
-        end
-    else
-        self.too_steep = nil
     end
 
     -- Update the pose
