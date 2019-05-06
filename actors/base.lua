@@ -155,18 +155,23 @@ function Actor:init(position)
 
     -- TODO arrgh, this global.  sometimes i just need access to the game.
     -- should this be done on enter, maybe?
-    -- FIXME should show a more useful error if this is missing
-    if not game.sprites[self.sprite_name] then
-        error(("No such sprite named %s"):format(self.sprite_name))
-    end
-    self.sprite = game.sprites[self.sprite_name]:instantiate()
+    -- FIXME making the sprite optional feels very much like it should be a
+    -- component, but there's the slight weirdness of also getting the physics
+    -- shape from the sprite because it's convenient (and often informed by the
+    -- appearance)
+    if self.sprite_name then
+        if not game.sprites[self.sprite_name] then
+            error(("No such sprite named %s"):format(self.sprite_name))
+        end
+        self.sprite = game.sprites[self.sprite_name]:instantiate()
 
-    -- FIXME progress!  but this should update when the sprite changes, argh!
-    if self.sprite.shape then
-        -- FIXME hang on, the sprite is our own instance, why do we need to clone it at all--  oh, because Sprite doesn't actually clone it, whoops
-        self.shape = self.sprite.shape:clone()
-        self.shape._xxx_is_one_way_platform = self.sprite.shape._xxx_is_one_way_platform
-        self.shape:move_to(position:unpack())
+        -- FIXME progress!  but this should update when the sprite changes, argh!
+        if self.sprite.shape then
+            -- FIXME hang on, the sprite is our own instance, why do we need to clone it at all--  oh, because Sprite doesn't actually clone it, whoops
+            self.shape = self.sprite.shape:clone()
+            self.shape._xxx_is_one_way_platform = self.sprite.shape._xxx_is_one_way_platform
+            self.shape:move_to(position:unpack())
+        end
     end
 
     self.health = self.max_health
@@ -175,7 +180,9 @@ end
 -- Called once per update frame; any state changes should go here
 function Actor:update(dt)
     self.timer = self.timer + dt
-    self.sprite:update(dt)
+    if self.sprite then
+        self.sprite:update(dt)
+    end
 end
 
 -- Draw the actor
@@ -424,7 +431,7 @@ function MobileActor:_collision_callback(collision, pushers, already_hit)
     end
 
     -- Debugging
-    if game.debug and game.debug_twiddles.show_collision then
+    if game and game.debug and game.debug_twiddles.show_collision then
         game.debug_hits[collision.shape] = collision
     end
 
@@ -1343,11 +1350,19 @@ end
 
 -- Figure out a new pose and switch to it.  Default behavior is based on player
 -- logic; feel free to override.
+-- FIXME do mobile actors really never have poses?
+-- FIXME picking a pose is a weird combination of "i just started jumping, so i
+-- want to immediately switch to jump pose and keep it there" vs "i want to use
+-- the turnaround pose /even though/ i'm walking".  at the moment i just have
+-- some hairy code for that, but it would be nice to have a more robust
+-- solution that's not also hairy
 function SentientActor:update_pose()
-    self.sprite:set_facing(self.facing)
-    local pose = self:determine_pose()
-    if pose then
-        self.sprite:set_pose(pose)
+    if self.sprite then
+        self.sprite:set_facing(self.facing)
+        local pose = self:determine_pose()
+        if pose then
+            self.sprite:set_pose(pose)
+        end
     end
 end
 function SentientActor:determine_pose()

@@ -1,0 +1,26 @@
+{ "height":16,
+ "infinite":false,
+ "layers":[
+        {
+         "draworder":"topdown",
+         "id":2,
+         "name":"special",
+         "objects":[],
+         "opacity":1,
+         "type":"objectgroup",
+         "visible":true,
+         "x":0,
+         "y":0
+        }],
+ "nextlayerid":3,
+ "nextobjectid":1,
+ "orientation":"orthogonal",
+ "renderorder":"right-down",
+ "tiledversion":"1.2.2",
+ "tileheight":32,
+ "tilesets":[],
+ "tilewidth":32,
+ "type":"map",
+ "version":1.2,
+ "width":16
+}
