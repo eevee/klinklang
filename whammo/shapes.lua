@@ -437,19 +437,20 @@ function Polygon:slide_towards(other, movement)
                         -- Do nothing; this normal faces away from us?
                     else
                         -- Determine if this surface is on our left or right.
-                        -- The move normal points left from us, so if this dot
-                        -- product is positive, the normal also points left of
-                        -- us, which means the actual surface is on our right
-                        local left_dot = movenormal * normal
+                        -- The move normal points right from us, so if this dot
+                        -- product is positive, the normal also points right of
+                        -- us, which means the actual surface is on our left.
+                        -- (Remember, LÖVE's coordinate system points down!)
+                        local right_dot = movenormal * normal
                         -- TODO explain this better, but the idea is: using the greater dot means using the slope that's furthest away from us, which resolves corners nicely because two normals on one side HAVE to be a corner, they can't actually be one in front of the other
                         -- TODO should these do something on a tie?
-                        if left_dot >= -PRECISION and ourdot > maxrightdot then
-                            rightnorm = normal
-                            maxrightdot = ourdot
-                        end
-                        if left_dot <= PRECISION and ourdot > maxleftdot then
+                        if right_dot >= -PRECISION and ourdot > maxleftdot then
                             leftnorm = normal
                             maxleftdot = ourdot
+                        end
+                        if right_dot <= PRECISION and ourdot > maxrightdot then
+                            rightnorm = normal
+                            maxrightdot = ourdot
                         end
                     end
                 end
@@ -501,7 +502,7 @@ function Polygon:slide_towards(other, movement)
         normals = {
             [-slide_axis] = -slide_axis:normalized(),
         }
-        if -slide_axis * movenormal < 0 then
+        if slide_axis * movenormal < 0 then
             leftnorm = -slide_axis
             maxleftdot = 0
             rightnorm = nil
