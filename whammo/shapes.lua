@@ -348,9 +348,6 @@ function Polygon:slide_towards(other, movement)
     local maxnumer, maxdenom
     local touchtype = -1
     local slide_axis
-    local normals = {}  -- set of normals we collided with
-    -- FIXME i can ditch the normalized axes entirely; just need to make sure
-    -- no callers are relying on getting them in normals
     for fullaxis, axis in pairs(axes) do
         local min1, max1, minpt1, maxpt1 = self:project_onto_axis(fullaxis)
         local min2, max2, minpt2, maxpt2 = other:project_onto_axis(fullaxis)
@@ -417,7 +414,6 @@ function Polygon:slide_towards(other, movement)
                     maxamt = amount
                     maxnumer = numer
                     maxdenom = dot
-                    normals = {}
                     leftnorm = nil
                     rightnorm = nil
                     maxleftdot = -math.huge
@@ -429,7 +425,6 @@ function Polygon:slide_towards(other, movement)
                 if use_normal and not fullaxis._is_move_normal then
                     -- FIXME these are no longer de-duplicated, hmm
                     local normal = -fullaxis
-                    normals[normal] = -axis
 
                     local ourdot = -(movement * axis)
 
@@ -475,7 +470,6 @@ function Polygon:slide_towards(other, movement)
             amount = 0,
             touchdist = 0,
             touchtype = -1,
-            normals = {},
             left_normal_dot = -math.huge,
             right_normal_dot = -math.huge,
         }
@@ -499,9 +493,6 @@ function Polygon:slide_towards(other, movement)
         end
         -- Since we're touching, the slide axis is the only valid normal!  Any
         -- others were near misses that didn't actually collide
-        normals = {
-            [-slide_axis] = -slide_axis:normalized(),
-        }
         if slide_axis * movenormal < 0 then
             leftnorm = -slide_axis
             maxleftdot = 0
@@ -519,7 +510,6 @@ function Polygon:slide_towards(other, movement)
             amount = 1,
             touchdist = touchdist,
             touchtype = 0,
-            normals = normals,
 
             _slide = true,
             left_normal = leftnorm,
@@ -539,7 +529,6 @@ function Polygon:slide_towards(other, movement)
         amount = maxamt,
         touchdist = maxamt,
         touchtype = 1,
-        normals = normals,
 
         left_normal = leftnorm,
         right_normal = rightnorm,
@@ -565,10 +554,6 @@ function Polygon:_multi_slide_towards(other, movement)
                 ret.touchdist = math.min(ret.touchdist, collision.touchdist)
                 if ret.touchtype == 0 then
                     ret.touchtype = collision.touchtype
-                end
-                -- FIXME would be nice to de-dupe here too
-                for full, norm in pairs(collision.normals) do
-                    ret.normals[full] = norm
                 end
                 if collision.left_normal_dot > ret.left_normal_dot then
                     ret.left_normal_dot = collision.left_normal_dot
