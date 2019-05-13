@@ -246,27 +246,6 @@ function WorldScene:read_player_input(dt)
     if game.input:pressed('use') then
         self.player:decide_use()
     end
-
-    -- FIXME this stupid dt thing is so we don't try to do a second "use" after
-    -- switching maps (which does a zero update), ugghhh.  i don't know where
-    -- else this belongs though?
-    -- FIXME this definitely shouldn't be in the worldscene; change me to decide_use or something
-    if false and dt > 0 and game.input:pressed('use') then
-        if self.player.is_locked then
-            -- Do nothing
-        elseif self.player.form == 'stone' then
-            -- Do nothing
-            -- FIXME oh this absolutely does not belong here
-        else
-            -- Use inventory item, or nearby thing
-            -- FIXME this should be separate keys maybe?
-            if self.player.touching_mechanism then
-                self.player.touching_mechanism:on_use(self.player)
-            elseif self.player.inventory_cursor > 0 then
-                self.player.inventory[self.player.inventory_cursor]:on_inventory_use(self.player)
-            end
-        end
-    end
 end
 
 function WorldScene:update(dt)
