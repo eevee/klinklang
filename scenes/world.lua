@@ -71,15 +71,18 @@ function DebugLayer:draw()
             love.graphics.setColor(1, 0, 1)
             local x0, y0, x1, y1 = collision.shape:bbox()
             local x, y = math.floor((x0 + x1) / 2), math.floor((y0 + y1) / 2)
-            for normal, normal1 in pairs(collision.normals) do
-                local startpt = Vector(x, y)
-                local endpt = startpt + normal1 * 8
-                local perp = normal1:perpendicular()
-                local arrowpt1 = endpt + perp * 3
-                local arrowpt2 = endpt - perp * 3
-                local arrowpt3 = endpt + normal1 * 3
-                love.graphics.line(x, y, endpt.x, endpt.y)
-                love.graphics.polygon('fill', arrowpt1.x, arrowpt1.y, arrowpt2.x, arrowpt2.y, arrowpt3.x, arrowpt3.y)
+            for _, normal in pairs{collision.left_normal, collision.right_normal} do
+                if normal then
+                    local normal1 = normal:normalized()
+                    local startpt = Vector(x, y)
+                    local endpt = startpt + normal1 * 8
+                    local perp = normal1:perpendicular()
+                    local arrowpt1 = endpt + perp * 3
+                    local arrowpt2 = endpt - perp * 3
+                    local arrowpt3 = endpt + normal1 * 3
+                    love.graphics.line(x, y, endpt.x, endpt.y)
+                    love.graphics.polygon('fill', arrowpt1.x, arrowpt1.y, arrowpt2.x, arrowpt2.y, arrowpt3.x, arrowpt3.y)
+                end
             end
         end
         for _, ray in ipairs(game.debug_rays) do
