@@ -413,6 +413,72 @@ function MobileActor:_get_total_mass(direction, _seen)
     return total_mass
 end
 
+function MobileActor:_get_carried_mass(_seen)
+    if not _seen then
+        _seen = {}
+    elseif _seen[self] then
+        print("!!! FOUND A CARGO LOOP", self)
+        for k in pairs(_seen) do print('', k) end
+        return 0
+    end
+    _seen[self] = true
+
+    local mass = self.mass
+    for actor, manifest in pairs(self.cargo) do
+        if manifest.state == CARGO_CARRYING then
+            mass = mass + actor:_get_carried_mass(_seen)
+        end
+    end
+    return mass
+end
+
+-- XXX this is a FORCE, NOT acceleration!  and it is NOT trimmed to velocity
+function MobileActor:get_friction(normalized_direction)
+    local friction
+    if not self:has_gravity() then
+        -- In top-down mode, everything is always on flat ground, so
+        -- friction is always the full amount, away from velocity
+        friction = normalized_direction:normalized() * (-self.friction_decel * self:_get_carried_mass())
+    elseif self.ground_normal then
+        local gravity1 = self:get_gravity():normalized()
+        -- Get the strength of the normal force by dotting the ground normal
+        -- with gravity
+        local normal_strength = gravity1 * self.ground_normal * self:_get_carried_mass()
+        friction = self.ground_normal:perpendicular() * (self.friction_decel * self.ground_friction * normal_strength)
+        if friction * normalized_direction > 0 then
+            friction = -friction
+        end
+    else
+        friction = -self.friction_decel * normalized_direction:normalized() * self.mass
+        -- FIXME need some real air resistance; as written, the above also reverses gravity, oops
+        friction = Vector.zero
+    end
+    return friction
+end
+
+-- Return the mass of ourselves, plus everything we're pushing or carrying
+function MobileActor:_get_total_friction(direction, _seen, __v)
+    direction = direction:normalized()
+    if not _seen then
+        _seen = {}
+    elseif _seen[self] then
+        print("!!! FOUND A CARGO LOOP", self)
+        for k in pairs(_seen) do print('', k) end
+        return Vector.zero
+    end
+    _seen[self] = true
+
+    local friction = self:get_friction(direction)
+
+    for actor, manifest in pairs(self.cargo) do
+        if manifest.state ~= CARGO_CARRYING and manifest.normal * direction < 0 then
+            friction = friction + actor:_get_total_friction(direction, _seen, manifest.velocity)
+        end
+    end
+    --print("- " .. tostring(self), friction:projectOn(direction), self:_get_total_mass(direction), friction:projectOn(direction) / self:_get_total_mass(direction), __v)
+    return friction
+end
+
 -- Lower-level function passed to the collider to determine whether another
 -- object blocks us
 -- FIXME now that they're next to each other, these two methods look positively silly!  and have a bit of a symmetry problem: the other object can override via the simple blocks(), but we have this weird thing
@@ -450,6 +516,9 @@ function MobileActor:_collision_callback(collision, pushers, already_hit)
     end
 
     -- Only announce a hit once per frame
+    -- XXX this is once per /nudge/, not once per frame.  should this be made
+    -- to be once per frame (oof!), removed entirely, or just have the comment
+    -- fixed?
     local hit_this_actor = already_hit[actor]
     if actor and not hit_this_actor then
         -- FIXME movement is fairly misleading and i'm not sure i want to
@@ -491,6 +560,10 @@ function MobileActor:_collision_callback(collision, pushers, already_hit)
         -- be a hint
         (not collision.left_normal or collision.left_normal.y == 0) and
         (not collision.right_normal or collision.right_normal.y == 0) and
+        -- If we already pushed this object during this nudge, it must be
+        -- blocked or on a slope or otherwise unable to keep moving, so let it
+        -- block us this time
+        already_hit[actor] ~= 'nudged' and
         -- Avoid a push loop, which could happen in pathological cases
         not pushers[actor] and (
             (actor.is_pushable and self.can_push) or
@@ -502,66 +575,51 @@ function MobileActor:_collision_callback(collision, pushers, already_hit)
         local nudge = collision.attempted - collision.movement
         -- Only push in the direction the collision occurred!  If several
         -- directions, well, just average them
-        local axis = Vector()
-        local normalct = 0
-        for normal in pairs(collision.normals) do
-            normalct = normalct + 1
-            axis = axis + normal
+        local axis
+        if collision.left_normal and collision.right_normal then
+            axis = (collision.left_normal + collision.right_normal) / 2
+        else
+            axis = collision.left_normal or collision.right_normal
         end
-        if normalct > 0 then
-            nudge = nudge:projectOn(axis / normalct)
+        if axis then
+            nudge = nudge:projectOn(axis)
         else
             nudge = Vector.zero
         end
-        if already_hit[actor] == 'nudged' then
-            -- If we've already pushed this object once, or we're not actually
-            -- trying to push it, do nothing...  but pretend it's solid, so we
-            -- don't, say, fall through it
-            print('oh no, already pushed once', actor, 'but trying to push it', nudge)
-            --already_hit[actor] = 'blocked'
-            -- This still counts as a push, though, because it might've gone up
-            -- a slope and not actually be blocked
-            -- FIXME ahh, this interferes with the normal sliding and causes us
-            -- to keep pushing the rest of our movement which isn't right
-            collision.pushed2 = true
-        elseif _is_vector_almost_zero(nudge) then
+
+        -- Snag any existing manifest so we can update it
+        -- XXX if we get rid of manifest.velocity then this might not matter, just overwrite it
+        local manifest = self.cargo[actor]
+        if manifest then
+            manifest.expiring = false
+        else
+            manifest = {}
+            self.cargo[actor] = manifest
+        end
+        manifest.normal = axis
+
+        if _is_vector_almost_zero(nudge) then
             -- We're not actually trying to push this thing, whatever it is, so
-            -- do nothing
-            -- But note that this happens on the /second/ collision with something we just pushed, even if it's not blocked (because we have no movement left!), so it should still count as a push.  Or maybe this block should go second so we check on 'nudged'
-            print("doing nothing vs", actor, "because not trying to push it")
-            self.cargo[actor] = {
-                state = CARGO_COULD_PUSH,
-                normal = axis,
-            }
-            collision.pushed2 = true
+            -- do nothing.  But mark down that we /could/ push this object; if
+            -- we get pushed from the other side, we need to know about this
+            -- object so we can include it in recursive friction and the like.
+            manifest.state = CARGO_COULD_PUSH
         else
             -- Actually push the object!
             -- After we do this, its cargo should be populated with everything
             -- /it's/ pushing, which will help us figure out how much to cut
             -- our velocity in our own update()
-
             print("about to nudge", actor, actor.is_pushable, actor.is_portable)
             local actual = actor:nudge(nudge, pushers)
             if _is_vector_almost_zero(actual) then
                 -- Cargo is blocked, so we can't move either
                 print('oh no, its blocked', actor)
                 already_hit[actor] = 'blocked'
-                self.cargo[actor] = {
-                    state = CARGO_BLOCKED,
-                    normal = axis,
-                }
-                -- This doesn't count as a push any more
-                collision.pushed2 = true
+                manifest.state = CARGO_BLOCKED
             else
                 already_hit[actor] = 'nudged'
                 passable = 'retry'
-                self.cargo[actor] = {
-                    state = CARGO_PUSHING,
-                    normal = axis,
-                }
-                -- Mark the collision as doing a push, so nudge() knows we're
-                -- still pushing it
-                collision.pushed2 = true
+                manifest.state = CARGO_PUSHING
             end
         end
     end
@@ -766,6 +824,9 @@ function MobileActor:nudge(movement, pushers, xxx_no_slide)
     if self.shape == nil then
         error(("Can't nudge actor %s without a collision shape"):format(self))
     end
+    if movement.x ~= movement.x or movement.y ~= movement.y then
+        error(("Refusing to nudge actor %s by NaN vector %s"):format(self, movement))
+    end
 
     pushers = pushers or {}
     pushers[self] = true
@@ -865,6 +926,8 @@ function MobileActor:update_ground()
 end
 
 function MobileActor:update(dt)
+    MobileActor.__super.update(self, dt)
+
     -- Passive adjustments
     if math.abs(self.velocity.x) < self.min_speed then
         self.velocity.x = 0
@@ -883,44 +946,7 @@ function MobileActor:update(dt)
         self.pending_force = self.pending_force + self:get_gravity() * self:get_gravity_multiplier()
     end
 
-    -- Friction -- the general tendency for everything to decelerate.
-    -- It always pushes against the direction of motion, but never so much that
-    -- it would reverse the motion.  Note that taking the dot product with the
-    -- horizontal produces the normal force.
-    -- Include the dt factor from the beginning, to make capping easier.
-    -- Also, doing this before anything else ensures that it only considers
-    -- deliberate movement and momentum, not gravity.
-    -- TODO i don't like that this can make it impossible to move if friction
-    -- is too high?  can friction be expressed in a way that makes that more
-    -- difficult?  (lol i guess that's why folks use multipliers, god)
-    -- FIXME this very much seems like it should be a pending force
-    local vellen = self.velocity:len()
-    if vellen > 1e-8 then
-        local decel_vector
-        if not self:has_gravity() then
-            decel_vector = self.velocity * (-self.friction_decel * dt / vellen)
-            decel_vector:trimInplace(vellen)
-        elseif self.ground_normal then
-            decel_vector = self.ground_normal:perpendicular() * (self.friction_decel * dt * self.ground_friction * self.total_mass)
-            if decel_vector * self.velocity > 0 then
-                decel_vector = -decel_vector
-            end
-            decel_vector = decel_vector:projectOn(self.velocity)
-            decel_vector:trimInplace(vellen)
-        else
-            local vel1 = self.velocity / vellen
-            decel_vector = -self.friction_decel * dt * vel1
-            -- FIXME need some real air resistance; as written, this also reverses gravity, oops
-            decel_vector = Vector.zero
-        end
-        self.velocity = self.velocity + decel_vector
-    end
-
-    ----------------------------------------------------------------------------
-    -- Super call to handle regular actor stuff
-    --if self.is_player then print('mobile before super...', self.velocity) end
-    MobileActor.__super.update(self, dt)
-    --if self.is_player then print('...after super...', self.velocity) end
+    -- XXX this is where friction used to go
 
     -- This is basically vt + ½at², and makes the results exactly correct, as
     -- long as pending_force contains constant sources of acceleration (like
@@ -970,14 +996,20 @@ function MobileActor:update(dt)
 
     -- If we're a pusher, we need to know how much we're pushing before and
     -- after, so we can scale our velocity to match the change in mass
-    local old_total_mass = self.total_mass
+    -- FIXME get rid of this var, also this breaks detaching a push chain
+    local old_total_mass = self:_get_total_mass(attempted_velocity)
 
     -- Collision time!
     local movement, hits = self:nudge(movement)
 
     self:update_ground()
 
-    -- If we're a pusher, do some bookkeeping
+    -- Do some cargo-related bookkeeping.  This is, unfortunately, entangled
+    -- with friction, because friction is what controls how much we can push
+    -- /and/ when we stop pushing something.
+    -- So, first, get our own friction.
+    local our_friction_force = self:get_friction(self.velocity)
+    local friction_force = our_friction_force
     if self.can_push then
         -- First, check all our push cargo; if we didn't just push it, it's not
         -- cargo any more.  Impart our momentum into it.
@@ -987,29 +1019,51 @@ function MobileActor:update(dt)
                 -- TODO
             else
                 -- Pushed
-                local collision = hits[actor.shape]
-                if not collision then
-                    self.cargo[actor] = nil
-                elseif not collision.pushed2 or not actor.is_pushable then
-                    self.cargo[actor] = nil
-                    -- FIXME we get no normals if touchtype < 0...  but also, why is that happening
-                    if collision.left_normal or collision.right_normal then
-                        actor.velocity = actor.velocity + self.velocity:projectOn(collision.left_normal or collision.right_normal)
-                    end
-                elseif manifest.state == CARGO_COULD_PUSH and manifest.normal * attempted_velocity < 0 then
-                    -- Count as pushing because we're making an effort
-                    -- TODO i think this only even matters for a sentient actor?
-                    manifest.state = CARGO_PUSHING
-                elseif manifest.normal * attempted_velocity >= 0
-                    -- FIXME do not love that this examines SentientActor stuff
-                    or (self.decision_move and manifest.normal * self.decision_move >= 0)
-                then
-                    -- Not pushing because we're not even trying to head in that direction
+                -- NOTE: This work is FRAMERATE DEPENDENT, because it always
+                -- takes one frame to detach.
+                if manifest.expiring then
+                    -- We didn't push this actor this frame, so we must have
+                    -- come detached from it.  Impart it with our velocity
+                    -- (which doesn't need any mass scaling, because our
+                    -- velocity was the velocity of the whole system), then
+                    -- remove it from cargo.
                     if manifest.state == CARGO_PUSHING then
-                        manifest.state = CARGO_COULD_PUSH
-                        if collision.left_normal or collision.right_normal then
-                            actor.velocity = actor.velocity + self.velocity:projectOn(collision.left_normal or collision.right_normal)
+                        actor.velocity = actor.velocity + manifest.velocity:projectOn(manifest.normal)
+                    end
+                    self.cargo[actor] = nil
+                elseif manifest.velocity then
+                    local cargo_friction_force = actor:_get_total_friction(-manifest.normal)
+                    local cargo_mass = actor:_get_total_mass(manifest.velocity)
+                    local friction_delta = cargo_friction_force / cargo_mass * dt
+                    local cargo_dot = (manifest.velocity + friction_delta) * manifest.normal
+                    local actual_dot = self.velocity * manifest.normal
+                    if actual_dot <= cargo_dot then
+                        -- We're either trying to move faster (and thus actually
+                        -- pushing), or moving at the same speed (like two identical
+                        -- crates sliding together).  Add their friction to the total
+                        -- and continue as normal.
+                        friction_force = friction_force + cargo_friction_force
+                    else
+                        -- We're moving more slowly than the rest of the system; we
+                        -- might be a sentient actor turning away, or just heavier or
+                        -- more frictional than whatever we're pushing.  Detach them.
+                        if manifest.state == CARGO_PUSHING then
+                            -- Transfer our velocity to the object we're detaching
+                            actor.velocity = actor.velocity + manifest.velocity:projectOn(manifest.normal)
+                            -- If the object was transitively pushing something else,
+                            -- transfer our velocity memory too.  This isn't strictly
+                            -- necessary, but it avoids waiting an extra frame for the
+                            -- object to realize it's pushing something before deciding
+                            -- whether to detach itself as well.
+                            if actor.cargo then
+                                for actor2, manifest2 in pairs(actor.cargo) do
+                                    if manifest2.state == CARGO_PUSHING and not manifest2.velocity then
+                                        manifest2.velocity = manifest.velocity
+                                    end
+                                end
+                            end
                         end
+                        self.cargo[actor] = nil
                     end
                 end
             end
@@ -1022,6 +1076,7 @@ function MobileActor:update(dt)
         -- FIXME lol this sends you flying if you jump while pushing something gdi
         -- TODO can we only update this if we know we pushed something, maybe?
         -- FIXME technically this should happen iff the set of objects /changed/...
+        -- FIXME again this is completely irrelevant for a mechanism with fixed speed
         self.total_mass = self:_get_total_mass(attempted_velocity)
         if self.total_mass ~= 0 and self.total_mass > old_total_mass then
             local seen = {}
@@ -1036,14 +1091,22 @@ function MobileActor:update(dt)
                     if manifest.state == CARGO_PUSHING then
                         total_velocity = total_velocity + get_total_velocity(other_actor)
                         -- FIXME this should be transitive, but that's complicated with loops, sigh
-                        -- FIXME only eat velocity in the normal direction!
-                        other_actor.velocity = Vector()
+                        other_actor.velocity = other_actor.velocity - other_actor.velocity:projectOn(manifest.normal)
                     end
                 end
                 return total_velocity
             end
             local total_velocity = get_total_velocity(self)
             self.velocity = total_velocity * (old_total_mass / self.total_mass)
+        end
+    end
+
+    for actor, manifest in pairs(self.cargo) do
+        manifest.expiring = true
+        if manifest.state == CARGO_PUSHING then
+            manifest.velocity = self.velocity
+        else
+            manifest.velocity = nil
         end
     end
 
@@ -1059,6 +1122,27 @@ function MobileActor:update(dt)
     --      dt, which sounds, slightly crazy
     if self.velocity ~= Vector.zero then
         self.velocity = slide_along_normals(hits, self.velocity)
+    end
+
+    -- Friction -- the general tendency for everything to decelerate.
+    -- It always pushes against the direction of motion, but never so much that
+    -- it would reverse the motion.
+    -- This is implemented with a recursive function so it can take into
+    -- account any extra friction from objects we're trying to push.
+    -- FIXME this very much seems like it should be a pending force, but that
+    -- makes capping it trickier
+    -- FIXME because this doesn't know about pending forces, it might still
+    -- move you backwards?  how DO i integrate this correctly?
+    -- FIXME i don't know how i feel about having this after cargo; maybe see
+    -- if things are simpler back the other way
+    -- FIXME this is /completely/ irrelevant for something with constant
+    -- velocity (like a moving platform) or something immobile
+    -- XXX trying to put this last because we need to know cargo to decide whether we need the whole system's friction or not
+    if friction_force ~= Vector.zero and self.velocity ~= Vector.zero then
+        local friction_decel = friction_force:projectOn(self.velocity) / self.total_mass
+        local friction_delta = friction_decel * dt
+        friction_delta:trimInplace(self.velocity:len())
+        self.velocity = self.velocity + friction_delta
     end
 
     return movement, hits
@@ -1273,6 +1357,11 @@ function SentientActor:update(dt)
     else
         xmult = self.aircontrol
     end
+
+    -- If we're pushing something, then treat our movement as a force that's
+    -- now being spread across greater mass
+    -- XXX should this check can_push, can_carry?  can we get rid of total_mass i don't like it??
+    xmult = xmult * self.mass / self.total_mass
 
     -- Explicit movement
     if not self:has_gravity() then
