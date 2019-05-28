@@ -306,10 +306,11 @@ local MobileActor = Actor:extend{
     -- Pushing and platform behavior
     is_pushable = false,
     can_push = false,
+    push_resistance_multiplier = 1,
+    push_momentum_multiplier = 1,
     is_portable = false,  -- Can this be carried?
     can_carry = false,  -- Can this carry?
     mass = 1,  -- Pushing a heavier object will slow you down
-    cargo = nil,  -- Set of currently-carried objects
 
     -- Physics state
     -- FIXME there are others!
@@ -319,6 +320,7 @@ local MobileActor = Actor:extend{
     -- instantaneous changes in velocity; there's push() for that.  This is
     -- for, e.g., gravity.
     pending_force = nil,
+    cargo = nil,  -- Set of currently-carried objects
     total_mass = nil,
 }
 
@@ -479,6 +481,29 @@ function MobileActor:_get_total_friction(direction, _seen, __v)
     return friction
 end
 
+function MobileActor:on_collide(actor, movement, collision)
+    MobileActor.__super.on_collide(self, actor, movement, collision)
+
+    -- If we're a platform, then when something hits us, we might start carrying it
+    -- FIXME should also update cargo_of, probably?
+    -- FIXME triangle wedge pushing boulder counts as a carry even though the
+    -- boulder is still also on the ground.  wow this is hard
+    if
+        self.can_carry and actor.is_portable and
+        any_normal_faces(collision, -actor:get_gravity())
+    then
+        local manifest = self.cargo[actor]
+        if manifest then
+            manifest.expiring = false
+        else
+            manifest = {}
+            self.cargo[actor] = manifest
+        end
+        manifest.state = CARGO_CARRYING
+        manifest.normal = collision.left_normal or collision.right_normal
+    end
+end
+
 -- Lower-level function passed to the collider to determine whether another
 -- object blocks us
 -- FIXME now that they're next to each other, these two methods look positively silly!  and have a bit of a symmetry problem: the other object can override via the simple blocks(), but we have this weird thing
@@ -536,18 +561,19 @@ function MobileActor:_collision_callback(collision, pushers, already_hit)
     -- also maybe the direction of movement is useful?
     local passable = self:on_collide_with(actor, collision)
 
-    -- Pushing
+    -- If the other actor is already our cargo, ignore collisions with it for
+    -- now, since we'll move it at the end of our movement in nudge()
     if actor and self.cargo and self.cargo[actor] and self.cargo[actor].state == CARGO_CARRYING then
-        -- If the other actor is already our cargo, ignore it for now, since
-        -- we'll move it at the end of our movement
         -- FIXME this is /technically/ wrong if the carrier is blockable, but so
         -- far all of mine are not.  one current side effect is that if you're
         -- on a crate on a platform moving up, and you hit a ceiling, then you
         -- get knocked off the crate rather than the crate being knocked
         -- through the platform.
-        -- FIXME do something here, probably
         return true
-    elseif actor and
+    end
+
+    -- Check for pushing
+    if actor and
         -- It has to be in our way
         not passable and collision.touchtype >= 0 and
         -- We must be on the ground to push something
@@ -558,8 +584,8 @@ function MobileActor:_collision_callback(collision, pushers, already_hit)
         -- FIXME this seems far too restrictive, but i don't know what's
         -- correct here.  also this is wrong for no-grav objects, which might
         -- be a hint
-        (not collision.left_normal or collision.left_normal.y == 0) and
-        (not collision.right_normal or collision.right_normal.y == 0) and
+        (not collision.left_normal or math.abs(collision.left_normal:normalized().y) < 0.25) and
+        (not collision.right_normal or math.abs(collision.right_normal:normalized().y) < 0.25) and
         -- If we already pushed this object during this nudge, it must be
         -- blocked or on a slope or otherwise unable to keep moving, so let it
         -- block us this time
@@ -570,7 +596,7 @@ function MobileActor:_collision_callback(collision, pushers, already_hit)
             -- This allows a carrier to pick up something by rising into it
             -- FIXME check that it's pushed upwards?
             -- FIXME this is such a weird fucking case though
-            (actor.is_portable and self.can_carry))
+            false --[[(actor.is_portable and self.can_carry)]])
     then
         local nudge = collision.attempted - collision.movement
         -- Only push in the direction the collision occurred!  If several
@@ -680,6 +706,7 @@ function MobileActor:_collision_callback(collision, pushers, already_hit)
             self.new_ground_normal = ground
             self.new_ground_friction = new_friction or 1
 
+            --[[
             -- XXX this is No Good, we need to check each frame to see if we need to /remove/ ourselves.  also, shouldn't this logic really belong to the carrier?  then the check can belong to the carrier too
             -- FIXME this can go wrong if our carrier is removed from the map.  or
             -- we're removed from the map, for that matter!  can fix this now though
@@ -692,11 +719,17 @@ function MobileActor:_collision_callback(collision, pushers, already_hit)
                 if ground_actor then
                     ground_actor.cargo[self] = {
                         state = CARGO_CARRYING,
+                        -- TODO this doesn't get updated if we move elsewhere on the same ground
                         normal = ground,
                     }
                     self.ptrs.cargo_of = ground_actor
                 end
+            elseif self.is_portable then
+                if ground_actor and ground_actor.cargo[self] then
+                    ground_actor.cargo[self].normal = ground
+                end
             end
+            ]]
         end
     end
 
@@ -1010,65 +1043,64 @@ function MobileActor:update(dt)
     -- So, first, get our own friction.
     local our_friction_force = self:get_friction(self.velocity)
     local friction_force = our_friction_force
-    if self.can_push then
-        -- First, check all our push cargo; if we didn't just push it, it's not
-        -- cargo any more.  Impart our momentum into it.
-        for actor, manifest in pairs(self.cargo) do
-            if manifest.state == CARGO_CARRYING then
-                -- Carried
-                -- TODO
+    -- First, check all our push cargo; if we didn't just push it, it's not
+    -- cargo any more.  Impart our momentum into it.
+    for actor, manifest in pairs(self.cargo) do
+        local detach = false
+        if manifest.expiring then
+            -- We didn't push or carry this actor this frame, so we must have
+            -- come detached from it.
+            detach = true
+        elseif manifest.state == CARGO_PUSHING and manifest.velocity then
+            -- Deal with push friction
+            local cargo_friction_force = actor:_get_total_friction(-manifest.normal)
+            local cargo_mass = actor:_get_total_mass(manifest.velocity)
+            local friction_delta = cargo_friction_force / cargo_mass * dt
+            local cargo_dot = (manifest.velocity + friction_delta) * manifest.normal
+            local actual_dot = self.velocity * manifest.normal
+            if actual_dot <= cargo_dot then
+                -- We're either trying to move faster (and thus actually
+                -- pushing), or moving at the same speed (like two identical
+                -- crates sliding together).  Add their friction to the total
+                -- and continue as normal.
+                friction_force = friction_force + cargo_friction_force * self.push_resistance_multiplier
             else
-                -- Pushed
-                -- NOTE: This work is FRAMERATE DEPENDENT, because it always
-                -- takes one frame to detach.
-                if manifest.expiring then
-                    -- We didn't push this actor this frame, so we must have
-                    -- come detached from it.  Impart it with our velocity
-                    -- (which doesn't need any mass scaling, because our
-                    -- velocity was the velocity of the whole system), then
-                    -- remove it from cargo.
-                    if manifest.state == CARGO_PUSHING then
-                        actor.velocity = actor.velocity + manifest.velocity:projectOn(manifest.normal)
-                    end
-                    self.cargo[actor] = nil
-                elseif manifest.velocity then
-                    local cargo_friction_force = actor:_get_total_friction(-manifest.normal)
-                    local cargo_mass = actor:_get_total_mass(manifest.velocity)
-                    local friction_delta = cargo_friction_force / cargo_mass * dt
-                    local cargo_dot = (manifest.velocity + friction_delta) * manifest.normal
-                    local actual_dot = self.velocity * manifest.normal
-                    if actual_dot <= cargo_dot then
-                        -- We're either trying to move faster (and thus actually
-                        -- pushing), or moving at the same speed (like two identical
-                        -- crates sliding together).  Add their friction to the total
-                        -- and continue as normal.
-                        friction_force = friction_force + cargo_friction_force
-                    else
-                        -- We're moving more slowly than the rest of the system; we
-                        -- might be a sentient actor turning away, or just heavier or
-                        -- more frictional than whatever we're pushing.  Detach them.
-                        if manifest.state == CARGO_PUSHING then
-                            -- Transfer our velocity to the object we're detaching
-                            actor.velocity = actor.velocity + manifest.velocity:projectOn(manifest.normal)
-                            -- If the object was transitively pushing something else,
-                            -- transfer our velocity memory too.  This isn't strictly
-                            -- necessary, but it avoids waiting an extra frame for the
-                            -- object to realize it's pushing something before deciding
-                            -- whether to detach itself as well.
-                            if actor.cargo then
-                                for actor2, manifest2 in pairs(actor.cargo) do
-                                    if manifest2.state == CARGO_PUSHING and not manifest2.velocity then
-                                        manifest2.velocity = manifest.velocity
-                                    end
-                                end
-                            end
+                -- We're moving more slowly than the rest of the system; we
+                -- might be a sentient actor turning away, or just heavier or
+                -- more frictional than whatever we're pushing.  Detach.
+                detach = true
+            end
+        end
+
+        -- Detach any cargo that's no longer connected.
+        -- NOTE: This work is FRAMERATE DEPENDENT, because it always takes one
+        -- frame to detach.
+        if detach then
+            self.cargo[actor] = nil
+
+            if manifest.state == CARGO_PUSHING then
+                -- If we were pushing, impart it with our velocity (which
+                -- doesn't need any mass scaling, because our velocity was the
+                -- velocity of the whole system).
+                actor.velocity = actor.velocity + manifest.velocity:projectOn(manifest.normal) * self.push_momentum_multiplier
+
+                -- If the object was transitively pushing something else,
+                -- transfer our velocity memory too.  This isn't strictly
+                -- necessary, but it avoids waiting an extra frame for the
+                -- object to realize it's doing the pushing before deciding
+                -- whether to detach itself as well.
+                if actor.cargo then
+                    for actor2, manifest2 in pairs(actor.cargo) do
+                        if manifest2.state == CARGO_PUSHING and not manifest2.velocity then
+                            manifest2.velocity = manifest.velocity
                         end
-                        self.cargo[actor] = nil
                     end
                 end
             end
         end
+    end
 
+    if self.can_push or self.can_carry then
         -- If the mass of this whole push system increased, then conserve
         -- momentum.  (Don't if it decreased, because the max speed of a
         -- sentient actor is still the same, and they shouldn't go flying when
@@ -1080,27 +1112,32 @@ function MobileActor:update(dt)
         self.total_mass = self:_get_total_mass(attempted_velocity)
         if self.total_mass ~= 0 and self.total_mass > old_total_mass then
             local seen = {}
-            local function get_total_velocity(actor)
+            local function get_total_momentum(actor)
                 if seen[actor] then
                     return Vector()
                 end
                 seen[actor] = true
 
-                local total_velocity = actor.velocity
+                local total_velocity = actor.velocity * actor.mass
                 for other_actor, manifest in pairs(actor.cargo) do
                     if manifest.state == CARGO_PUSHING then
-                        total_velocity = total_velocity + get_total_velocity(other_actor)
+                        total_velocity = total_velocity + get_total_momentum(other_actor)
                         -- FIXME this should be transitive, but that's complicated with loops, sigh
+                        -- FIXME should only collect velocity in the push direction?
                         other_actor.velocity = other_actor.velocity - other_actor.velocity:projectOn(manifest.normal)
                     end
                 end
                 return total_velocity
             end
-            local total_velocity = get_total_velocity(self)
-            self.velocity = total_velocity * (old_total_mass / self.total_mass)
+            local total_velocity = get_total_momentum(self)
+            -- FIXME this is ugly
+            -- FIXME also this doesn't only adjust our velocity along the push direction!!
+            self.velocity = self.velocity * (1 - self.push_momentum_multiplier) + total_velocity * (self.push_momentum_multiplier / self.total_mass)
         end
     end
 
+    -- Finally, mark all cargo as potentially expiring (if we haven't seen it
+    -- again by next frame), and update the system velocity of pushees.
     for actor, manifest in pairs(self.cargo) do
         manifest.expiring = true
         if manifest.state == CARGO_PUSHING then
