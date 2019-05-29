@@ -26,6 +26,16 @@ function TiledMapTile:init(tiled_tile)
     self.permeable = tiled_tile:prop('permeable')
     self.terrain = tiled_tile:prop('terrain')
     self.fluid = tiled_tile:prop('fluid')
+
+    -- Compatibility with some physics properties
+    -- TODO consolidate with above
+    -- TODO wait what is PROPS_USED for
+    self.friction_multiplier = tiled_tile:prop('friction')
+    self.terrain_type = tiled_tile:prop('terrain')
+end
+
+function TiledMapTile:__tostring()
+    return ("<TiledMapTile #%d from %s>"):format(self.tiled_tile.id, self.tiled_tile.tileset.path)
 end
 
 function TiledMapTile:blocks()

@@ -145,6 +145,12 @@ local Actor = BareActor:extend{
 
     -- Completely general-purpose timer
     timer = 0,
+
+    -- Multiplier for the friction of anything standing on us
+    -- XXX does this belong here?  i'm iffy enough about having shape, but this...
+    friction_multiplier = 1,
+    -- Terrain type, an arbitrary name, also applied to anything standing on us
+    terrain_type = nil,
 }
 
 function Actor:init(position)
@@ -481,29 +487,6 @@ function MobileActor:_get_total_friction(direction, _seen, __v)
     return friction
 end
 
-function MobileActor:on_collide(actor, movement, collision)
-    MobileActor.__super.on_collide(self, actor, movement, collision)
-
-    -- If we're a platform, then when something hits us, we might start carrying it
-    -- FIXME should also update cargo_of, probably?
-    -- FIXME triangle wedge pushing boulder counts as a carry even though the
-    -- boulder is still also on the ground.  wow this is hard
-    if
-        self.can_carry and actor.is_portable and
-        any_normal_faces(collision, -actor:get_gravity())
-    then
-        local manifest = self.cargo[actor]
-        if manifest then
-            manifest.expiring = false
-        else
-            manifest = {}
-            self.cargo[actor] = manifest
-        end
-        manifest.state = CARGO_CARRYING
-        manifest.normal = collision.left_normal or collision.right_normal
-    end
-end
-
 -- Lower-level function passed to the collider to determine whether another
 -- object blocks us
 -- FIXME now that they're next to each other, these two methods look positively silly!  and have a bit of a symmetry problem: the other object can override via the simple blocks(), but we have this weird thing
@@ -561,25 +544,48 @@ function MobileActor:_collision_callback(collision, pushers, already_hit)
     -- also maybe the direction of movement is useful?
     local passable = self:on_collide_with(actor, collision)
 
-    -- If the other actor is already our cargo, ignore collisions with it for
-    -- now, since we'll move it at the end of our movement in nudge()
-    if actor and self.cargo and self.cargo[actor] and self.cargo[actor].state == CARGO_CARRYING then
-        -- FIXME this is /technically/ wrong if the carrier is blockable, but so
-        -- far all of mine are not.  one current side effect is that if you're
-        -- on a crate on a platform moving up, and you hit a ceiling, then you
-        -- get knocked off the crate rather than the crate being knocked
-        -- through the platform.
-        return true
+    -- Check for carrying
+    if actor and self.can_carry then
+        if self.cargo[actor] and self.cargo[actor].state == CARGO_CARRYING then
+            -- If the other actor is already our cargo, ignore collisions with
+            -- it for now, since we'll move it at the end of nudge()
+            -- FIXME this is /technically/ wrong if the carrier is blockable, but so
+            -- far all of mine are not.  one current side effect is that if you're
+            -- on a crate on a platform moving up, and you hit a ceiling, then you
+            -- get knocked off the crate rather than the crate being knocked
+            -- through the platform.
+            return true
+        elseif actor.is_portable and
+            not passable and collision.touchtype >= 0 and
+            any_normal_faces(collision, gravity) and
+            not pushers[actor]
+        then
+            -- If we rise into a portable actor, pick it up -- push it the rest
+            -- of the distance we're going to move.  On its next ground check,
+            -- it should notice us as its carrier.
+            -- FIXME this isn't quite right, since we might get blocked and not
+            -- actually move this whole distance!  but chances are they will be
+            -- too so this isn't a huge deal
+            local nudge = collision.attempted - collision.movement
+            if not _is_vector_almost_zero(nudge) then
+                actor:nudge(nudge, pushers)
+            end
+            return true
+        end
     end
 
     -- Check for pushing
     if actor and
+        -- It has to be pushable, of course
+        self.can_push and actor.is_pushable and
         -- It has to be in our way
         not passable and collision.touchtype >= 0 and
         -- We must be on the ground to push something
         -- FIXME wellll, arguably, aircontrol should factor in.  also, objects
         -- with no gravity are probably exempt from this
         self.ground_normal and
+        -- We can't push the ground
+        self.ptrs.ground ~= actor and
         -- We can only push things sideways
         -- FIXME this seems far too restrictive, but i don't know what's
         -- correct here.  also this is wrong for no-grav objects, which might
@@ -591,12 +597,7 @@ function MobileActor:_collision_callback(collision, pushers, already_hit)
         -- block us this time
         already_hit[actor] ~= 'nudged' and
         -- Avoid a push loop, which could happen in pathological cases
-        not pushers[actor] and (
-            (actor.is_pushable and self.can_push) or
-            -- This allows a carrier to pick up something by rising into it
-            -- FIXME check that it's pushed upwards?
-            -- FIXME this is such a weird fucking case though
-            false --[[(actor.is_portable and self.can_carry)]])
+        not pushers[actor]
     then
         local nudge = collision.attempted - collision.movement
         -- Only push in the direction the collision occurred!  If several
@@ -649,90 +650,6 @@ function MobileActor:_collision_callback(collision, pushers, already_hit)
             end
         end
     end
-
-    -- Ground test: did we collide with something facing upwards?
-    -- Find the normal that faces /most/ upwards, i.e. most away from gravity.
-    -- This has to be done HERE because after all collisions are resolved, we
-    -- slide any remaining velocity, which means we no longer know that we
-    -- actually HIT the ground rather than merely sliding along it!
-    -- FIXME but what if we hit the ground, then slid off of it?
-    if self:has_gravity() and not passable and collision.touchtype > 0 then
-        local mindot = 0  -- 0 is vertical, which we don't want
-        local ground  -- normalized ground normal
-        local ground_actor  -- actor carrying us, if any
-        local new_friction
-        local normals = {collision.left_normal, collision.right_normal}
-        local gravity = self:get_gravity()
-        for i = 1, 2 do
-            local normal = normals[i]
-            if normal then
-                local normal1 = normal:normalized()
-                local dot = normal1 * gravity
-                if dot < mindot then
-                    mindot = dot
-                    ground = normal1
-                end
-                -- FIXME this is an awful lot of clumsiness for two normals.
-                -- this 0 check is here because otherwise vertical contact
-                -- counts as something we're standing on!!
-                if dot < mindot or (dot == mindot and dot < 0 and not ground_actor) then
-                    ground_actor = self.map.collider:get_owner(collision.shape)
-                    if ground_actor and type(ground_actor) == 'table' and ground_actor.isa then
-                        local friction
-                        if ground_actor:isa(Actor) then
-                            -- TODO? friction = ground_actor.friction
-                        elseif ground_actor:isa(tiledmap.TiledTile) then
-                            friction = ground_actor:prop('friction')
-                        end
-                        if not new_friction or (friction and friction > new_friction) then
-                            new_friction = friction
-                        end
-                    end
-                    -- FIXME what does this do for straddling?  should do
-                    -- whichever was more recent, but that seems like a Whole
-                    -- Thing.  also should this live on TiledMapTile instead of
-                    -- being a general feature?
-                    if ground_actor and ground_actor.terrain then
-                        -- FIXME defer this too
-                        self.new_terrain = ground_actor.terrain
-                    end
-                    if ground_actor and not ground_actor.can_carry then
-                        ground_actor = nil
-                    end
-                end
-            end
-        end
-        if ground then
-            self.new_ground_normal = ground
-            self.new_ground_friction = new_friction or 1
-
-            --[[
-            -- XXX this is No Good, we need to check each frame to see if we need to /remove/ ourselves.  also, shouldn't this logic really belong to the carrier?  then the check can belong to the carrier too
-            -- FIXME this can go wrong if our carrier is removed from the map.  or
-            -- we're removed from the map, for that matter!  can fix this now though
-            -- FIXME wait, does this still go here
-            if self.is_portable and self.ptrs.cargo_of ~= ground_actor then
-                if self.ptrs.cargo_of then
-                    self.ptrs.cargo_of.cargo[self] = nil
-                    self.ptrs.cargo_of = nil
-                end
-                if ground_actor then
-                    ground_actor.cargo[self] = {
-                        state = CARGO_CARRYING,
-                        -- TODO this doesn't get updated if we move elsewhere on the same ground
-                        normal = ground,
-                    }
-                    self.ptrs.cargo_of = ground_actor
-                end
-            elseif self.is_portable then
-                if ground_actor and ground_actor.cargo[self] then
-                    ground_actor.cargo[self].normal = ground
-                end
-            end
-            ]]
-        end
-    end
-
     if not self.is_blockable and not passable then
         return true
     else
@@ -779,6 +696,7 @@ local function slide_along_normals(hits, direction)
     -- FIXME the "two different collisions" case is wrong; if you run smack into something, you'll get the same normal on both sides.  the trouble is that this is used to slide velocity, which is not necessarily pointing in the same direction as the movement was to get these normals.  this SHOULD still be enough information, i just need to use it a bit better
 
     for _, collision in pairs(hits) do
+        -- FIXME really don't like the collision.pushed check here but what am i gonna do about it
         if collision.touchtype >= 0 and not collision.passable and not collision.pushed then
             -- TODO comment stuff in shapes.lua
             -- TODO explain why i used <= below (oh no i don't remember, but i think it was related to how this is done against the last slide only)
@@ -946,16 +864,135 @@ function MobileActor:nudge(movement, pushers, xxx_no_slide)
     return total_movement, hits
 end
 
--- Updates the various "ground we're on" properties to match the values found
--- in the collision callback.
--- TODO maybe this should just track a ground_actor?  though that would be
--- strictly worse than the current behavior, which separately tracks friction
--- and terrain when straddling two objects
-function MobileActor:update_ground()
-    self.ground_normal = self.new_ground_normal
-    self.ground_friction = self.new_ground_friction
-    self.on_ground = not not self.ground_normal
-    self.on_terrain = self.new_terrain
+function MobileActor:check_for_ground(attempted, hits)
+    if not self:has_gravity() then
+        -- TODO maybe clear out all the ground stuff?
+        return
+    end
+
+    local gravity = self:get_gravity()
+
+    -- If we didn't even try to move in the direction of gravity, we shouldn't
+    -- count as on the ground, even if we're a projectile sliding along it.
+    if attempted * gravity <= 0 then
+        -- TODO maybe clear out all the ground stuff?
+        return
+    end
+
+    -- Ground test: did we collide with something facing upwards?
+    -- Find the normal that faces /most/ upwards, i.e. most away from gravity.
+    -- FIXME what if we hit the ground, then slid off of it?
+    local mindot = 0  -- 0 is vertical, which we don't want
+    local normal
+    local actor
+    local friction
+    local terrain
+    local carrier
+    local carrier_normal
+    for _, collision in pairs(hits) do
+        -- XXX is it guaranteed to get a normal if touchtype >= 0?
+        if not collision.passable and collision.touchtype >= 0 then
+            -- Find the most upwards-facing normal
+            local norm, dot
+            if collision.left_normal and collision.right_normal then
+                local left_normal = collision.left_normal:normalized()
+                local left_dot = left_normal * gravity
+                local right_normal = collision.right_normal:normalized()
+                local right_dot = right_normal * gravity
+                if left_dot < right_dot then
+                    norm = left_normal
+                    dot = left_dot
+                else
+                    norm = right_normal
+                    dot = right_dot
+                end
+            else
+                norm = (collision.left_normal or collision.right_normal):normalized()
+                dot = norm * gravity
+            end
+
+            -- FIXME wait, hang on, does this even make sense?  you could be
+            -- resting on multiple things and they're all equally valid.  i
+            -- guess think about the case with boulder on wedge and ground
+            if dot < mindot then
+                -- New winner, easy peasy!
+                mindot = dot
+                normal = norm
+                actor = self.map.collider:get_owner(collision.shape)
+                if actor then
+                    friction = actor.friction_multiplier
+                    terrain = actor.terrain_type
+                    if actor.can_carry and self.is_portable then
+                        carrier = actor
+                        carrier_normal = norm
+                    end
+                else
+                    -- TODO should we use the friction from every ground we're on...?
+                    friction = nil
+                    terrain = nil
+                    -- Don't clear carrier, that's still valid
+                end
+            elseif dot == mindot and dot < 0 then
+                -- Deal with ties.  (Note that dot must be negative so as to
+                -- not tie with the initial mindot of 0, which would make
+                -- vertical walls seem like ground!)
+
+                local actor2 = self.map.collider:get_owner(collision.shape)
+                if actor2 then
+                    -- Prefer to stay on the same ground actor
+                    if not (actor and actor == self.ptrs.ground) then
+                        actor = actor2
+                    end
+
+                    -- Use the HIGHEST of any friction multiplier we're touching
+                    -- FIXME should friction just be a property of terrain type?  where would that live, though?
+                    if friction and actor2.friction_multiplier then
+                        friction = math.max(friction, actor2.friction_multiplier)
+                    else
+                        friction = actor2.friction_multiplier
+                    end
+
+                    -- FIXME what does this do for straddling?  should do
+                    -- whichever was more recent, but that seems like a Whole
+                    -- Thing.  also should this live on TiledMapTile instead of
+                    -- being a general feature?
+                    terrain = actor2.terrain_type or terrain
+
+                    -- Prefer to stay on the same carrier
+                    if actor2.can_carry and self.is_portable and not (carrier and carrier == self.ptrs.cargo_of) then
+                        carrier = actor2
+                        carrier_normal = norm
+                    end
+                end
+            end
+        end
+    end
+
+    self.ground_normal = normal
+    self.on_ground = not not normal
+    self.ptrs.ground = actor
+    self.ground_friction = friction or 1
+    self.on_terrain = terrain
+
+    if self.ptrs.cargo_of and self.ptrs.cargo_of ~= carrier then
+        self.ptrs.cargo_of.cargo[self] = nil
+        self.ptrs.cargo_of = nil
+    end
+    -- TODO i still feel like there should be some method for determining whether we're being carried
+    -- TODO still seems rude that we inject ourselves into their cargo also
+    if carrier then
+        local manifest = carrier.cargo[self]
+        if manifest then
+            manifest.expiring = false
+        else
+            manifest = {}
+            carrier.cargo[self] = manifest
+        end
+        manifest.state = CARGO_CARRYING
+        manifest.normal = normal
+
+        self.ptrs.cargo_of = carrier
+    end
 end
 
 function MobileActor:update(dt)
@@ -1021,11 +1058,7 @@ function MobileActor:update(dt)
         goalpos.y = math.floor(goalpos.y * 8 + 0.5) / 8
     end
     ]]
-    local movement = goalpos - self.pos
-
-    self.new_ground_normal = nil
-    self.new_ground_friction = 1
-    self.new_terrain = nil
+    local attempted = goalpos - self.pos
 
     -- If we're a pusher, we need to know how much we're pushing before and
     -- after, so we can scale our velocity to match the change in mass
@@ -1033,9 +1066,9 @@ function MobileActor:update(dt)
     local old_total_mass = self:_get_total_mass(attempted_velocity)
 
     -- Collision time!
-    local movement, hits = self:nudge(movement)
+    local movement, hits = self:nudge(attempted)
 
-    self:update_ground()
+    self:check_for_ground(attempted, hits)
 
     -- Do some cargo-related bookkeeping.  This is, unfortunately, entangled
     -- with friction, because friction is what controls how much we can push
@@ -1096,6 +1129,10 @@ function MobileActor:update(dt)
                         end
                     end
                 end
+            end
+            -- Just in case we were carrying them, undo their cargo_of
+            if actor.ptrs.cargo_of == self then
+                actor.ptrs.cargo_of = nil
             end
         end
     end
@@ -1220,14 +1257,14 @@ local SentientActor = MobileActor:extend{
     -- friction_decel / xaccel.
     xaccel = 2048,
     deceleration = 1,
-    max_speed = 192,
+    max_speed = 256,
     climb_speed = 128,
     -- Pick a jump velocity that gets us up 2 tiles, plus a margin of error
     jumpvel = get_jump_velocity(TILE_SIZE * 2.25),
     jumpcap = 0.25,
     -- Multiplier for xaccel while airborne.  MUST be greater than the ratio of
     -- friction to xaccel, or the player won't be able to move while floating!
-    aircontrol = 0.5,
+    aircontrol = 0.25,
     -- Maximum slope that can be walked up or jumped off of.  MUST BE NORMALIZED
     max_slope = Vector(1, -1):normalized(),
     max_slope_slowdown = 0.7,
@@ -1346,6 +1383,30 @@ function SentientActor:on_collide_with(actor, collision)
     return SentientActor.__super.on_collide_with(self, actor, collision)
 end
 
+function SentientActor:check_for_ground(...)
+    SentientActor.__super.check_for_ground(self, ...)
+
+    local gravity = self:get_gravity()
+    local max_slope_dot = self.max_slope * gravity
+    -- Sentient actors get an extra ground property, indicating whether the
+    -- ground they're on is shallow enough to stand on; if not, they won't be
+    -- able to jump, they won't have slope resistance, and they'll pretty much
+    -- act like they're falling
+    self.ground_shallow = self.ground_normal and not (self.ground_normal * gravity - max_slope_dot > 1e-8)
+
+    -- Also they don't count as cargo if the contact normal is too steep
+    -- TODO this is kind of weirdly inconsistent given that it works for
+    -- non-sentient actors...?  should max_slope get hoisted just for this?
+    if self.ptrs.cargo_of then
+        local carrier = self.ptrs.cargo_of
+        local manifest = carrier.cargo[self]
+        if manifest and manifest.normal * gravity - max_slope_dot > 1e-8 then
+            carrier.cargo[self] = nil
+            self.ptrs.cargo_of = nil
+        end
+    end
+end
+
 function SentientActor:update(dt)
     -- TODO why is decision_climb special-cased in so many places here?
     if self.is_dead or self.is_locked then
@@ -1378,7 +1439,7 @@ function SentientActor:update(dt)
         xdir = self.ground_normal:perpendicular()
         xmult = self.ground_friction
         if uphill then
-            if self.too_steep then
+            if self.ground_shallow then
                 xmult = 0
             else
                 -- Linearly scale the slope slowdown, based on the y coordinate (of
@@ -1462,7 +1523,7 @@ function SentientActor:update(dt)
             self.velocity = self.velocity - dx * xdir
         end
         self.facing = 'left'
-    elseif not self.too_steep then
+    elseif self.ground_shallow then
         -- Not walking means we're trying to stop, albeit leisurely
         -- Climbing means you're holding onto something sturdy, so give a deceleration bonus
         if self.decision_climb then
@@ -1510,9 +1571,6 @@ function SentientActor:update(dt)
     -- Slope resistance: a sentient actor will resist sliding down a slope
     if self:has_gravity() and self.on_ground then
         local gravity = self:get_gravity()
-        self.too_steep = (
-            self.ground_normal * gravity - self.max_slope * gravity > 1e-8)
-
         -- Slope resistance always pushes upwards along the slope.  It has no
         -- cap, since it should always exactly oppose gravity, as long as the
         -- slope is shallow enough.
@@ -1521,7 +1579,7 @@ function SentientActor:update(dt)
         -- FIXME this doesn't take into account the gravity multiplier /or/
         -- fluid resistance, and in general i don't love that it can get out of
         -- sync like that  :S
-        if not self.too_steep then
+        if self.ground_shallow then
             local slope = self.ground_normal:perpendicular()
             if slope * gravity > 0 then
                 slope = -slope
@@ -1529,29 +1587,18 @@ function SentientActor:update(dt)
             local slope_resistance = -(gravity * slope)
             self.pending_force = self.pending_force + slope_resistance * slope
         end
-    else
-        self.too_steep = nil
     end
 
     -- Apply physics
-    local was_on_ground = self.on_ground
+    local was_on_ground = self.ground_normal
     local movement, hits = SentientActor.__super.update(self, dt)
 
-    -- Ground sticking
-    -- FIXME this is still clearly visible (and annoying), AND it messes with
-    -- attempts to nudge the player upwards artificially!
-    -- If we walk up off the top of a slope, our momentum will carry us into
-    -- the air, which looks very silly.  A conscious actor would step off the
-    -- ramp.  So if we're only a very short distance above the ground, we were
-    -- on the ground before moving, and we're not trying to jump, then stick us
-    -- to the floor.
-    -- Note that we commit to the short drop even if we don't actually hit the
-    -- ground!  Since a nudge can cause both pushes and callbacks, there's no
-    -- easy way to do a hypothetical slide without just doing it twice.  This
-    -- should be fine, though, since it ought to only happen for a single
-    -- frame, and is only a short distance.
-    -- TODO this doesn't do velocity sliding afterwards, though that's not such
-    -- a big deal since it'll happen the next frame
+    -- Ground adherence
+    -- If we walk up off the top of a hill, our momentum will carry us into the
+    -- air, which looks very silly; a sentient actor would simply step down
+    -- onto the downslope.  So if we're only a very short distance above the
+    -- ground, AND we were on the ground before moving, AND we're not trying to
+    -- jump, then stick us to the floor.
     -- TODO i suspect this could be avoided with the same (not yet written)
     -- logic that would keep critters from walking off of ledges?  or if
     -- the loop were taken out of collider.slide and put in here, so i could
@@ -1561,21 +1608,59 @@ function SentientActor:update(dt)
         self.decision_jump_mode == 0 and self.decision_climb == nil and
         self.gravity_multiplier > 0 and self.gravity_multiplier_down > 0
     then
-        -- If we run uphill along our steepest uphill slope and it immediately
-        -- becomes our steepest downhill slope, we'll need to drop the
-        -- x-coordinate of the normal, twice
-        -- FIXME take max_speed into account here too so you can still be
-        -- launched -- though i think that will look mighty funny since the
-        -- drop will still happen
-        -- FIXME this is actually completely ridiculous; no cap means it can
-        -- drop you a huge amount
-        -- FIXME also it interferes with the spring, argghh
-        -- FIXME consider cloning our shape, moving it, testing for collision, and doing the drop only if you find something?
-        local drop = Vector(0, math.abs(movement.x) * math.abs(self.max_slope.x) * 2)
-        local drop_movement
-        drop_movement, hits = self:nudge(drop, nil, true)
-        movement = movement + drop_movement
-        self:update_ground()
+        local gravity = self:get_gravity()
+        -- How far should we drop?  I'm so glad you asked!
+        -- There are two components: the slope we just launched off of ("top"),
+        -- and the one we're trying to drop onto ("bottom").
+        -- The top part is easy; it's the vertical component of however far we
+        -- just moved.  (This might point UP, if we're walking downhill!)
+        local top_drop = -movement:projectOn(gravity)
+        -- The bottom part, we don't know.  But we know the steepest slope we
+        -- can stand on, so we can just use that.
+        -- Please trust this grody vector math, I spent ages coming up with it.
+        local bottom_drop = - ((movement + top_drop) * self.max_slope) / (gravity * self.max_slope) * gravity
+        -- The bottom part might end up pointing the wrong way, because
+        -- max_slope is a normal and can arbitrarily point either left or right
+        -- FIXME wait max slope is gravity-dependant, rrgh!
+        if bottom_drop * gravity < 0 then
+            bottom_drop = -bottom_drop
+        end
+        -- This factor of 2 solves a subtle problem: on the frame we walk off a
+        -- slope, we don't hit anything else, so we don't bother checking for
+        -- new collisions and we think we're still on the ground!  So we need
+        -- to account for TWO frames' worth of drop, urgh.
+        -- FIXME this would be nice to fix somehow
+        local drop = (top_drop + bottom_drop) * 2
+
+        -- Try dropping our shape, just to see if we /would/ hit anything, but
+        -- without firing any collision triggers or whatever.  Try moving a
+        -- little further than our max, just because that's an easy way to
+        -- distinguish exactly hitting the ground from not hitting anything.
+        local prelim_movement = self.map.collider:slide(self.shape, drop * 1.1, function(collision)
+            local actor = self.map.collider:get_owner(collision.shape)
+            if actor == self then
+                return true
+            end
+            if actor then
+                return not actor:blocks(self, collision)
+            end
+            return true
+        end)
+
+        if prelim_movement:len2() <= drop:len2() then
+            -- We hit the ground!  Do that again, but for real this time.
+            local drop_movement
+            drop_movement, hits = self:nudge(drop, nil, true)
+            movement = movement + drop_movement
+            self:check_for_ground(drop, hits)
+
+            if self.on_ground then
+                -- Now we're on the ground, so flatten our velocity to indicate
+                -- we're walking along it.  Or equivalently, remove the part
+                -- that's trying to launch us upwards.
+                self.velocity = self.velocity - self.velocity:projectOn(self.ground_normal)
+            end
+        end
     end
 
     -- Handle our own passive physics
@@ -1609,14 +1694,14 @@ function SentientActor:handle_jump(dt)
         -- You cannot climb while jumping, sorry
         -- TODO but maybe...  you can hold up + jump, and regrab the ladder only at the apex of the jump?
         self.decision_jump_mode = 1
-        if self.jump_count == 0 and not self.on_ground then
+        if self.jump_count == 0 and not self.ground_shallow then
             self.jump_count = 1
         end
         if self.jump_count < self.max_jumps or (self.decision_climb and not self.xxx_useless_climb) then
             -- TODO maybe jump away from the ground, not always up?  then could
             -- allow jumping off of steep slopes
             local jumped
-            if self.too_steep then
+            if self.ground_normal and not self.ground_shallow then
                 self.velocity = self.jumpvel * self.ground_normal
                 jumped = true
             elseif self.velocity.y > -self.jumpvel then
@@ -1647,6 +1732,8 @@ end
 
 -- Use something, whatever that means
 -- TODO a basic default implementation might be nice!
+-- TODO i think that would require a basic default implementation of /finding/
+-- an item to use, too, which could be either overlap or raycast
 function SentientActor:use()
 end
 
@@ -1686,7 +1773,7 @@ function SentientActor:determine_pose()
             self.sprite.anim:pause()
             return
         end
-    elseif self.on_ground or not self:has_gravity() then
+    elseif not self:has_gravity() or (self.ground_normal and self.ground_shallow) then
         if self.decision_move ~= Vector.zero then
             return 'walk'
         end
