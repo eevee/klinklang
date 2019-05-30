@@ -470,8 +470,8 @@ describe("Collision", function()
             +--------+
             | floor  |
             +--------+
-            movement is right and down, such that the player will not actually
-            touch the floor
+            movement is right and down, such that the player will graze but not
+            actually collide with the floor
         ]]
         local collider = whammo.Collider(4 * 100)
         local floor = whammo_shapes.Box(0, 250, 100, 100)
