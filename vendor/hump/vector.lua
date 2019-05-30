@@ -57,12 +57,12 @@ function vector.__unm(a)
 end
 
 function vector.__add(a,b)
-	assert(isvector(a) and isvector(b), "Add: wrong argument types (<vector> expected)")
+	--assert(isvector(a) and isvector(b), "Add: wrong argument types (<vector> expected)")
 	return new(a.x+b.x, a.y+b.y)
 end
 
 function vector.__sub(a,b)
-	assert(isvector(a) and isvector(b), "Sub: wrong argument types (<vector> expected)")
+	--assert(isvector(a) and isvector(b), "Sub: wrong argument types (<vector> expected)")
 	return new(a.x-b.x, a.y-b.y)
 end
 
@@ -72,13 +72,13 @@ function vector.__mul(a,b)
 	elseif type(b) == "number" then
 		return new(b*a.x, b*a.y)
 	else
-		assert(isvector(a) and isvector(b), "Mul: wrong argument types (<vector> or <number> expected)")
+		--assert(isvector(a) and isvector(b), "Mul: wrong argument types (<vector> or <number> expected)")
 		return a.x*b.x + a.y*b.y
 	end
 end
 
 function vector.__div(a,b)
-	assert(isvector(a) and type(b) == "number", "wrong argument types (expected <vector> / <number>)")
+	--assert(isvector(a) and type(b) == "number", "wrong argument types (expected <vector> / <number>)")
 	return new(a.x / b, a.y / b)
 end
 
@@ -95,7 +95,7 @@ function vector.__le(a,b)
 end
 
 function vector.permul(a,b)
-	assert(isvector(a) and isvector(b), "permul: wrong argument types (<vector> expected)")
+	--assert(isvector(a) and isvector(b), "permul: wrong argument types (<vector> expected)")
 	return new(a.x*b.x, a.y*b.y)
 end
 
@@ -108,14 +108,14 @@ function vector:len()
 end
 
 function vector.dist(a, b)
-	assert(isvector(a) and isvector(b), "dist: wrong argument types (<vector> expected)")
+	--assert(isvector(a) and isvector(b), "dist: wrong argument types (<vector> expected)")
 	local dx = a.x - b.x
 	local dy = a.y - b.y
 	return sqrt(dx * dx + dy * dy)
 end
 
 function vector.dist2(a, b)
-	assert(isvector(a) and isvector(b), "dist: wrong argument types (<vector> expected)")
+	--assert(isvector(a) and isvector(b), "dist: wrong argument types (<vector> expected)")
 	local dx = a.x - b.x
 	local dy = a.y - b.y
 	return (dx * dx + dy * dy)
@@ -149,21 +149,21 @@ function vector:perpendicular()
 end
 
 function vector:projectOn(v)
-	assert(isvector(v), "invalid argument: cannot project vector on " .. type(v))
+	--assert(isvector(v), "invalid argument: cannot project vector on " .. type(v))
 	-- (self * v) * v / v:len2()
 	local s = (self.x * v.x + self.y * v.y) / (v.x * v.x + v.y * v.y)
 	return new(s * v.x, s * v.y)
 end
 
 function vector:mirrorOn(v)
-	assert(isvector(v), "invalid argument: cannot mirror vector on " .. type(v))
+	--assert(isvector(v), "invalid argument: cannot mirror vector on " .. type(v))
 	-- 2 * self:projectOn(v) - self
 	local s = 2 * (self.x * v.x + self.y * v.y) / (v.x * v.x + v.y * v.y)
 	return new(s * v.x - self.x, s * v.y - self.y)
 end
 
 function vector:cross(v)
-	assert(isvector(v), "cross: wrong argument types (<vector> expected)")
+	--assert(isvector(v), "cross: wrong argument types (<vector> expected)")
 	return self.x * v.y - self.y * v.x
 end
 
