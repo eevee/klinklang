@@ -592,7 +592,7 @@ function Box:clone()
 end
 
 function Box:__tostring()
-    return "<Box>"
+    return ("<Box (%.2f, %.2f) to (%.2f, %.2f)>"):format(self.x0, self.y0, self.x0 + self.width, self.y0 + self.height)
 end
 
 function Box:flipx(axis)
@@ -605,6 +605,20 @@ end
 function Box:center()
     return self.x0 + self.width / 2, self.y0 + self.height / 2
 end
+
+function Box:project_onto_axis(axis)
+    -- AABBs report the unit vectors as their axes, and if those end up here,
+    -- we already know what the projection will be: it's just the x or y
+    -- coordinates of our bounding boxes.
+    if axis == XPOS then
+        return self.x0, self.x1, self.points[1], self.points[2]
+    elseif axis == YPOS then
+        return self.y0, self.y1, self.points[1], self.points[4]
+    else
+        return Box.__super.project_onto_axis(self, axis)
+    end
+end
+
 
 
 local MultiShape = Shape:extend()
