@@ -155,6 +155,41 @@ function Shape:intersection_with_ray(start, direction)
     error("intersection_with_ray not implemented")
 end
 
+-- FIXME this very bad hack is for MultiShape, which i would looove to remove entirely
+-- FIXME this doesn't even copy over all the relevant properties christ
+local function _multi_slide_towards(self, other, movement)
+    local ret
+    for _, subshape in ipairs(other.subshapes) do
+        local collision = self:slide_towards(subshape, movement)
+        if collision == nil then
+            -- Do nothing
+        elseif ret == nil then
+            -- First result; just accept it
+            ret = collision
+        else
+            -- Need to combine
+            if collision.amount < ret.amount then
+                ret = collision
+            elseif collision.amount == ret.amount then
+                ret.touchdist = math.min(ret.touchdist, collision.touchdist)
+                if ret.touchtype == 0 then
+                    ret.touchtype = collision.touchtype
+                end
+                if collision.left_normal_dot > ret.left_normal_dot then
+                    ret.left_normal_dot = collision.left_normal_dot
+                    ret.left_normal = collision.left_normal
+                end
+                if collision.right_normal_dot > ret.right_normal_dot then
+                    ret.right_normal_dot = collision.right_normal_dot
+                    ret.right_normal = collision.right_normal
+                end
+            end
+        end
+    end
+
+    return ret
+end
+
 -- Project this shape's outline onto an axis given by a Vector (which doesn't
 -- have to be a unit vector), by taking the dot product of its extremes with
 -- the axis, and return:
@@ -172,9 +207,344 @@ end
 -- including if they're initially touching but then move apart.
 -- This is the core of collision detection, and is called by Collider:sweep().
 -- Note that the shape isn't actually moved; the movement is only simulated.
--- Must be implemented in subtypes!
+-- FIXME couldn't there be a much simpler version of this for two AABBs?
+-- FIXME incorporate the improvements i made when porting this to rust
+-- FIXME maybe write a little benchmark too
 function Shape:slide_towards(other, movement)
-    error("slide_towards not implemented")
+    -- We cannot possibly collide if the bboxes don't overlap
+    local ax0, ay0, ax1, ay1 = self:extended_bbox(movement:unpack())
+    local bx0, by0, bx1, by1 = other:bbox()
+    if (ax1 < bx0 or bx1 < ax0) and (ay1 < by0 or by1 < ay0) then
+        return
+    end
+
+    -- Use the separating axis theorem.
+    -- 1. Choose a bunch of axes, generally normals of the shapes.
+    -- 2. Project both shapes along each axis.
+    -- 3. If the projects overlap along ANY axis, the shapes overlap.
+    --    Otherwise, they don't.
+    -- This code also does a couple other things.
+    -- b. It uses the direction of movement as an extra axis, in order to find
+    --    the minimum possible movement between the two shapes.
+    -- a. It keeps values around in terms of their original vectors, rather
+    --    than lengths or normalized vectors, to avoid precision loss
+    --    from taking square roots.
+
+    if other.subshapes then
+        return _multi_slide_towards(self, other, movement)
+    end
+
+    -- Mapping of normal vectors (i.e. projection axes) to their normalized
+    -- versions (needed for comparing the results of the projection)
+    -- FIXME is the move normal actually necessary, or was it just covering up
+    -- my bad math before?
+    -- The move normal is necessary to take into account, well, movement;
+    -- otherwise there's no way for the SAT to know that a box could move
+    -- diagonally /past/ another box without hitting it
+    local movenormal = movement:perpendicular()
+    local axes = {}
+    if movenormal ~= Vector.zero then
+        axes[movenormal] = movenormal:normalized()
+    end
+    for norm, norm1 in pairs(self:normals()) do
+        axes[norm] = norm1
+    end
+    for norm, norm1 in pairs(other:normals()) do
+        axes[norm] = norm1
+    end
+
+    local maxleftdot = NEG_INFINITY
+    local leftnorm
+    local maxrightdot = NEG_INFINITY
+    local rightnorm
+
+    -- Search for the axis that yields the greatest distance between the shapes
+    -- (which must then be /the/ greatest distance between them), by projecting
+    -- both shapes onto each axis in turn
+    local maxamt = NEG_INFINITY
+    local maxnumer, maxdenom
+    local min_penetration_depth
+    local min_penetration
+    local max_separation
+    local touchtype = -1
+    local slide_axis
+    local x_our_pt, x_their_pt, x_contact_axis
+    for fullaxis, axis in pairs(axes) do
+        local min1, max1, minpt1, maxpt1 = self:project_onto_axis(fullaxis)
+        local min2, max2, minpt2, maxpt2 = other:project_onto_axis(fullaxis)
+        -- The scalar distance between the two shapes, in fullaxis units (so
+        -- not useful for comparing between iterations, but useful to compare
+        -- to zero)
+        local dist
+        -- The closest points to the gap/overlap along this axis
+        local our_point, their_point
+        -- Depending on the axis and the relative position of the shapes, the
+        -- results might be aligned in any number of ways.  Reorient if
+        -- necessary, so the axis is always pointing towards us, i.e. is the
+        -- direction we should move to get away from them.
+        local dist_left = min2 - max1
+        local dist_right = min1 - max2
+        if dist_left >= dist_right then
+            -- 1 appears first, so take the distance from 1 to 2
+            dist = dist_left
+            our_point = maxpt1
+            their_point = minpt2
+            -- Flip the axes so they point towards us and become normals
+            axis = -axis
+            fullaxis = -fullaxis
+        else
+            -- Other way around
+            dist = dist_right
+            our_point = minpt1
+            their_point = maxpt2
+        end
+        -- Vector distance between the two shapes, pointing from us to them, in
+        -- world units
+        local sep = their_point - our_point
+
+        -- Track the minimum penetration vector for overlapping objects
+        if touchtype < 0 then
+            local seplen = sep * axis
+            if not min_penetration or seplen < min_penetration_depth then
+                min_penetration = sep:projectOn(fullaxis)
+                min_penetration_depth = seplen
+            end
+        end
+
+        -- Ignore extremely tiny overlaps, which are likely precision errors
+        if abs(dist) < PRECISION then
+            dist = 0
+        end
+
+        -- Update touchtype
+        if dist > 0 then
+            touchtype = 1
+        elseif touchtype < 0 and dist >= 0 then
+            touchtype = 0
+        end
+
+        -- This dot product is negative if we're moving closer along this
+        -- axis, positive if we're moving away
+        local dot = movement * fullaxis
+        if abs(dot) < PRECISION then
+            dot = 0
+        end
+
+        if dist == 0 and dot == 0 then
+            -- Zero dot and zero distance mean the movement is parallel and the
+            -- shapes can slide against each other.  But calling code would
+            -- like to know if (and when) they're going to touch, and we need
+            -- to check the other axes to find that out.
+            -- FIXME what EXACTLY do we need info-wise from the other axes that we can't get here?  oh i guess the amount here comes out infinite.  maybe what i want is the same separation logic that i need for overlap?
+            -- TODO or maybe i should just let the amount testing code below run no matter what, eh
+            slide_axis = fullaxis
+            x_our_pt = our_point
+            x_their_pt = their_point
+            x_contact_axis = fullaxis
+            max_separation = sep
+        elseif dot >= 0 and dist >= 0 then
+            -- The shapes are either touching and moving apart (which doesn't
+            -- count as a touch), or not touching but not moving closer
+            -- together.  Either way, they can't collide, so stop here.
+            -- FIXME if i try to move away from something but can't because
+            -- i'm stuck, this won't detect the touch then?  hmm
+            return
+        else
+            -- Figure out how much movement is allowed, as a fraction.
+            -- Conceptually, the answer is the movement projected onto the
+            -- axis, divided by the separation projected onto the same axis.
+            -- Stuff cancels, and it turns out to be just the ratio of dot
+            -- products (which makes sense).  Vectors are neat.  Note that
+            -- slides are meaningless here; a shape could move perpendicular to
+            -- the axis forever without hitting anything.
+            -- FIXME this should just be dist, surely??  and what the hell is the abs for?
+            local numer = -(sep * fullaxis)
+            local amount = numer / abs(dot)
+            -- TODO if movement is zero (or at least zero in this
+            -- direction) then the division will give either positive or
+            -- negative infinity, which makes this somewhat less useful for
+            -- determining existing overlap, hm
+            if abs(amount) < PRECISION then
+                amount = 0
+            end
+
+            local use_normal
+            -- TODO i think i could avoid this entirely by using a cross
+            -- product instead?
+            -- FIXME rust has this, find a failing case first:
+            --if maxamt > Fixed::min_value() && (amount - maxamt).abs() < PRECISION {
+            -- FIXME these two maxamt checks are highly suspect imo
+            if maxamt > NEG_INFINITY and abs(amount - maxamt) < PRECISION then
+                -- Equal, ish
+                use_normal = true
+            elseif maxamt == NEG_INFINITY or amount > maxamt then
+                maxamt = amount
+                maxnumer = numer
+                maxdenom = abs(dot)
+                max_separation = sep
+                leftnorm = nil
+                rightnorm = nil
+                maxleftdot = NEG_INFINITY
+                maxrightdot = NEG_INFINITY
+                use_normal = true
+                -- If there's a slide axis, then its axis wins here
+                if not slide_axis then
+                    x_our_pt = our_point
+                    x_their_pt = their_point
+                    x_contact_axis = fullaxis
+                end
+            end
+
+            -- FIXME rust does this code even for the move normal (which i'm not sure is necessary, and might even be bad, because the move normal would make it seem like we just hit a flat wall instead of a corner)
+            if use_normal and not rawequal(fullaxis, movement) and
+                -- Ignore normals that face away from us
+                dot <= 0 and
+                -- If this is a slide then that's the only valid normal and
+                -- all this work will be ignored anyway
+                not slide_axis
+            then
+                -- FIXME normals are no longer de-duplicated, hmm
+                local ourdot = movement * axis
+
+                -- Determine if this surface is on our left or right.  The move
+                -- normal points right from us, so if this dot product is
+                -- positive, the normal also points right of us, which means
+                -- the actual surface is on our left.  (Remember, LÖVE's
+                -- coordinate system points down!)
+                local right_dot = movenormal * fullaxis
+                -- TODO explain this better, but the idea is: using the greater dot means using the slope that's furthest away from us, which resolves corners nicely because two normals on one side HAVE to be a corner, they can't actually be one in front of the other
+                -- TODO should these do something on a tie?
+                if right_dot >= -PRECISION and ourdot > maxleftdot then
+                    leftnorm = fullaxis
+                    maxleftdot = ourdot
+                end
+                if right_dot <= PRECISION and ourdot > maxrightdot then
+                    rightnorm = fullaxis
+                    maxrightdot = ourdot
+                end
+            end
+        end
+    end
+
+    if maxamt > 1 and touchtype > 0 then
+        -- We're allowed to move further than the requested distance, AND we
+        -- won't touch.  (Touching is handled as a "slide" below.)  Bail!
+        return
+    end
+
+    if touchtype < 0 then
+        -- Shapes are already overlapping, oops
+        local allowed
+        if movement * min_penetration >= 0 then
+            allowed = 1
+        else
+            allowed = 0
+        end
+
+        leftnorm = nil
+        rightnorm = nil
+        maxleftdot = NEG_INFINITY
+        maxrightdot = NEG_INFINITY
+        if min_penetration * movement <= 0 then
+            local pendot = min_penetration * movenormal
+            if pendot >= 0 then
+                leftnorm = min_penetration
+                maxleftdot = 0
+            end
+            if pendot <= 0 then
+                rightnorm = min_penetration
+                maxrightdot = 0
+            end
+        end
+        return Collision:bless{
+            movement = movement * allowed,
+            amount = allowed,
+            touchdist = 0,
+            touchtype = -1,
+            separation = max_separation,
+            penetration = min_penetration,
+            left_normal = leftnorm,
+            right_normal = rightnorm,
+            left_normal_dot = maxleftdot,
+            right_normal_dot = maxrightdot,
+        }
+    end
+
+    if slide_axis then
+        -- This is a slide; we will touch (or are already touching) the other
+        -- object, but can continue past it.  (If we wouldn't touch, amount
+        -- would exceed 1, and we would've returned earlier.)
+        -- touchdist is how far we can move before we touch.  If we're already
+        -- touching, then the touch axis will be the max distance, the dot
+        -- products above will be zero, and amount will be nonsense.  If not,
+        -- amount is correct.
+        local touchdist = maxamt
+        -- TODO i'm suspicious of this touchdist < 0, how did that happen?  is
+        -- this what i was running into when standing at the very left edge of
+        -- a map with my feet 2px in the floor?  oh right it's because of
+        -- overlap...  hmm
+        if touchtype == 1 or touchdist < 0 then
+            touchdist = 0
+        end
+        -- Since we're touching, the slide axis is the only valid normal!  Any
+        -- others were near misses that didn't actually collide
+        if slide_axis * movenormal > 0 then
+            leftnorm = slide_axis
+            maxleftdot = 0
+            rightnorm = nil
+            maxrightdot = NEG_INFINITY
+        else
+            rightnorm = slide_axis
+            maxrightdot = 0
+            leftnorm = nil
+            maxleftdot = NEG_INFINITY
+        end
+
+        return Collision:bless{
+            movement = movement,
+            amount = 1,
+            touchdist = touchdist,
+            touchtype = 0,
+            separation = max_separation,
+
+            left_normal = leftnorm,
+            right_normal = rightnorm,
+            left_normal_dot = maxleftdot,
+            right_normal_dot = maxrightdot,
+
+            our_shape = self,
+            their_shape = other,
+            our_point = x_our_pt,
+            their_point = x_their_pt,
+            axis = slide_axis,
+        }
+    elseif maxamt == NEG_INFINITY then
+        -- We don't hit anything at all!
+        return
+    end
+
+    -- If none of the special cases apply, this is a regular old collision
+    -- where we're about to run head-first into something
+    return Collision:bless{
+        -- Minimize rounding error by repeating the same division we used to
+        -- get amount, but multiplying first
+        movement = movement * maxnumer / maxdenom,
+        amount = maxamt,
+        touchdist = maxamt,
+        touchtype = 1,
+        separation = max_separation,
+
+        left_normal = leftnorm,
+        right_normal = rightnorm,
+        left_normal_dot = maxleftdot,
+        right_normal_dot = maxrightdot,
+
+        our_shape = self,
+        their_shape = other,
+        our_point = x_our_pt,
+        their_point = x_their_pt,
+        axis = x_contact_axis,
+    }
 end
 
 -- Given a point and a projection axis resulting from collision detection, find
@@ -188,17 +558,6 @@ end
 -- Must be implemented in subtypes!
 function Shape:find_edge(start_point, axis)
     error("find_edge not implemented")
-end
-
-
--- Misc API
-
--- Draw this shape using the LÖVE graphics API.  Mode is either 'fill' or
--- 'line', as for LÖVE.
--- Generally only used for debugging, but should be implemented in subtypes.
--- Shouldn't change color or otherwise do anything weird to the draw state.
-function Shape:draw(mode)
-    error("draw not implemented")
 end
 
 
@@ -243,6 +602,9 @@ function Polygon:__tostring()
     return "<Polygon>"
 end
 
+-- Return a flat list of this Polygon's coordinates, i.e.:
+-- {x0, y0, x1, y1, x2, y2, ...}
+-- Mostly used for passing to APIs like love.graphics.polygon.
 function Polygon:to_coords()
     local coords = {}
     for _, point in ipairs(self.points) do
@@ -401,393 +763,7 @@ function Polygon:project_onto_axis(axis)
     return min, max, minpt, maxpt
 end
 
--- If this shape were to move by a given distance, would it collide with the
--- given other shape?  If no, returns nil.  If yes, even if the two would slide
--- against each other, returns a table with the following keys:
---   movement: Movement vector, trimmed so it won't collide
---   amount: How much of the given movement can be performed before hitting the
---      other shape, from 0 to 1
---   touchdist: Like `amount`, but how much before touching the other shape,
---      which can be different when two shapes slide
---   touchtype: 1 for collision, 0 for slide, -1 for already overlapping
--- FIXME couldn't there be a much simpler version of this for two AABBs?
--- FIXME incorporate the improvements i made when porting this to rust
--- FIXME maybe write a little benchmark too
-function Polygon:slide_towards(other, movement)
-    -- We cannot possibly collide if the bboxes don't overlap
-    local ax0, ay0, ax1, ay1 = self:extended_bbox(movement:unpack())
-    local bx0, by0, bx1, by1 = other:bbox()
-    if (ax1 < bx0 or bx1 < ax0) and (ay1 < by0 or by1 < ay0) then
-        return
-    end
-
-    -- Use the separating axis theorem.
-    -- 1. Choose a bunch of axes, generally normals of the shapes.
-    -- 2. Project both shapes along each axis.
-    -- 3. If the projects overlap along ANY axis, the shapes overlap.
-    --    Otherwise, they don't.
-    -- This code also does a couple other things.
-    -- b. It uses the direction of movement as an extra axis, in order to find
-    --    the minimum possible movement between the two shapes.
-    -- a. It keeps values around in terms of their original vectors, rather
-    --    than lengths or normalized vectors, to avoid precision loss
-    --    from taking square roots.
-
-    if other.subshapes then
-        return self:_multi_slide_towards(other, movement)
-    end
-
-    -- Mapping of normal vectors (i.e. projection axes) to their normalized
-    -- versions (needed for comparing the results of the projection)
-    -- FIXME is the move normal actually necessary, or was it just covering up
-    -- my bad math before?
-    -- The move normal is necessary to take into account, well, movement;
-    -- otherwise there's no way for the SAT to know that a box could move
-    -- diagonally /past/ another box without hitting it
-    local movenormal = movement:perpendicular()
-    local axes = {}
-    if movenormal ~= Vector.zero then
-        axes[movenormal] = movenormal:normalized()
-    end
-    for norm, norm1 in pairs(self:normals()) do
-        axes[norm] = norm1
-    end
-    for norm, norm1 in pairs(other:normals()) do
-        axes[norm] = norm1
-    end
-
-    local maxleftdot = NEG_INFINITY
-    local leftnorm
-    local maxrightdot = NEG_INFINITY
-    local rightnorm
-
-    -- Search for the axis that yields the greatest distance between the shapes
-    -- (which must then be /the/ greatest distance between them), by projecting
-    -- both shapes onto each axis in turn
-    local maxamt = NEG_INFINITY
-    local maxnumer, maxdenom
-    local min_penetration_depth
-    local min_penetration
-    local max_separation
-    local touchtype = -1
-    local slide_axis
-    local x_our_pt, x_their_pt, x_contact_axis
-    for fullaxis, axis in pairs(axes) do
-        local min1, max1, minpt1, maxpt1 = self:project_onto_axis(fullaxis)
-        local min2, max2, minpt2, maxpt2 = other:project_onto_axis(fullaxis)
-        -- The scalar distance between the two shapes, in fullaxis units (so
-        -- not useful for comparing between iterations, but useful to compare
-        -- to zero)
-        local dist
-        -- The closest points to the gap/overlap along this axis
-        local our_point, their_point
-        -- Depending on the axis and the relative position of the shapes, the
-        -- results might be aligned in any number of ways.  Reorient if
-        -- necessary, so the axis is always pointing towards us, i.e. is the
-        -- direction we should move to get away from them.
-        local dist_left = min2 - max1
-        local dist_right = min1 - max2
-        if dist_left >= dist_right then
-            -- 1 appears first, so take the distance from 1 to 2
-            dist = dist_left
-            our_point = maxpt1
-            their_point = minpt2
-            -- Flip the axes so they point towards us and become normals
-            axis = -axis
-            fullaxis = -fullaxis
-        else
-            -- Other way around
-            dist = dist_right
-            our_point = minpt1
-            their_point = maxpt2
-        end
-        -- Vector distance between the two shapes, pointing from us to them, in
-        -- world units
-        local sep = their_point - our_point
-
-        -- Track the minimum penetration vector for overlapping objects
-        if touchtype < 0 then
-            local seplen = sep * axis
-            if not min_penetration or seplen < min_penetration_depth then
-                min_penetration = sep:projectOn(fullaxis)
-                min_penetration_depth = seplen
-            end
-        end
-
-        -- Ignore extremely tiny overlaps, which are likely precision errors
-        if abs(dist) < PRECISION then
-            dist = 0
-        end
-        if dist >= 0 or true then
-            -- Update touchtype
-            if dist > 0 then
-                touchtype = 1
-            elseif touchtype < 0 and dist >= 0 then
-                touchtype = 0
-            end
-
-            -- This dot product is negative if we're moving closer along this
-            -- axis, positive if we're moving away
-            local dot = movement * fullaxis
-            if abs(dot) < PRECISION then
-                dot = 0
-            end
-
-            if dist == 0 and dot == 0 then
-                -- Zero dot and zero distance mean the movement is parallel
-                -- and the shapes can slide against each other.  But calling
-                -- code would like to know if (and when) they're going to
-                -- touch, and we need to check the other axes to find that out.
-                -- FIXME what EXACTLY do we need info-wise from the other axes that we can't get here?  oh i guess the amount here comes out infinite.  maybe what i want is the same separation logic that i need for overlap?
-                -- TODO or maybe i should just let the amount testing code below run no matter what, eh
-                slide_axis = fullaxis
-                x_our_pt = our_point
-                x_their_pt = their_point
-                x_contact_axis = fullaxis
-                max_separation = sep
-            elseif dot >= 0 and dist >= 0 then
-                -- The shapes are either touching and moving apart (which
-                -- doesn't count as a touch), or not touching but not moving
-                -- closer together.  Either way, they can't possibly collide,
-                -- so stop here.
-                -- FIXME if i try to move away from something but can't because
-                -- i'm stuck, this won't detect the touch then?  hmm
-                return
-            else
-                -- Figure out how much movement is allowed, as a fraction.
-                -- Conceptually, the answer is the movement projected onto the
-                -- axis, divided by the separation projected onto the same
-                -- axis.  Stuff cancels, and it turns out to be just the ratio
-                -- of dot products (which makes sense).  Vectors are neat.
-                -- Note that slides are meaningless here; a shape could move
-                -- perpendicular to the axis forever without hitting anything.
-                -- FIXME this should just be dist, surely??  and what the hell is the abs for?
-                local numer = -(sep * fullaxis)
-                local amount = numer / abs(dot)
-                -- TODO if movement is zero (or at least zero in this
-                -- direction) then the division will give either positive or
-                -- negative infinity, which makes this somewhat less useful for
-                -- determining existing overlap, hm
-                if abs(amount) < PRECISION then
-                    amount = 0
-                end
-
-                local use_normal
-                -- TODO i think i could avoid this entirely by using a cross
-                -- product instead?
-                -- FIXME rust has this, find a failing case first:
-                --if maxamt > Fixed::min_value() && (amount - maxamt).abs() < PRECISION {
-                -- FIXME these two maxamt checks are highly suspect imo
-                if maxamt > NEG_INFINITY and abs(amount - maxamt) < PRECISION then
-                    -- Equal, ish
-                    use_normal = true
-                elseif maxamt == NEG_INFINITY or amount > maxamt then
-                    maxamt = amount
-                    maxnumer = numer
-                    maxdenom = abs(dot)
-                    max_separation = sep
-                    leftnorm = nil
-                    rightnorm = nil
-                    maxleftdot = NEG_INFINITY
-                    maxrightdot = NEG_INFINITY
-                    use_normal = true
-                    -- If there's a slide axis, then its axis wins here
-                    if not slide_axis then
-                        x_our_pt = our_point
-                        x_their_pt = their_point
-                        x_contact_axis = fullaxis
-                    end
-                end
-
-                -- FIXME rust does this code even for the move normal (which i'm not sure is necessary, and might even be bad, because the move normal would make it seem like we just hit a flat wall instead of a corner)
-                if use_normal and not rawequal(fullaxis, movement) and
-                    -- Ignore normals that face away from us
-                    dot <= 0 and
-                    -- If this is a slide then that's the only valid normal and
-                    -- all this work will be ignored anyway
-                    not slide_axis
-                then
-                    -- FIXME normals are no longer de-duplicated, hmm
-                    local ourdot = movement * axis
-
-                    -- Determine if this surface is on our left or right.
-                    -- The move normal points right from us, so if this dot
-                    -- product is positive, the normal also points right of
-                    -- us, which means the actual surface is on our left.
-                    -- (Remember, LÖVE's coordinate system points down!)
-                    local right_dot = movenormal * fullaxis
-                    -- TODO explain this better, but the idea is: using the greater dot means using the slope that's furthest away from us, which resolves corners nicely because two normals on one side HAVE to be a corner, they can't actually be one in front of the other
-                    -- TODO should these do something on a tie?
-                    if right_dot >= -PRECISION and ourdot > maxleftdot then
-                        leftnorm = fullaxis
-                        maxleftdot = ourdot
-                    end
-                    if right_dot <= PRECISION and ourdot > maxrightdot then
-                        rightnorm = fullaxis
-                        maxrightdot = ourdot
-                    end
-                end
-            end
-        end
-    end
-
-    if maxamt > 1 and touchtype > 0 then
-        -- We're allowed to move further than the requested distance, AND we
-        -- won't touch.  (Touching is handled as a "slide" below.)  Bail!
-        return
-    end
-
-    if touchtype < 0 then
-        -- Shapes are already overlapping, oops
-        local allowed
-        if movement * min_penetration >= 0 then
-            allowed = 1
-        else
-            allowed = 0
-        end
-
-        leftnorm = nil
-        rightnorm = nil
-        maxleftdot = NEG_INFINITY
-        maxrightdot = NEG_INFINITY
-        if min_penetration * movement <= 0 then
-            local pendot = min_penetration * movenormal
-            if pendot >= 0 then
-                leftnorm = min_penetration
-                maxleftdot = 0
-            end
-            if pendot <= 0 then
-                rightnorm = min_penetration
-                maxrightdot = 0
-            end
-        end
-        return Collision:bless{
-            movement = movement * allowed,
-            amount = allowed,
-            touchdist = 0,
-            touchtype = -1,
-            separation = max_separation,
-            penetration = min_penetration,
-            left_normal = leftnorm,
-            right_normal = rightnorm,
-            left_normal_dot = maxleftdot,
-            right_normal_dot = maxrightdot,
-        }
-    end
-
-    if slide_axis then
-        -- This is a slide; we will touch (or are already touching) the other
-        -- object, but can continue past it.  (If we wouldn't touch, amount
-        -- would exceed 1, and we would've returned earlier.)
-        -- touchdist is how far we can move before we touch.  If we're already
-        -- touching, then the touch axis will be the max distance, the dot
-        -- products above will be zero, and amount will be nonsense.  If not,
-        -- amount is correct.
-        local touchdist = maxamt
-        -- TODO i'm suspicious of this touchdist < 0, how did that happen?  is
-        -- this what i was running into when standing at the very left edge of
-        -- a map with my feet 2px in the floor?  oh right it's because of
-        -- overlap...  hmm
-        if touchtype == 1 or touchdist < 0 then
-            touchdist = 0
-        end
-        -- Since we're touching, the slide axis is the only valid normal!  Any
-        -- others were near misses that didn't actually collide
-        if slide_axis * movenormal > 0 then
-            leftnorm = slide_axis
-            maxleftdot = 0
-            rightnorm = nil
-            maxrightdot = NEG_INFINITY
-        else
-            rightnorm = slide_axis
-            maxrightdot = 0
-            leftnorm = nil
-            maxleftdot = NEG_INFINITY
-        end
-
-        return Collision:bless{
-            movement = movement,
-            amount = 1,
-            touchdist = touchdist,
-            touchtype = 0,
-            separation = max_separation,
-
-            left_normal = leftnorm,
-            right_normal = rightnorm,
-            left_normal_dot = maxleftdot,
-            right_normal_dot = maxrightdot,
-
-            our_shape = self,
-            their_shape = other,
-            our_point = x_our_pt,
-            their_point = x_their_pt,
-            axis = slide_axis,
-        }
-    elseif maxamt == NEG_INFINITY then
-        -- We don't hit anything at all!
-        return
-    end
-
-    -- If none of the special cases apply, this is a regular old collision
-    -- where we're about to run head-first into something
-    return Collision:bless{
-        -- Minimize rounding error by repeating the same division we used to
-        -- get amount, but multiplying first
-        movement = movement * maxnumer / maxdenom,
-        amount = maxamt,
-        touchdist = maxamt,
-        touchtype = 1,
-        separation = max_separation,
-
-        left_normal = leftnorm,
-        right_normal = rightnorm,
-        left_normal_dot = maxleftdot,
-        right_normal_dot = maxrightdot,
-
-        our_shape = self,
-        their_shape = other,
-        our_point = x_our_pt,
-        their_point = x_their_pt,
-        axis = x_contact_axis,
-    }
-end
-
-function Polygon:_multi_slide_towards(other, movement)
-    local ret
-    for _, subshape in ipairs(other.subshapes) do
-        local collision = self:slide_towards(subshape, movement)
-        if collision == nil then
-            -- Do nothing
-        elseif ret == nil then
-            -- First result; just accept it
-            ret = collision
-        else
-            -- Need to combine
-            if collision.amount < ret.amount then
-                ret = collision
-            elseif collision.amount == ret.amount then
-                ret.touchdist = math.min(ret.touchdist, collision.touchdist)
-                if ret.touchtype == 0 then
-                    ret.touchtype = collision.touchtype
-                end
-                if collision.left_normal_dot > ret.left_normal_dot then
-                    ret.left_normal_dot = collision.left_normal_dot
-                    ret.left_normal = collision.left_normal
-                end
-                if collision.right_normal_dot > ret.right_normal_dot then
-                    ret.right_normal_dot = collision.right_normal_dot
-                    ret.right_normal = collision.right_normal
-                end
-            end
-        end
-    end
-
-    return ret
-end
-
--- Given a point BELONGING TO THE POLYGON and an axis, look for an edge
--- perpendicular to that axis and containing the given point.  Return the
--- endpoints of that edge in clockwise order.
+-- Note that the point passed in MUST belong to the polygon!
 function Polygon:find_edge(start_point, axis)
     local n
     for i, point in ipairs(self.points) do
@@ -870,7 +846,7 @@ function Box:project_onto_axis(axis)
 end
 
 
-
+-- Hack for concave polygons: split them into multiple parts
 local MultiShape = Shape:extend()
 
 function MultiShape:init(...)
