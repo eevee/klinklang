@@ -44,6 +44,13 @@ local Shape = Object:extend{
     -- Current position of the origin
     xoff = 0,
     yoff = 0,
+
+    -- These are part of an optimization that works especially well for two
+    -- Boxes; by keeping these normals out of the usual returned normals list,
+    -- they only need to be checked once (even if they exist for both shapes),
+    -- and they don't need to be normalized either
+    has_vertical_normal = false,
+    has_horizontal_normal = false,
 }
 
 function Shape:init()
@@ -153,11 +160,13 @@ end
 
 -- Collision API
 
--- Return a table of this shape's normals, where the keys are the original
--- normal Vectors (hopefully with nice numbers) and the values are unit
--- Vectors.  For pathological cases (like Circle), the other shape and the
--- direction of movement are also provided; in particular, movement is always
--- given as though the other shape were moving towards this one.
+-- Return a list of this shape's normals as Vectors.  For pathological cases
+-- (like Circle), the other shape and the direction of movement are also
+-- provided; in particular, movement is always given as though the other shape
+-- were moving towards this one.
+-- Note that these DO NOT need to be unit vectors, and in fact unit vectors are
+-- discouraged!  Use those big ol' nice numbers; collision code will normalize
+-- when necessary.
 -- Must be implemented in subtypes!
 function Shape:normals(other, movement)
     error("normals not implemented")
@@ -251,23 +260,27 @@ function Shape:slide_towards(other, movement)
         return _multi_slide_towards(self, other, movement)
     end
 
-    -- Mapping of normal vectors (i.e. projection axes) to their normalized
-    -- versions (needed for comparing the results of the projection)
-    -- FIXME is the move normal actually necessary, or was it just covering up
-    -- my bad math before?
+    -- Collect all the normals (i.e., projection axes) from both shapes,
+    -- including any vertical/horizontal normal and the movement normal.
     -- The move normal is necessary to take into account, well, movement;
     -- otherwise there's no way for the SAT to know that a box could move
-    -- diagonally /past/ another box without hitting it
+    -- diagonally /past/ another box without hitting it.
+    local fullaxes = {}
     local movenormal = movement:perpendicular()
-    local axes = {}
     if movenormal ~= Vector.zero then
-        axes[movenormal] = movenormal:normalized()
+        table.insert(fullaxes, movenormal)
     end
-    for norm, norm1 in pairs(self:normals(other, -movement)) do
-        axes[norm] = norm1
+    if self.has_horizontal_normal or other.has_horizontal_normal then
+        table.insert(fullaxes, XPOS)
     end
-    for norm, norm1 in pairs(other:normals(self, movement)) do
-        axes[norm] = norm1
+    if self.has_vertical_normal or other.has_vertical_normal then
+        table.insert(fullaxes, YPOS)
+    end
+    for _, normal in ipairs(self:normals(other, -movement)) do
+        table.insert(fullaxes, normal)
+    end
+    for _, normal in ipairs(other:normals(self, movement)) do
+        table.insert(fullaxes, normal)
     end
 
     local maxleftdot = NEG_INFINITY
@@ -286,7 +299,17 @@ function Shape:slide_towards(other, movement)
     local touchtype = -1
     local slide_axis
     local x_our_pt, x_their_pt, x_contact_axis
-    for fullaxis, axis in pairs(axes) do
+    for _, fullaxis in ipairs(fullaxes) do
+        -- Much of this work is done with the original unscaled normal for
+        -- precision purposes (and for getting nice numbers in debug output),
+        -- but we do need a unit vector sometimes
+        local axis
+        if rawequal(fullaxis, XPOS) or rawequal(fullaxis, YPOS) then
+            axis = fullaxis
+        else
+            axis = fullaxis:normalized()
+        end
+
         local min1, max1, minpt1, maxpt1 = self:project_onto_axis(fullaxis)
         local min2, max2, minpt2, maxpt2 = other:project_onto_axis(fullaxis)
         -- The scalar distance between the two shapes, in fullaxis units (so
@@ -320,6 +343,13 @@ function Shape:slide_towards(other, movement)
         -- world units
         local sep = their_point - our_point
 
+        -- Update touchtype
+        if dist > 0 then
+            touchtype = 1
+        elseif touchtype < 0 and dist >= 0 then
+            touchtype = 0
+        end
+
         -- Track the minimum penetration vector for overlapping objects
         if touchtype < 0 then
             local seplen = sep * axis
@@ -327,13 +357,6 @@ function Shape:slide_towards(other, movement)
                 min_penetration = sep:projectOn(fullaxis)
                 min_penetration_depth = seplen
             end
-        end
-
-        -- Update touchtype
-        if dist > 0 then
-            touchtype = 1
-        elseif touchtype < 0 and dist >= 0 then
-            touchtype = 0
         end
 
         -- This dot product is negative if we're moving closer along this
@@ -410,7 +433,6 @@ function Shape:slide_towards(other, movement)
                 -- all this work will be ignored anyway
                 not slide_axis
             then
-                -- FIXME normals are no longer de-duplicated, hmm
                 local ourdot = movement * axis
 
                 -- Determine if this surface is on our left or right.  The move
@@ -641,20 +663,11 @@ function Polygon:_generate_normals()
         if normal == Vector.zero then
             -- Ignore zero vectors (where did you even come from)
         elseif normal.x == 0 then
-            if normal.y > 0 then
-                self._normals[YPOS] = YPOS
-            else
-                self._normals[YNEG] = YNEG
-            end
+            self.has_vertical_normal = true
         elseif normal.y == 0 then
-            if normal.x > 0 then
-                self._normals[XPOS] = XPOS
-            else
-                self._normals[XNEG] = XNEG
-            end
+            self.has_horizontal_normal = true
         else
-            -- What a mouthful
-            self._normals[normal] = normal:normalized()
+            table.insert(self._normals, normal)
         end
     end
 end
@@ -807,7 +820,9 @@ end
 -- An AABB, i.e., an unrotated rectangle
 local Box = Polygon:extend{
     -- Handily, an AABB only has two normals: the x and y axes
-    _normals = { [XPOS] = XPOS, [YPOS] = YPOS },
+    has_vertical_normal = true,
+    has_horizontal_normal = true,
+    _normals = {},
 }
 
 function Box:init(x, y, width, height, _xoff, _yoff)
@@ -1047,7 +1062,7 @@ function Circle:normals(other, movement)
                 if t >= 0 then
                     -- point + movement * t - center
                     local norm = offset + movement * t
-                    ret[norm] = norm:normalized()
+                    table.insert(ret, norm)
                 end
             end
         end
