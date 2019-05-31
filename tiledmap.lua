@@ -111,6 +111,11 @@ local function tiled_shape_to_whammo_shape(object)
                 shape:add_subshape(whammo_shapes.Polygon(unpack(triangle)))
             end
         end
+    elseif object.ellipse then
+        -- Tiled stores these by their bounding boxes, which is super weird.
+        -- Also, only circles are supported.
+        local radius = math.min(object.width, object.height) / 2
+        shape = whammo_shapes.Circle(object.x + radius, object.y + radius, radius)
     else
         -- TODO do the others, once whammo supports them
         shape = whammo_shapes.Box(

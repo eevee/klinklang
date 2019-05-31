@@ -26,6 +26,8 @@ local ipairs, pairs, rawequal = ipairs, pairs, rawequal
 local abs = math.abs
 local NEG_INFINITY = -math.huge
 
+local Circle
+
 
 -- Base class for collision shapes.  Note that shapes remember their origin,
 -- the point that was 0, 0 when they were initially defined, even as they're
@@ -108,6 +110,14 @@ end
 function Shape:center()
     local x0, y0, x1, y1 = self:bbox()
     return (x0 + x1) / 2, (y0 + y1) / 2
+end
+
+-- Draw this shape using the LÖVE graphics API.  Mode is either 'fill' or
+-- 'line', as for LÖVE.
+-- Generally only used for debugging, but should be implemented in subtypes.
+-- Shouldn't change color or otherwise do anything weird to the draw state.
+function Shape:draw(mode)
+    error("draw not implemented")
 end
 
 
@@ -246,10 +256,10 @@ function Shape:slide_towards(other, movement)
     if movenormal ~= Vector.zero then
         axes[movenormal] = movenormal:normalized()
     end
-    for norm, norm1 in pairs(self:normals()) do
+    for norm, norm1 in pairs(self:normals(other, -movement)) do
         axes[norm] = norm1
     end
-    for norm, norm1 in pairs(other:normals()) do
+    for norm, norm1 in pairs(other:normals(self, movement)) do
         axes[norm] = norm1
     end
 
@@ -959,8 +969,123 @@ function MultiShape:intersection_with_ray(...)
 end
 
 
+-- A circle.  NOT an ellipse; those are vastly more complicated!
+-- FIXME arrange these impls in the right order, also implement intersection_with_ray and circle/circle collision
+Circle = Shape:extend()
+
+function Circle:init(x, y, r)
+    Circle.__super.init(self)
+    self.x = x
+    self.y = y
+    self.radius = r
+end
+
+function Circle:__tostring()
+    return ("<Circle %.2f at (%.2f, %.2f)>"):format(self.radius, self.x, self.y)
+end
+
+function Circle:clone()
+    return Circle(self.x, self.y, self.radius)
+end
+
+function Circle:bbox()
+    return self.x - self.radius, self.y - self.radius, self.x + self.radius, self.y + self.radius
+end
+
+function Circle:center()
+    return self.x, self.y
+end
+
+function Circle:draw(mode)
+    love.graphics.circle(mode, self.x, self.y, self.radius)
+end
+
+function Circle:flipx()
+    return self:clone()
+end
+
+function Circle:move(dx, dy)
+    self.xoff = self.xoff + dx
+    self.yoff = self.yoff + dy
+    self.x = self.x + dx
+    self.y = self.y + dy
+    self:update_blockmaps()
+end
+
+function Circle:normals(other, movement)
+    -- Getting the normals for a circle is a bit ugly, because it has an
+    -- infinite number of them.  We have to use the other shape to narrow down
+    -- which ones would actually matter
+    local ret = {}
+    if movement == Vector.zero then
+        return ret
+    end
+
+    if other:isa(Polygon) then
+        -- A polygon will already report all of its own normals, so the only
+        -- extra ones of interest are those caused by one of its vertices
+        -- colliding with us.  Unfortunately that means we have to just loop
+        -- through all of their points and do a ray/circle intersection.
+        for _, point in ipairs(other.points) do
+            local center = Vector(self.x, self.y)
+            local r = self.radius
+            local offset = point - center
+
+            -- These are the coefficients of a quadratic for a parameter t, the
+            -- number of rays (movements) it would take for this point to
+            -- intersect this circle.
+            local a = movement:len2()
+            local b = 2 * (offset * movement)
+            local c = offset:len2() - r * r
+
+            -- Quadratic formula, etc.  If the discriminant is negative, this
+            -- point will never hit us.
+            local discriminant = b * b - 4 * a * c
+            if discriminant >= 0 then
+                -- There would be two solutions, but we only want the first
+                -- hit, the smaller one, where the ± resolves to -
+                local t = (-b - math.sqrt(discriminant)) / (2 * a)
+                -- If t is negative, the point is already inside us, which will
+                -- become obvious from the polygon's own normals
+                if t > -PRECISION then
+                    if t < 0 then
+                        t = 0
+                    end
+                    -- point + movement * t - center
+                    local norm = offset + movement * t
+                    ret[norm] = norm:normalized()
+                end
+            end
+        end
+    end
+
+    return ret
+end
+
+-- FIXME implement intersection_with_ray
+
+function Circle:project_onto_axis(axis)
+    local scale = self.radius / axis:len()
+    local pt0 = Vector(self.x + axis.x * scale, self.y + axis.y * scale)
+    local pt1 = Vector(self.x - axis.x * scale, self.y - axis.y * scale)
+    local dot0 = pt0 * axis
+    local dot1 = pt1 * axis
+    if dot0 < dot1 then
+        return dot0, dot1, pt0, pt1
+    else
+        return dot1, dot0, pt1, pt0
+    end
+end
+
+function Circle:find_edge(start_point, axis)
+    -- Circles don't have edges, so we must touch at this one point only
+    return start_point, start_point
+end
+
+
 return {
     Box = Box,
     MultiShape = MultiShape,
     Polygon = Polygon,
+    Circle = Circle,
 }
