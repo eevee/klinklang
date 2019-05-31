@@ -358,13 +358,6 @@ function Shape:slide_towards(other, movement)
         -- world units
         local sep = their_point - our_point
 
-        -- Update touchtype
-        if dist > 0 then
-            touchtype = 1
-        elseif touchtype < 0 and dist >= 0 then
-            touchtype = 0
-        end
-
         -- Track the minimum penetration vector for overlapping objects
         if touchtype < 0 then
             local seplen = sep * axis
@@ -386,6 +379,7 @@ function Shape:slide_towards(other, movement)
             -- FIXME what EXACTLY do we need info-wise from the other axes that we can't get here?  oh i guess the amount here comes out infinite.  maybe what i want is the same separation logic that i need for overlap?
             -- TODO or maybe i should just let the amount testing code below run no matter what, eh
             slide_axis = fullaxis
+            touchtype = 0
             x_our_pt = our_point
             x_their_pt = their_point
             x_contact_axis = fullaxis
@@ -398,6 +392,17 @@ function Shape:slide_towards(other, movement)
             -- i'm stuck, this won't detect the touch then?  hmm
             return
         else
+            -- If the objects are separated along this axis, and we've never
+            -- seen that happen before, then we have enough information to set
+            -- touchtype
+            if touchtype < 0 then
+                if dist > 0 then
+                    touchtype = 1
+                elseif dist == 0 then
+                    touchtype = 0
+                end
+            end
+
             -- Figure out how much movement is allowed, as a fraction.
             -- Conceptually, the answer is the movement projected onto the
             -- axis, divided by the separation projected onto the same axis.
@@ -407,23 +412,30 @@ function Shape:slide_towards(other, movement)
             -- the axis forever without hitting anything.
             -- FIXME this should just be dist, surely??  and what the hell is the abs for?
             local numer = -(sep * fullaxis)
-            local amount = zero_trim(numer / abs(dot))
+            local fraction = zero_trim(numer / abs(dot))
             -- TODO if movement is zero (or at least zero in this
             -- direction) then the division will give either positive or
             -- negative infinity, which makes this somewhat less useful for
             -- determining existing overlap, hm
 
+            if fraction > 1 and touchtype >= 0 then
+                -- We're allowed to move further than the requested distance,
+                -- and we're not in the weird case of overlapping, so we'll
+                -- never touch!  Stop here.
+                return
+            end
+
             local use_normal
             -- TODO i think i could avoid this entirely by using a cross
             -- product instead?
             -- FIXME rust has this, find a failing case first:
-            --if max_fraction > Fixed::min_value() && (amount - max_fraction).abs() < PRECISION {
+            --if max_fraction > Fixed::min_value() && (fraction - max_fraction).abs() < PRECISION {
             -- FIXME these two max_fraction checks are highly suspect imo
-            if max_fraction > NEG_INFINITY and abs(amount - max_fraction) < PRECISION then
+            if max_fraction > NEG_INFINITY and abs(fraction - max_fraction) < PRECISION then
                 -- Equal, ish
                 use_normal = true
-            elseif max_fraction == NEG_INFINITY or amount > max_fraction then
-                max_fraction = amount
+            elseif max_fraction == NEG_INFINITY or fraction > max_fraction then
+                max_fraction = fraction
                 max_separation = sep
                 left_normal = nil
                 right_normal = nil
@@ -464,12 +476,6 @@ function Shape:slide_towards(other, movement)
                 end
             end
         end
-    end
-
-    if max_fraction > 1 and touchtype > 0 then
-        -- We're allowed to move further than the requested distance, AND we
-        -- won't touch.  (Touching is handled as a "slide" below.)  Bail!
-        return
     end
 
     if touchtype < 0 then
