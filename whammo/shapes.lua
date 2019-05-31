@@ -31,9 +31,7 @@ end
 
 -- Aggressively de-dupe these extremely common normals
 local XPOS = Vector(1, 0)
-local XNEG = Vector(-1, 0)
 local YPOS = Vector(0, 1)
-local YNEG = Vector(0, -1)
 
 
 -- Base class for collision shapes.  Note that shapes remember their origin,
@@ -266,14 +264,24 @@ function Shape:slide_towards(other, movement)
     -- otherwise there's no way for the SAT to know that a box could move
     -- diagonally /past/ another box without hitting it.
     local fullaxes = {}
+    local use_x_normal = self.has_horizontal_normal or other.has_horizontal_normal
+    local use_y_normal = self.has_vertical_normal or other.has_vertical_normal
     local movenormal = movement:perpendicular()
-    if movenormal ~= Vector.zero then
+    if movenormal == Vector.zero then
+        -- Zero movement is valid, but makes for a poor normal
+    elseif movenormal.x == 0 then
+        -- Perfectly horizontal or vertical movement can also make use of the
+        -- shared unit normals
+        use_y_normal = true
+    elseif movenormal.y == 0 then
+        use_x_normal = true
+    else
         table.insert(fullaxes, movenormal)
     end
-    if self.has_horizontal_normal or other.has_horizontal_normal then
+    if use_x_normal then
         table.insert(fullaxes, XPOS)
     end
-    if self.has_vertical_normal or other.has_vertical_normal then
+    if use_y_normal then
         table.insert(fullaxes, YPOS)
     end
     for _, normal in ipairs(self:normals(other, -movement)) do
