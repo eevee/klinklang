@@ -52,8 +52,8 @@ describe("Collision", function()
 
         -- Check contacts
         local first, second = hits[floor]:get_contact()
-        assert.are.equal(Vector(0, 100), first)
-        assert.are.equal(Vector(100, 100), second)
+        assert.are.equal(Vector(100, 100), first)
+        assert.are.equal(Vector(0, 100), second)
     end)
     it("should handle diagonal almost-parallel movement", function()
         -- This one is hard to ASCII-art, but the numbers are smaller!
@@ -101,8 +101,8 @@ describe("Collision", function()
         -- Check contacts
         player:move(successful:unpack())
         local first, second = hits[floor1]:get_contact()
-        assert.are.equal(Vector(50, 150), first)
-        assert.are.equal(Vector(100, 150), second)
+        assert.are.equal(Vector(100, 150), first)
+        assert.are.equal(Vector(50, 150), second)
     end)
     it("should allow sliding past an obstacle", function()
         --[[
@@ -126,8 +126,8 @@ describe("Collision", function()
         -- Check contacts
         player:move(successful:unpack())
         local first, second = hits[wall]:get_contact()
-        assert.are.equal(Vector(100, 0), first)
-        assert.are.equal(Vector(100, 100), second)
+        assert.are.equal(Vector(100, 100), first)
+        assert.are.equal(Vector(100, 0), second)
     end)
     it("should allow sliding through a perfect gap", function()
         --[[
@@ -182,8 +182,8 @@ describe("Collision", function()
 
         -- Check contacts
         local first, second = hits[wall]:get_contact()
-        assert.are.equal(Vector(100, 100), first)
-        assert.are.equal(Vector(0, 100), second)
+        assert.are.equal(Vector(0, 100), first)
+        assert.are.equal(Vector(100, 100), second)
     end)
     it("should handle diagonal movement into corners with walls", function()
         --[[

@@ -42,11 +42,14 @@ function Collision:get_contact()
     end
     -- FIXME this kinda flickers when standing next to a corner?
 
-    -- This is clockwise from the normal, so it'll order comments
-    -- counter-clockwise around us
-    local contact = self.axis:perpendicular()
-    local our_second, our_first = self.our_shape:find_edge(self.our_point, self.axis)
-    local their_first, their_second = self.their_shape:find_edge(self.their_point, self.axis)
+    -- This is counter-clockwise from the normal, so it'll order contacts
+    -- clockwise around us
+    local contact = -self.axis:perpendicular()
+    -- find_edge returns clockwise points, but two shapes against each other
+    -- have different winding orders for the same edge (like gears), so swap
+    -- their points to make them both ccw relative to us
+    local our_first, our_second = self.our_shape:find_edge(self.our_point, self.axis)
+    local their_second, their_first = self.their_shape:find_edge(self.their_point, self.axis)
 
     local our_first_dot = our_first * contact
     local our_second_dot = our_second * contact
@@ -57,7 +60,6 @@ function Collision:get_contact()
     -- No overlap
     if our_second_dot < their_first_dot or their_second_dot < our_first_dot then
         -- No overlap
-        print('no contact?')
         return
     else
         local first, second
@@ -71,7 +73,6 @@ function Collision:get_contact()
         else
             second = their_second
         end
-        --print("contact:", first, second)
         if game then
             table.insert(game.debug_draws, function()
                 love.graphics.setColor(1, 0.25, 1)
@@ -85,7 +86,6 @@ function Collision:get_contact()
         return first, second
     end
 end
-
 
 
 return Collision
