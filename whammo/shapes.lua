@@ -19,6 +19,14 @@ local YPOS = Vector(0, 1)
 local YNEG = Vector(0, -1)
 
 
+-- Make locals out of these common built-ins.  Super duper micro optimization,
+-- but collision code is very hot, so I'll take what I can get!  Seems to make
+-- for a very slight improvement.
+local ipairs, pairs, rawequal = ipairs, pairs, rawequal
+local abs = math.abs
+local NEG_INFINITY = -math.huge
+
+
 -- Base class for collision shapes.  Note that shapes remember their origin,
 -- the point that was 0, 0 when they were initially defined, even as they're
 -- moved around; games can use this point as e.g. a position anchor.
@@ -448,15 +456,15 @@ function Polygon:slide_towards(other, movement)
         axes[norm] = norm1
     end
 
-    local maxleftdot = -math.huge
+    local maxleftdot = NEG_INFINITY
     local leftnorm
-    local maxrightdot = -math.huge
+    local maxrightdot = NEG_INFINITY
     local rightnorm
 
     -- Search for the axis that yields the greatest distance between the shapes
     -- (which must then be /the/ greatest distance between them), by projecting
     -- both shapes onto each axis in turn
-    local maxamt = -math.huge
+    local maxamt = NEG_INFINITY
     local maxnumer, maxdenom
     local touchtype = -1
     local slide_axis
@@ -489,7 +497,7 @@ function Polygon:slide_towards(other, movement)
         local sep = their_point - our_point
 
         -- Ignore extremely tiny overlaps, which are likely precision errors
-        if math.abs(dist) < PRECISION then
+        if abs(dist) < PRECISION then
             dist = 0
         end
         if dist >= 0 then
@@ -503,7 +511,7 @@ function Polygon:slide_towards(other, movement)
             -- This dot product is negative if we're moving closer along this
             -- axis, positive if we're moving away
             local dot = movement * fullaxis
-            if math.abs(dot) < PRECISION then
+            if abs(dot) < PRECISION then
                 dot = 0
             end
 
@@ -534,13 +542,14 @@ function Polygon:slide_towards(other, movement)
                 -- of dot products (which makes sense).  Vectors are neat.
                 -- Note that slides are meaningless here; a shape could move
                 -- perpendicular to the axis forever without hitting anything.
+                -- FIXME this should just be dist, surely??  and what the hell is the abs for?
                 local numer = -(sep * fullaxis)
-                local amount = numer / math.abs(dot)
+                local amount = numer / abs(dot)
                 -- TODO if movement is zero (or at least zero in this
                 -- direction) then the division will give either positive or
                 -- negative infinity, which makes this somewhat less useful for
                 -- determining existing overlap, hm
-                if math.abs(amount) < PRECISION then
+                if abs(amount) < PRECISION then
                     amount = 0
                 end
 
@@ -549,17 +558,17 @@ function Polygon:slide_towards(other, movement)
                 -- product instead?
                 -- FIXME rust has this, find a failing case first:
                 --if maxamt > Fixed::min_value() && (amount - maxamt).abs() < PRECISION {
-                if math.abs(amount - maxamt) < PRECISION then
+                if abs(amount - maxamt) < PRECISION then
                     -- Equal, ish
                     use_normal = true
                 elseif amount > maxamt then
                     maxamt = amount
                     maxnumer = numer
-                    maxdenom = dot
+                    maxdenom = abs(dot)
                     leftnorm = nil
                     rightnorm = nil
-                    maxleftdot = -math.huge
-                    maxrightdot = -math.huge
+                    maxleftdot = NEG_INFINITY
+                    maxrightdot = NEG_INFINITY
                     use_normal = true
                     -- If there's a slide axis, then its axis wins here
                     if not slide_axis then
@@ -648,12 +657,12 @@ function Polygon:slide_towards(other, movement)
             leftnorm = slide_axis
             maxleftdot = 0
             rightnorm = nil
-            maxrightdot = -math.huge
+            maxrightdot = NEG_INFINITY
         else
             rightnorm = slide_axis
             maxrightdot = 0
             leftnorm = nil
-            maxleftdot = -math.huge
+            maxleftdot = NEG_INFINITY
         end
 
         return Collision:bless{
@@ -673,7 +682,7 @@ function Polygon:slide_towards(other, movement)
             their_point = x_their_pt,
             axis = slide_axis,
         }
-    elseif maxamt == -math.huge then
+    elseif maxamt == NEG_INFINITY then
         -- We don't hit anything at all!
         return
     end
