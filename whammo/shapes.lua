@@ -460,6 +460,7 @@ function Polygon:slide_towards(other, movement)
     local maxnumer, maxdenom
     local touchtype = -1
     local slide_axis
+    local x_our_pt, x_their_pt, x_contact_axis
     for fullaxis, axis in pairs(axes) do
         local min1, max1, minpt1, maxpt1 = self:project_onto_axis(fullaxis)
         local min2, max2, minpt2, maxpt2 = other:project_onto_axis(fullaxis)
@@ -511,7 +512,12 @@ function Polygon:slide_towards(other, movement)
                 -- and the shapes can slide against each other.  But calling
                 -- code would like to know if (and when) they're going to
                 -- touch, and we need to check the other axes to find that out.
+                -- FIXME what EXACTLY do we need info-wise from the other axes that we can't get here?  oh i guess the amount here comes out infinite.  maybe what i want is the same separation logic that i need for overlap?
+                -- TODO or maybe i should just let the amount testing code below run no matter what, eh
                 slide_axis = fullaxis
+                x_our_pt = our_point
+                x_their_pt = their_point
+                x_contact_axis = fullaxis
             elseif dot >= 0 and dist >= 0 then
                 -- The shapes are either touching and moving apart (which
                 -- doesn't count as a touch), or not touching but not moving
@@ -555,6 +561,12 @@ function Polygon:slide_towards(other, movement)
                     maxleftdot = -math.huge
                     maxrightdot = -math.huge
                     use_normal = true
+                    -- If there's a slide axis, then its axis wins here
+                    if not slide_axis then
+                        x_our_pt = our_point
+                        x_their_pt = their_point
+                        x_contact_axis = fullaxis
+                    end
                 end
 
                 -- FIXME rust does this code even for the move normal (which i'm not sure is necessary, and might even be bad, because the move normal would make it seem like we just hit a flat wall instead of a corner)
@@ -654,6 +666,12 @@ function Polygon:slide_towards(other, movement)
             right_normal = rightnorm,
             left_normal_dot = maxleftdot,
             right_normal_dot = maxrightdot,
+
+            our_shape = self,
+            their_shape = other,
+            our_point = x_our_pt,
+            their_point = x_their_pt,
+            axis = slide_axis,
         }
     elseif maxamt == -math.huge then
         -- We don't hit anything at all!
@@ -674,6 +692,12 @@ function Polygon:slide_towards(other, movement)
         right_normal = rightnorm,
         left_normal_dot = maxleftdot,
         right_normal_dot = maxrightdot,
+
+        our_shape = self,
+        their_shape = other,
+        our_point = x_our_pt,
+        their_point = x_their_pt,
+        axis = x_contact_axis,
     }
 end
 
@@ -708,6 +732,41 @@ function Polygon:_multi_slide_towards(other, movement)
     end
 
     return ret
+end
+
+-- Given a point BELONGING TO THE POLYGON and an axis, look for an edge
+-- perpendicular to that axis and containing the given point.  Return the
+-- endpoints of that edge in clockwise order.
+function Polygon:find_edge(start_point, axis)
+    local n
+    for i, point in ipairs(self.points) do
+        -- NOTE: This is very naughty, but it does a bit of magic: when the
+        -- collision code returns one of our points, this will still be able to
+        -- find it, even if the polygon has moved in the meantime (because
+        -- movement mutates our points)!
+        if rawequal(point, start_point) then
+            n = i
+            break
+        end
+    end
+    if not n then
+        error("Can't find an edge")
+    end
+
+    local first = start_point
+    local second = start_point
+    local dot = start_point * axis
+    local pt
+    pt = self.points[(n - 1 - 1) % #self.points + 1]
+    if abs(pt * axis - dot) < PRECISION then
+        first = pt
+    end
+    pt = self.points[(n + 1 - 1) % #self.points + 1]
+    if abs(pt * axis - dot) < PRECISION then
+        second = pt
+    end
+
+    return first, second
 end
 
 
