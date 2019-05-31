@@ -11,6 +11,7 @@ local slide_along_normals = require('klinklang.actors.base').slide_along_normals
 
 local function do_simple_slide(collider, shape, movement)
     local successful, hits = collider:slide(shape, movement)
+    shape:move(successful:unpack())
     if successful == movement then
         return successful, hits
     end
@@ -21,9 +22,9 @@ local function do_simple_slide(collider, shape, movement)
     -- (though i'd need to ditch worldscene, ideally)
     local remaining, slid = slide_along_normals(hits, movement - successful)
     if slid then
-        shape:move(successful:unpack())
         local successful2
         successful2, hits = collider:slide(shape, remaining)
+        shape:move(successful2:unpack())
         return successful + successful2, hits
     else
         return successful, hits
@@ -48,6 +49,11 @@ describe("Collision", function()
         local successful, hits = collider:slide(player, Vector(0, 50))
         assert.are.equal(Vector(0, 0), successful)
         assert.are.equal(1, hits[floor].touchtype)
+
+        -- Check contacts
+        local first, second = hits[floor]:get_contact()
+        assert.are.equal(Vector(0, 100), first)
+        assert.are.equal(Vector(100, 100), second)
     end)
     it("should handle diagonal almost-parallel movement", function()
         -- This one is hard to ASCII-art, but the numbers are smaller!
@@ -55,13 +61,19 @@ describe("Collision", function()
         -- angle, and should hit the slope partway up it.  My math used to be
         -- all kinds of bad and didn't correctly handle this case.
         local collider = whammo.Collider(4)
-        local floor = whammo_shapes.Polygon(0, 0, 3, -1, 0, -2)
+        local floor = whammo_shapes.Polygon(0, 0, 0, -2, 3, -1)
         collider:add(floor)
 
         local player = whammo_shapes.Box(4, -3, 2, 2)
         local successful, hits = collider:slide(player, Vector(-3, -0.5))
         assert.are.equal(Vector(-2, -1/3), successful)
         assert.are.equal(1, hits[floor].touchtype)
+
+        -- Check contacts
+        player:move(successful:unpack())
+        local first, second = hits[floor]:get_contact()
+        assert.are.equal(Vector(2, -4/3), first)
+        assert.are.equal(Vector(2, -4/3), second)
     end)
     it("should stop at the first obstacle", function()
         --[[
@@ -85,6 +97,12 @@ describe("Collision", function()
         assert.are.equal(Vector(0, 50), successful)
         assert.are.equal(1, hits[floor1].touchtype)
         assert.are.equal(nil, hits[floor2])
+
+        -- Check contacts
+        player:move(successful:unpack())
+        local first, second = hits[floor1]:get_contact()
+        assert.are.equal(Vector(50, 150), first)
+        assert.are.equal(Vector(100, 150), second)
     end)
     it("should allow sliding past an obstacle", function()
         --[[
@@ -104,6 +122,12 @@ describe("Collision", function()
         local successful, hits = collider:slide(player, Vector(0, -150))
         assert.are.equal(Vector(0, -150), successful)
         assert.are.equal(0, hits[wall].touchtype)
+
+        -- Check contacts
+        player:move(successful:unpack())
+        local first, second = hits[wall]:get_contact()
+        assert.are.equal(Vector(100, 0), first)
+        assert.are.equal(Vector(100, 100), second)
     end)
     it("should allow sliding through a perfect gap", function()
         --[[
@@ -128,6 +152,13 @@ describe("Collision", function()
         assert.are.equal(move, successful)
         assert.are.equal(0, hits[floor].touchtype)
         assert.are.equal(0, hits[wall].touchtype)
+
+        -- Check contacts
+        player:move(successful:unpack())
+        local wall_contact = hits[floor]:get_contact()
+        assert.are.equal(nil, wall_contact)
+        local floor_contact = hits[floor]:get_contact()
+        assert.are.equal(nil, floor_contact)
     end)
     it("should handle diagonal movement into lone corners", function()
         --[[
@@ -146,8 +177,13 @@ describe("Collision", function()
 
         local player = whammo_shapes.Box(200, 150, 100, 100)
         local successful, hits = do_simple_slide(collider, player, Vector(-200, -100))
-        assert.are.equal(-200, successful.x)
+        assert.are.equal(Vector(-200, -50), successful)
         assert.are.equal(0, hits[wall].touchtype)
+
+        -- Check contacts
+        local first, second = hits[wall]:get_contact()
+        assert.are.equal(Vector(100, 100), first)
+        assert.are.equal(Vector(0, 100), second)
     end)
     it("should handle diagonal movement into corners with walls", function()
         --[[
