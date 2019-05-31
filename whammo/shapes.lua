@@ -466,6 +466,9 @@ function Polygon:slide_towards(other, movement)
     -- both shapes onto each axis in turn
     local maxamt = NEG_INFINITY
     local maxnumer, maxdenom
+    local min_penetration_depth
+    local min_penetration
+    local max_separation
     local touchtype = -1
     local slide_axis
     local x_our_pt, x_their_pt, x_contact_axis
@@ -478,9 +481,15 @@ function Polygon:slide_towards(other, movement)
         local dist
         -- The closest points to the gap/overlap along this axis
         local our_point, their_point
-        if min1 < min2 then
+        -- Depending on the axis and the relative position of the shapes, the
+        -- results might be aligned in any number of ways.  Reorient if
+        -- necessary, so the axis is always pointing towards us, i.e. is the
+        -- direction we should move to get away from them.
+        local dist_left = min2 - max1
+        local dist_right = min1 - max2
+        if dist_left >= dist_right then
             -- 1 appears first, so take the distance from 1 to 2
-            dist = min2 - max1
+            dist = dist_left
             our_point = maxpt1
             their_point = minpt2
             -- Flip the axes so they point towards us and become normals
@@ -488,7 +497,7 @@ function Polygon:slide_towards(other, movement)
             fullaxis = -fullaxis
         else
             -- Other way around
-            dist = min1 - max2
+            dist = dist_right
             our_point = minpt1
             their_point = maxpt2
         end
@@ -496,11 +505,20 @@ function Polygon:slide_towards(other, movement)
         -- world units
         local sep = their_point - our_point
 
+        -- Track the minimum penetration vector for overlapping objects
+        if touchtype < 0 then
+            local seplen = sep * axis
+            if not min_penetration or seplen < min_penetration_depth then
+                min_penetration = sep:projectOn(fullaxis)
+                min_penetration_depth = seplen
+            end
+        end
+
         -- Ignore extremely tiny overlaps, which are likely precision errors
         if abs(dist) < PRECISION then
             dist = 0
         end
-        if dist >= 0 then
+        if dist >= 0 or true then
             -- Update touchtype
             if dist > 0 then
                 touchtype = 1
@@ -526,6 +544,7 @@ function Polygon:slide_towards(other, movement)
                 x_our_pt = our_point
                 x_their_pt = their_point
                 x_contact_axis = fullaxis
+                max_separation = sep
             elseif dot >= 0 and dist >= 0 then
                 -- The shapes are either touching and moving apart (which
                 -- doesn't count as a touch), or not touching but not moving
@@ -558,13 +577,15 @@ function Polygon:slide_towards(other, movement)
                 -- product instead?
                 -- FIXME rust has this, find a failing case first:
                 --if maxamt > Fixed::min_value() && (amount - maxamt).abs() < PRECISION {
-                if abs(amount - maxamt) < PRECISION then
+                -- FIXME these two maxamt checks are highly suspect imo
+                if maxamt > NEG_INFINITY and abs(amount - maxamt) < PRECISION then
                     -- Equal, ish
                     use_normal = true
-                elseif amount > maxamt then
+                elseif maxamt == NEG_INFINITY or amount > maxamt then
                     maxamt = amount
                     maxnumer = numer
                     maxdenom = abs(dot)
+                    max_separation = sep
                     leftnorm = nil
                     rightnorm = nil
                     maxleftdot = NEG_INFINITY
@@ -618,20 +639,35 @@ function Polygon:slide_towards(other, movement)
 
     if touchtype < 0 then
         -- Shapes are already overlapping, oops
-        -- FIXME should have /some/ kind of gentle rejection here; should be
-        -- easier now that i have touchdist
-        -- FIXME should definitely return the minimum separation vector
-        --error("seem to be inside something!!  stopping so you can debug buddy  <3")
+        local allowed
+        if movement * min_penetration >= 0 then
+            allowed = 1
+        else
+            allowed = 0
+        end
+
+        leftnorm = nil
+        rightnorm = nil
+        maxleftdot = NEG_INFINITY
+        maxrightdot = NEG_INFINITY
+        if min_penetration * movement <= 0 then
+            local pendot = min_penetration * movenormal
+            if pendot >= 0 then
+                leftnorm = min_penetration
+                maxleftdot = 0
+            end
+            if pendot <= 0 then
+                rightnorm = min_penetration
+                maxrightdot = 0
+            end
+        end
         return Collision:bless{
-            --movement = movement * maxnumer / maxdenom,
-            --amount = maxamt,
-            movement = Vector(),
-            amount = 0,
+            movement = movement * allowed,
+            amount = allowed,
             touchdist = 0,
             touchtype = -1,
-            -- FIXME what do these actually mean for an overlap?  also note i
-            -- think they end up not populated at all due to that `if dist >=
-            -- 0` above
+            separation = max_separation,
+            penetration = min_penetration,
             left_normal = leftnorm,
             right_normal = rightnorm,
             left_normal_dot = maxleftdot,
@@ -648,7 +684,11 @@ function Polygon:slide_towards(other, movement)
         -- products above will be zero, and amount will be nonsense.  If not,
         -- amount is correct.
         local touchdist = maxamt
-        if touchtype == 1 then
+        -- TODO i'm suspicious of this touchdist < 0, how did that happen?  is
+        -- this what i was running into when standing at the very left edge of
+        -- a map with my feet 2px in the floor?  oh right it's because of
+        -- overlap...  hmm
+        if touchtype == 1 or touchdist < 0 then
             touchdist = 0
         end
         -- Since we're touching, the slide axis is the only valid normal!  Any
@@ -670,6 +710,7 @@ function Polygon:slide_towards(other, movement)
             amount = 1,
             touchdist = touchdist,
             touchtype = 0,
+            separation = max_separation,
 
             left_normal = leftnorm,
             right_normal = rightnorm,
@@ -696,6 +737,7 @@ function Polygon:slide_towards(other, movement)
         amount = maxamt,
         touchdist = maxamt,
         touchtype = 1,
+        separation = max_separation,
 
         left_normal = leftnorm,
         right_normal = rightnorm,

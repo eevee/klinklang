@@ -104,14 +104,26 @@ function Collider:slide(shape, attempted, pass_callback)
             end
         end
 
+        -- Overlapping objects are a little tricky!  You can only move OUT of a
+        -- (blocking) object you overlap, which means you may or may not be
+        -- able to move even if the object is impassable.
+        -- FIXME this feels like a bit of a mess, especially being duplicated below but without the == 0 case?  is that even right?  does anyone know
+        local blocks = not passable
+        if collision.touchtype < 0 then
+            blocks = blocks and collision.amount < 1
+        end
+
         -- If we're hitting the object and it's not passable, stop here
-        if allowed_amount == nil and not passable and collision.touchtype > 0 then
+        if allowed_amount == nil and not passable and (
+            collision.touchtype > 0 or (collision.touchtype < 0 and collision.amount < 1))
+        then
             allowed_amount = collision.amount
             --print("< found first collision:", collision.movement, "amount:", collision.amount, self:get_owner(collision.shape))
         end
 
         -- Log the last contact with each shape
         collision.passable = passable
+        collision.blocks = blocks
         hits[collision.shape] = collision
     end
 
