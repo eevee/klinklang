@@ -1,3 +1,8 @@
+--[[
+Implementations of various collision shapes and geometric methods on them.
+This is where the magic happens.
+]]
+
 local Vector = require 'klinklang.vendor.hump.vector'
 
 local Object = require 'klinklang.object'
@@ -14,7 +19,12 @@ local YPOS = Vector(0, 1)
 local YNEG = Vector(0, -1)
 
 
+-- Base class for collision shapes.  Note that shapes remember their origin,
+-- the point that was 0, 0 when they were initially defined, even as they're
+-- moved around; games can use this point as e.g. a position anchor.
+-- TODO the origin is actually not very well handled atm
 local Shape = Object:extend{
+    -- Current position of the origin
     xoff = 0,
     yoff = 0,
 }
@@ -27,22 +37,44 @@ function Shape:__tostring()
     return "<Shape>"
 end
 
+-- Return a copy of this shape.
+-- Must be implemented in subtypes!
+function Shape:clone()
+    error("clone not implemented")
+end
+
+
+-- Blockmap API
+-- No need to override these.
+
+-- Remember that I'm part of the given Blockmap.
 function Shape:remember_blockmap(blockmap)
     self.blockmaps[blockmap] = true
 end
 
+-- Forget that I'm part of the given Blockmap.
 function Shape:forget_blockmap(blockmap)
     self.blockmaps[blockmap] = nil
 end
 
+-- Update my position in each Blockmap I'm part of.
 function Shape:update_blockmaps()
     for blockmap in pairs(self.blockmaps) do
         blockmap:update(self)
     end
 end
 
--- Extend a bbox along a movement vector (to enclose all space it might cross
--- along the way)
+
+-- Geometry API
+
+-- Return our bounding box as x0, x1, y0, y1.
+-- Must be overridden in subtypes!
+function Shape:bbox()
+    error("bbox not implemented")
+end
+
+-- Return a bbox extended along a movement vector, i.e. to enclose all space it
+-- might possibly cross along the way.
 function Shape:extended_bbox(dx, dy)
     local x0, y0, x1, y1 = self:bbox()
 
@@ -62,33 +94,109 @@ function Shape:extended_bbox(dx, dy)
     return x0, y0, x1, y1
 end
 
+-- Return the center of this shape as x, y.
+-- Not (currently?) guaranteed to be exact; the default implementation, which
+-- is fine, returns the center of the bounding box.
 function Shape:center()
     local x0, y0, x1, y1 = self:bbox()
     return (x0 + x1) / 2, (y0 + y1) / 2
 end
 
+
+-- Mutation API
+
+-- Return a new shape that's been flipped horizontally, across its origin.
 function Shape:flipx(axis)
     error("flipx not implemented")
 end
 
+-- Move this shape by some amount.
+-- Must be implemented in subtypes, must keep xoff/yoff updated, and MUST call
+-- update_blockmaps!
+-- FIXME unclear whether this is supposed to physically move the original
+-- coordinates or remember them as an offset or what
 function Shape:move(dx, dy)
     error("move not implemented")
 end
 
+-- Move this shape's origin to an absolute position.
+-- Default implementation converts the position to relative and calls move().
 function Shape:move_to(x, y)
     self:move(x - self.xoff, y - self.yoff)
 end
 
+
+-- Collision API
+
+-- Return a table of this shape's normals, where the keys are the original
+-- normal Vectors (hopefully with nice numbers) and the values are unit
+-- Vectors.  For pathological cases (like Circle), the other shape and the
+-- direction of movement are also provided; in particular, movement is always
+-- given as though the other shape were moving towards this one.
+-- Must be implemented in subtypes!
+function Shape:normals(other, movement)
+    error("normals not implemented")
+end
+
+-- Given a start point and a direction (both Vectors), return the first point
+-- on this shape that the ray intersects and its dot product with the ray
+-- direction.
+-- Must be implemented in subtypes!
+-- TODO unclear what the behavior should be if the ray starts inside the shape
+function Shape:intersection_with_ray(start, direction)
+    error("intersection_with_ray not implemented")
+end
+
+-- Project this shape's outline onto an axis given by a Vector (which doesn't
+-- have to be a unit vector), by taking the dot product of its extremes with
+-- the axis, and return:
+--   min_dot, max_dot, min_point, max_point
+-- This is used in slide_towards along with the Separating Axis Theorem to do
+-- the core of collision detection.
+-- Must be implemented in subtypes!
+function Shape:project_onto_axis(axis)
+    error("project_onto_axis not implemented")
+end
+
+-- Attempt to slide this shape along the given movement vector towards some
+-- other shape.  Return a Collision object representing the kind of collision
+-- or touch that results.  Return nil if the shapes don't come into contact,
+-- including if they're initially touching but then move apart.
+-- This is the core of collision detection, and is called by Collider:sweep().
+-- Note that the shape isn't actually moved; the movement is only simulated.
+-- Must be implemented in subtypes!
+function Shape:slide_towards(other, movement)
+    error("slide_towards not implemented")
+end
+
+-- Given a point and a projection axis resulting from collision detection, find
+-- the edge in this shape containing that point that collapses to a single
+-- point on the axis, and return it as start_point, end_point.  The returned
+-- points should be in clockwise order.
+-- This is used by Collision to find contact regions.
+-- The point passed in should be a Vector object belonging to this shape, if
+-- possible.  Some shapes, like Polygon, rely on this to quickly find the
+-- point.
+-- Must be implemented in subtypes!
+function Shape:find_edge(start_point, axis)
+    error("find_edge not implemented")
+end
+
+
+-- Misc API
+
+-- Draw this shape using the LÖVE graphics API.  Mode is either 'fill' or
+-- 'line', as for LÖVE.
+-- Generally only used for debugging, but should be implemented in subtypes.
+-- Shouldn't change color or otherwise do anything weird to the draw state.
 function Shape:draw(mode)
     error("draw not implemented")
 end
 
-function Shape:normals()
-    error("normals not implemented")
-end
 
+--------------------------------------------------------------------------------
+-- Polygon: An arbitrary (CONVEX) polygon
 
--- An arbitrary (CONVEX) polygon
 local Polygon = Shape:extend()
 
 -- FIXME i think this blindly assumes clockwise order
