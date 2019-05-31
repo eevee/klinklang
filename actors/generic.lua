@@ -33,21 +33,19 @@ end
 -- FIXME what happens if you stick a rune in an open doorway?
 function GenericSlidingDoor:on_enter(...)
     GenericSlidingDoor.__super.on_enter(self, ...)
-    -- FIXME this "ray" should really have a /width/
-    -- FIXME scratch that, this "ray" should be a sweep of a rectangle.  also fire_ray no longer exists so this is broken
-    local impact, impactdist = self.map.collider:fire_ray(
-        self.pos,
-        Vector(0, 1),
-        function (actor)
-            return actor == self
-        end)
-    -- FIXME if the ray doesn't hit anything, it returns...  infinity.  also it
-    -- doesn't actually walk the whole blockmap, oops!
-    if impactdist == math.huge then
-        impactdist = 0
-    end
-    self:set_shape(whammo_shapes.Box(-12, 0, 24, impactdist))
-    self.door_height = impactdist
+
+    -- Do a shape cast to figure out how tall the door should be
+    local test_shape = whammo_shapes.Box(-12, 0, 24, 1)
+    test_shape:move(self.pos:unpack())
+    local movement = self.map.collider:slide(test_shape, Vector(0, 256), function(collision)
+        local actor = self.map.collider:get_owner(collision.shape)
+        if actor and actor:blocks(self) then
+            return false
+        end
+        return true
+    end)
+    self.door_height = movement.y - 1
+    self:set_shape(whammo_shapes.Box(-12, 0, 24, self.door_height))
 end
 
 function GenericSlidingDoor:on_leave()
@@ -63,6 +61,10 @@ end
 
 -- FIXME this makes some assumptions about anchors that i'm pretty sure could be either less necessary or more meaningful
 function GenericSlidingDoor:draw()
+    if self.door_height <= 0 then
+        return
+    end
+
     local pt = self.pos - self.sprite.anchor
     love.graphics.push('all')
     -- FIXME maybe worldscene needs a helper for this
