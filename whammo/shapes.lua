@@ -441,21 +441,20 @@ function Shape:slide_towards(other, movement)
                 -- all this work will be ignored anyway
                 not slide_axis
             then
+                -- Determine if this surface is on our left or right using a
+                -- cross product.  LÖVE's coordinate system points down, so a
+                -- negative cross product means the normal points to the LEFT,
+                -- which means the surface is on the RIGHT, and vice versa.
+                local cross = zero_trim(movement:cross(fullaxis))
+                -- Use the normal on each side with the greatest dot product
+                -- with movement, which means the one that faces the most
+                -- towards us and thus restricts our movement the most
                 local ourdot = movement * axis
-
-                -- Determine if this surface is on our left or right.  The move
-                -- normal points right from us, so if this dot product is
-                -- positive, the normal also points right of us, which means
-                -- the actual surface is on our left.  (Remember, LÖVE's
-                -- coordinate system points down!)
-                local right_dot = zero_trim(movenormal * fullaxis)
-                -- TODO explain this better, but the idea is: using the greater dot means using the slope that's furthest away from us, which resolves corners nicely because two normals on one side HAVE to be a corner, they can't actually be one in front of the other
-                -- TODO should these do something on a tie?
-                if right_dot >= 0 and ourdot > maxleftdot then
+                if cross >= 0 and ourdot > maxleftdot then
                     leftnorm = fullaxis
                     maxleftdot = ourdot
                 end
-                if right_dot <= 0 and ourdot > maxrightdot then
+                if cross <= 0 and ourdot > maxrightdot then
                     rightnorm = fullaxis
                     maxrightdot = ourdot
                 end
