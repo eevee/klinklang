@@ -8,16 +8,6 @@ local Vector = require 'klinklang.vendor.hump.vector'
 local Object = require 'klinklang.object'
 local Collision = require 'klinklang.whammo.collision'
 
--- Allowed rounding error when comparing whether two shapes are overlapping.
--- If they overlap by only this amount, they'll be considered touching.
-local PRECISION = 1e-8
-
--- Aggressively de-dupe these extremely common normals
-local XPOS = Vector(1, 0)
-local XNEG = Vector(-1, 0)
-local YPOS = Vector(0, 1)
-local YNEG = Vector(0, -1)
-
 
 -- Make locals out of these common built-ins.  Super duper micro optimization,
 -- but collision code is very hot, so I'll take what I can get!  Seems to make
@@ -26,7 +16,24 @@ local ipairs, pairs, rawequal = ipairs, pairs, rawequal
 local abs = math.abs
 local NEG_INFINITY = -math.huge
 
-local Circle
+
+-- Allowed rounding error when comparing whether two shapes are overlapping.
+-- If they overlap by only this amount, they'll be considered touching.
+local PRECISION = 1e-8
+
+local function zero_trim(n)
+    if abs(n) < PRECISION then
+        return 0
+    else
+        return n
+    end
+end
+
+-- Aggressively de-dupe these extremely common normals
+local XPOS = Vector(1, 0)
+local XNEG = Vector(-1, 0)
+local YPOS = Vector(0, 1)
+local YNEG = Vector(0, -1)
 
 
 -- Base class for collision shapes.  Note that shapes remember their origin,
@@ -292,8 +299,9 @@ function Shape:slide_towards(other, movement)
         -- results might be aligned in any number of ways.  Reorient if
         -- necessary, so the axis is always pointing towards us, i.e. is the
         -- direction we should move to get away from them.
-        local dist_left = min2 - max1
-        local dist_right = min1 - max2
+        -- Ignore extremely tiny overlaps, which are likely precision errors.
+        local dist_left = zero_trim(min2 - max1)
+        local dist_right = zero_trim(min1 - max2)
         if dist_left >= dist_right then
             -- 1 appears first, so take the distance from 1 to 2
             dist = dist_left
@@ -321,11 +329,6 @@ function Shape:slide_towards(other, movement)
             end
         end
 
-        -- Ignore extremely tiny overlaps, which are likely precision errors
-        if abs(dist) < PRECISION then
-            dist = 0
-        end
-
         -- Update touchtype
         if dist > 0 then
             touchtype = 1
@@ -335,10 +338,7 @@ function Shape:slide_towards(other, movement)
 
         -- This dot product is negative if we're moving closer along this
         -- axis, positive if we're moving away
-        local dot = movement * fullaxis
-        if abs(dot) < PRECISION then
-            dot = 0
-        end
+        local dot = zero_trim(movement * fullaxis)
 
         if dist == 0 and dot == 0 then
             -- Zero dot and zero distance mean the movement is parallel and the
@@ -369,14 +369,11 @@ function Shape:slide_towards(other, movement)
             -- the axis forever without hitting anything.
             -- FIXME this should just be dist, surely??  and what the hell is the abs for?
             local numer = -(sep * fullaxis)
-            local amount = numer / abs(dot)
+            local amount = zero_trim(numer / abs(dot))
             -- TODO if movement is zero (or at least zero in this
             -- direction) then the division will give either positive or
             -- negative infinity, which makes this somewhat less useful for
             -- determining existing overlap, hm
-            if abs(amount) < PRECISION then
-                amount = 0
-            end
 
             local use_normal
             -- TODO i think i could avoid this entirely by using a cross
@@ -421,14 +418,14 @@ function Shape:slide_towards(other, movement)
                 -- positive, the normal also points right of us, which means
                 -- the actual surface is on our left.  (Remember, LÖVE's
                 -- coordinate system points down!)
-                local right_dot = movenormal * fullaxis
+                local right_dot = zero_trim(movenormal * fullaxis)
                 -- TODO explain this better, but the idea is: using the greater dot means using the slope that's furthest away from us, which resolves corners nicely because two normals on one side HAVE to be a corner, they can't actually be one in front of the other
                 -- TODO should these do something on a tie?
-                if right_dot >= -PRECISION and ourdot > maxleftdot then
+                if right_dot >= 0 and ourdot > maxleftdot then
                     leftnorm = fullaxis
                     maxleftdot = ourdot
                 end
-                if right_dot <= PRECISION and ourdot > maxrightdot then
+                if right_dot <= 0 and ourdot > maxrightdot then
                     rightnorm = fullaxis
                     maxrightdot = ourdot
                 end
@@ -971,7 +968,7 @@ end
 
 -- A circle.  NOT an ellipse; those are vastly more complicated!
 -- FIXME arrange these impls in the right order, also implement intersection_with_ray and circle/circle collision
-Circle = Shape:extend()
+local Circle = Shape:extend()
 
 function Circle:init(x, y, r)
     Circle.__super.init(self)
@@ -1044,13 +1041,10 @@ function Circle:normals(other, movement)
             if discriminant >= 0 then
                 -- There would be two solutions, but we only want the first
                 -- hit, the smaller one, where the ± resolves to -
-                local t = (-b - math.sqrt(discriminant)) / (2 * a)
+                local t = zero_trim((-b - math.sqrt(discriminant)) / (2 * a))
                 -- If t is negative, the point is already inside us, which will
                 -- become obvious from the polygon's own normals
-                if t > -PRECISION then
-                    if t < 0 then
-                        t = 0
-                    end
+                if t >= 0 then
                     -- point + movement * t - center
                     local norm = offset + movement * t
                     ret[norm] = norm:normalized()
