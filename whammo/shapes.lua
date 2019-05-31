@@ -291,21 +291,28 @@ function Shape:slide_towards(other, movement)
         table.insert(fullaxes, normal)
     end
 
-    local maxleftdot = NEG_INFINITY
-    local leftnorm
-    local maxrightdot = NEG_INFINITY
-    local rightnorm
-
     -- Search for the axis that yields the greatest distance between the shapes
     -- (which must then be /the/ greatest distance between them), by projecting
-    -- both shapes onto each axis in turn
-    local maxamt = NEG_INFINITY
-    local maxnumer, maxdenom
+    -- both shapes onto each axis in turn.
+    -- Also track a whole bunch of stuff along the way.
+    -- Greatest distance we've seen thusfar, as a signed fraction of movement
+    local max_fraction = NEG_INFINITY
+    -- Shallowest normals on our left and right sides, if we move max_fraction
+    local max_left_normal_dot = NEG_INFINITY
+    local left_normal
+    local max_right_normal_dot = NEG_INFINITY
+    local right_normal
+    -- Type of contact between the shapes
+    local touchtype = -1
+    -- If the shapes are touching but allowed to slide against each other, this
+    -- is the contact normal
+    -- TODO i kind of want to remove this somehow.  feels like such a weird ass
+    -- special case i don't know.  also what happens if they're initially
+    -- touching at corners?
+    local slide_axis
     local min_penetration_depth
     local min_penetration
     local max_separation
-    local touchtype = -1
-    local slide_axis
     local x_our_pt, x_their_pt, x_contact_axis
     for _, fullaxis in ipairs(fullaxes) do
         -- Much of this work is done with the original unscaled normal for
@@ -410,20 +417,18 @@ function Shape:slide_towards(other, movement)
             -- TODO i think i could avoid this entirely by using a cross
             -- product instead?
             -- FIXME rust has this, find a failing case first:
-            --if maxamt > Fixed::min_value() && (amount - maxamt).abs() < PRECISION {
-            -- FIXME these two maxamt checks are highly suspect imo
-            if maxamt > NEG_INFINITY and abs(amount - maxamt) < PRECISION then
+            --if max_fraction > Fixed::min_value() && (amount - max_fraction).abs() < PRECISION {
+            -- FIXME these two max_fraction checks are highly suspect imo
+            if max_fraction > NEG_INFINITY and abs(amount - max_fraction) < PRECISION then
                 -- Equal, ish
                 use_normal = true
-            elseif maxamt == NEG_INFINITY or amount > maxamt then
-                maxamt = amount
-                maxnumer = numer
-                maxdenom = abs(dot)
+            elseif max_fraction == NEG_INFINITY or amount > max_fraction then
+                max_fraction = amount
                 max_separation = sep
-                leftnorm = nil
-                rightnorm = nil
-                maxleftdot = NEG_INFINITY
-                maxrightdot = NEG_INFINITY
+                left_normal = nil
+                right_normal = nil
+                max_left_normal_dot = NEG_INFINITY
+                max_right_normal_dot = NEG_INFINITY
                 use_normal = true
                 -- If there's a slide axis, then its axis wins here
                 if not slide_axis then
@@ -433,8 +438,7 @@ function Shape:slide_towards(other, movement)
                 end
             end
 
-            -- FIXME rust does this code even for the move normal (which i'm not sure is necessary, and might even be bad, because the move normal would make it seem like we just hit a flat wall instead of a corner)
-            if use_normal and not rawequal(fullaxis, movement) and
+            if use_normal and
                 -- Ignore normals that face away from us
                 dot <= 0 and
                 -- If this is a slide then that's the only valid normal and
@@ -450,19 +454,19 @@ function Shape:slide_towards(other, movement)
                 -- with movement, which means the one that faces the most
                 -- towards us and thus restricts our movement the most
                 local ourdot = movement * axis
-                if cross >= 0 and ourdot > maxleftdot then
-                    leftnorm = fullaxis
-                    maxleftdot = ourdot
+                if cross >= 0 and ourdot > max_left_normal_dot then
+                    left_normal = fullaxis
+                    max_left_normal_dot = ourdot
                 end
-                if cross <= 0 and ourdot > maxrightdot then
-                    rightnorm = fullaxis
-                    maxrightdot = ourdot
+                if cross <= 0 and ourdot > max_right_normal_dot then
+                    right_normal = fullaxis
+                    max_right_normal_dot = ourdot
                 end
             end
         end
     end
 
-    if maxamt > 1 and touchtype > 0 then
+    if max_fraction > 1 and touchtype > 0 then
         -- We're allowed to move further than the requested distance, AND we
         -- won't touch.  (Touching is handled as a "slide" below.)  Bail!
         return
@@ -477,19 +481,19 @@ function Shape:slide_towards(other, movement)
             allowed = 0
         end
 
-        leftnorm = nil
-        rightnorm = nil
-        maxleftdot = NEG_INFINITY
-        maxrightdot = NEG_INFINITY
+        left_normal = nil
+        right_normal = nil
+        max_left_normal_dot = NEG_INFINITY
+        max_right_normal_dot = NEG_INFINITY
         if min_penetration * movement <= 0 then
             local pendot = min_penetration * movenormal
             if pendot >= 0 then
-                leftnorm = min_penetration
-                maxleftdot = 0
+                left_normal = min_penetration
+                max_left_normal_dot = 0
             end
             if pendot <= 0 then
-                rightnorm = min_penetration
-                maxrightdot = 0
+                right_normal = min_penetration
+                max_right_normal_dot = 0
             end
         end
         return Collision:bless{
@@ -499,10 +503,10 @@ function Shape:slide_towards(other, movement)
             touchtype = -1,
             separation = max_separation,
             penetration = min_penetration,
-            left_normal = leftnorm,
-            right_normal = rightnorm,
-            left_normal_dot = maxleftdot,
-            right_normal_dot = maxrightdot,
+            left_normal = left_normal,
+            right_normal = right_normal,
+            left_normal_dot = max_left_normal_dot,
+            right_normal_dot = max_right_normal_dot,
         }
     end
 
@@ -514,7 +518,7 @@ function Shape:slide_towards(other, movement)
         -- touching, then the touch axis will be the max distance, the dot
         -- products above will be zero, and amount will be nonsense.  If not,
         -- amount is correct.
-        local touchdist = maxamt
+        local touchdist = max_fraction
         -- TODO i'm suspicious of this touchdist < 0, how did that happen?  is
         -- this what i was running into when standing at the very left edge of
         -- a map with my feet 2px in the floor?  oh right it's because of
@@ -525,15 +529,15 @@ function Shape:slide_towards(other, movement)
         -- Since we're touching, the slide axis is the only valid normal!  Any
         -- others were near misses that didn't actually collide
         if slide_axis * movenormal > 0 then
-            leftnorm = slide_axis
-            maxleftdot = 0
-            rightnorm = nil
-            maxrightdot = NEG_INFINITY
+            left_normal = slide_axis
+            max_left_normal_dot = 0
+            right_normal = nil
+            max_right_normal_dot = NEG_INFINITY
         else
-            rightnorm = slide_axis
-            maxrightdot = 0
-            leftnorm = nil
-            maxleftdot = NEG_INFINITY
+            right_normal = slide_axis
+            max_right_normal_dot = 0
+            left_normal = nil
+            max_left_normal_dot = NEG_INFINITY
         end
 
         return Collision:bless{
@@ -543,10 +547,10 @@ function Shape:slide_towards(other, movement)
             touchtype = 0,
             separation = max_separation,
 
-            left_normal = leftnorm,
-            right_normal = rightnorm,
-            left_normal_dot = maxleftdot,
-            right_normal_dot = maxrightdot,
+            left_normal = left_normal,
+            right_normal = right_normal,
+            left_normal_dot = max_left_normal_dot,
+            right_normal_dot = max_right_normal_dot,
 
             our_shape = self,
             their_shape = other,
@@ -554,7 +558,7 @@ function Shape:slide_towards(other, movement)
             their_point = x_their_pt,
             axis = slide_axis,
         }
-    elseif maxamt == NEG_INFINITY then
+    elseif max_fraction == NEG_INFINITY then
         -- We don't hit anything at all!
         return
     end
@@ -564,16 +568,16 @@ function Shape:slide_towards(other, movement)
     return Collision:bless{
         -- Minimize rounding error by repeating the same division we used to
         -- get amount, but multiplying first
-        movement = movement * maxnumer / maxdenom,
-        amount = maxamt,
-        touchdist = maxamt,
+        movement = movement * max_fraction,
+        amount = max_fraction,
+        touchdist = max_fraction,
         touchtype = 1,
         separation = max_separation,
 
-        left_normal = leftnorm,
-        right_normal = rightnorm,
-        left_normal_dot = maxleftdot,
-        right_normal_dot = maxrightdot,
+        left_normal = left_normal,
+        right_normal = right_normal,
+        left_normal_dot = max_left_normal_dot,
+        right_normal_dot = max_right_normal_dot,
 
         our_shape = self,
         their_shape = other,
