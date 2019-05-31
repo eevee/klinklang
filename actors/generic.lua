@@ -44,7 +44,9 @@ function GenericSlidingDoor:on_enter(...)
         end
         return true
     end)
-    self.door_height = movement.y - 1
+    -- Add a pixel to make up for the height of the test shape
+    -- TODO technically this isn't right if there's a gap of 1px...
+    self.door_height = movement.y + 1
     self:set_shape(whammo_shapes.Box(-12, 0, 24, self.door_height))
 end
 
