@@ -528,12 +528,10 @@ function WorldScene:load_map(tiled_map, spot_name)
     -- preserve them while keeping the usual moving behavior.  find a way to
     -- reconcile all of this
     local map, revisiting = self.world:load_map(tiled_map, '')
-    self.world:push(map)
-    self.current_map = map
-    self.fluct = self.current_map.flux
-    self.tick = self.current_map.tick
-    self.actors = self.current_map.actors
-    self.collider = self.current_map.collider
+    self.fluct = map.flux
+    self.tick = map.tick
+    self.actors = map.actors
+    self.collider = map.collider
 
     local player_start
     if spot_name then
@@ -548,7 +546,11 @@ function WorldScene:load_map(tiled_map, spot_name)
         end
     end
     self.player:move_to(player_start:clone())
-    self:add_actor(self.player)  -- XXX problem for neon phase
+    map:add_actor(self.player)  -- XXX problem for neon phase
+
+    -- World:push also updates the camera, so do it after moving the player
+    self.world:push(map)
+    self.current_map = map
 
     local map_music_path = tiled_map:prop('music')
     if map_music_path then
