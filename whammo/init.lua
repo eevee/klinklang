@@ -78,10 +78,22 @@ function Collider:sweep(shape, attempted, pass_callback)
     local collisions = {}
     local neighbors = self.blockmap:neighbors(shape, attempted:unpack())
     for neighbor in pairs(neighbors) do
-        local collision = shape:sweep_towards(neighbor, attempted)
-        if collision then
-            --print(("< got move %f = %s, touchtype %d, clock %s"):format(collision.contact_start, collision.movement, collision.touchtype, collision.clock))
-            table.insert(collisions, collision)
+        if neighbor.subshapes then
+            -- This is a MultiShape!  Split it up into its component shapes.
+            -- FIXME this has some goofass side effects like owner not working,
+            -- but that's fine until i can nuke this crap once and for all
+            for _, subshape in ipairs(neighbor.subshapes) do
+                local collision = shape:sweep_towards(subshape, attempted)
+                if collision then
+                    table.insert(collisions, collision)
+                end
+            end
+        else
+            local collision = shape:sweep_towards(neighbor, attempted)
+            if collision then
+                --print(("< got move %f = %s, touchtype %d, clock %s"):format(collision.contact_start, collision.movement, collision.touchtype, collision.clock))
+                table.insert(collisions, collision)
+            end
         end
     end
 

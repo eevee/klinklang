@@ -180,48 +180,6 @@ function Shape:intersection_with_ray(start, direction)
     error("intersection_with_ray not implemented")
 end
 
--- FIXME this very bad hack is for MultiShape, which i would looove to remove entirely
--- FIXME this doesn't even copy over all the relevant properties christ
-local function _multi_sweep_towards(self, other, movement)
-    local ret
-    for _, subshape in ipairs(other.subshapes) do
-        local collision = self:sweep_towards(subshape, movement)
-        if collision == nil then
-            -- Do nothing
-        elseif ret == nil then
-            -- First result; just accept it
-            ret = collision
-        else
-            -- Need to combine
-            if collision.contact_start < ret.contact_start then
-                ret = collision
-            elseif collision.contact_start == ret.contact_start then
-                ret.contact_start = math.min(ret.contact_start, collision.contact_start)
-                ret.contact_end = math.max(ret.contact_end, collision.contact_end)
-                if collision.overlaps then
-                    ret.overlaps = true
-                end
-                if ret.contact_type == 0 then
-                    ret.contact_type = collision.contact_type
-                end
-                if ret.touchtype == 0 then
-                    ret.touchtype = collision.touchtype
-                end
-                if collision.left_normal_dot > ret.left_normal_dot then
-                    ret.left_normal_dot = collision.left_normal_dot
-                    ret.left_normal = collision.left_normal
-                end
-                if collision.right_normal_dot > ret.right_normal_dot then
-                    ret.right_normal_dot = collision.right_normal_dot
-                    ret.right_normal = collision.right_normal
-                end
-            end
-        end
-    end
-
-    return ret
-end
-
 -- Project this shape's outline onto an axis given by a Vector (which doesn't
 -- have to be a unit vector), by taking the dot product of its extremes with
 -- the axis, and return:
@@ -265,9 +223,8 @@ function Shape:sweep_towards(other, movement)
     --    than lengths or normalized vectors, to avoid precision loss
     --    from taking square roots.
 
-    if other.subshapes then
-        return _multi_sweep_towards(self, other, movement)
-    end
+    -- This should be handled by Collider:sweep()!
+    assert(not other.subshapes)
 
     -- Collect all the normals (i.e., projection axes) from both shapes,
     -- including any vertical/horizontal normal and the movement normal.
