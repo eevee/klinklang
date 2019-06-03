@@ -32,7 +32,7 @@ function Collider:remove(shape)
 end
 
 function Collider:get_owner(shape)
-    owner = self.shapes[shape]
+    local owner = self.shapes[shape]
     if owner == self._NOTHING then
         owner = nil
     end
@@ -40,50 +40,64 @@ function Collider:get_owner(shape)
 end
 
 
--- Sort collisions in the order we'll come into contact with them (whether or
--- not we'll actually hit them as a result)
+-- Sort collisions in the order we come into contact with them
+-- FIXME can this be made deterministic in the case of ties?  order added to the collider, maybe?
 local function _collision_sort(a, b)
-    if a.touchdist == b.touchdist then
-        return a.touchtype < b.touchtype
+    if a.contact_start == b.contact_start then
+        -- In the case of a tie, prefer overlaps first, since we're "more"
+        -- touching them
+        return a.overlaps and not b.overlaps
     end
-    return a.touchdist < b.touchdist
+    return a.contact_start < b.contact_start
 end
 
--- FIXME consider renaming this and the other method to "sweep"
-function Collider:slide(shape, attempted, pass_callback)
+-- Perform sweep/continuous collision detection: attempt to move the given
+-- shape the given distance, and return everything it would hit, in order.  If
+-- the callback is provided, it'll be called with each collision in order; if
+-- it returns falsey, the shape won't try to move any further.
+-- Note that if no callback is provided, the default behavior is to assume
+-- nothing is blocking!  Also note that the callback is allowed to block even
+-- in the case of a slide; this function has absolutely no special cases.
+-- Returns the successful movement and a table mapping encountered shapes to
+-- the resulting Collision.
+function Collider:sweep(shape, attempted, pass_callback)
     if shape == nil then
-        error("Can't slide a nil shape")
+        error("Can't sweep a nil shape")
+    end
+    if not pass_callback then
+        pass_callback = function() return true end
     end
 
     local hits = {}
     local collisions = {}
     local neighbors = self.blockmap:neighbors(shape, attempted:unpack())
     for neighbor in pairs(neighbors) do
-        local collision = shape:slide_towards(neighbor, attempted)
+        local collision = shape:sweep_towards(neighbor, attempted)
         if collision then
-            --print(("< got move %f = %s, touchtype %d, clock %s"):format(collision.amount, collision.movement, collision.touchtype, collision.clock))
-            collision.shape = neighbor
+            --print(("< got move %f = %s, touchtype %d, clock %s"):format(collision.fraction, collision.movement, collision.touchtype, collision.clock))
             table.insert(collisions, collision)
         end
     end
 
-    -- Look through the objects we'll hit, in the order we'll /touch/ them,
-    -- and stop at the first that blocks us
+    --print('-- SWEEP --', self:get_owner(shape), attempted)
+    -- Look through the objects we'll hit, in the order we'll /touch/ them, and
+    -- stop at the first that blocks us
     table.sort(collisions, _collision_sort)
-    local allowed_amount
+    local allowed_fraction
     for i, collision in ipairs(collisions) do
-        collision.attempted = attempted
+        -- TODO add owners in here too so i don't have to keep fetching actors
 
-        --print("checking collision...", collision.movement, collision.amount, "at", collision.shape:bbox())
-        -- If we've already found something that blocks us, and this
-        -- collision requires moving further, then stop here.  This allows
-        -- for ties
-        if allowed_amount ~= nil and allowed_amount < collision.amount then
+        --print("checking collision...", collision.movement, collision.fraction, collision.touchtype, collision.touchdist, "at", collision.shape:bbox())
+        -- If we've already hit something, and this collision is further away,
+        -- stop here.  (This means we call the callback for ALL of a set of
+        -- shapes the same distance away, even if the first one blocks us.)
+        if allowed_fraction ~= nil and allowed_fraction < collision.contact_start then
             break
         end
 
         -- Check if the other shape actually blocks us
-        local passable = pass_callback and pass_callback(collision)
+        local passable = pass_callback(collision)
+        --print(i, collision.shape, self:get_owner(collision.shape), passable)
         if passable == 'retry' then
             -- Special case: the other object just moved, so keep moving
             -- and re-evaluate when we hit it again.  Useful for pushing.
@@ -91,7 +105,7 @@ function Collider:slide(shape, attempted, pass_callback)
                 -- To avoid loops, don't retry a shape twice in a row
                 passable = false
             else
-                local new_collision = shape:slide_towards(collision.shape, attempted)
+                local new_collision = shape:sweep_towards(collision.shape, attempted)
                 if new_collision then
                     new_collision.shape = collision.shape
                     for j = i + 1, #collisions + 1 do
@@ -104,36 +118,35 @@ function Collider:slide(shape, attempted, pass_callback)
             end
         end
 
-        -- Overlapping objects are a little tricky!  You can only move OUT of a
-        -- (blocking) object you overlap, which means you may or may not be
-        -- able to move even if the object is impassable.
-        -- FIXME this feels like a bit of a mess, especially being duplicated below but without the == 0 case?  is that even right?  does anyone know
-        local blocks = not passable
-        if collision.touchtype < 0 then
-            blocks = blocks and collision.amount < 1
+        -- If we're hitting the object and it's not passable, mark this as the
+        -- furthest we can go, and we'll stop when we see something further
+        -- FIXME ah wait, true slides shouldn't block us!  maybe i need blocks after all?
+        if not passable then
+            allowed_fraction = collision.contact_start
+            --print("< found first collision:", collision.movement, "fraction:", collision.fraction, self:get_owner(collision.shape))
         end
 
-        -- If we're hitting the object and it's not passable, stop here
-        if allowed_amount == nil and not passable and (
-            collision.touchtype > 0 or (collision.touchtype < 0 and collision.amount < 1))
-        then
-            allowed_amount = collision.amount
-            --print("< found first collision:", collision.movement, "amount:", collision.amount, self:get_owner(collision.shape))
-        end
+        -- Update some properties on the collision
+        collision.passable = passable
+        collision.this_owner = self:get_owner(shape)
+        collision.that_owner = self:get_owner(collision.shape)
 
         -- Log the last contact with each shape
-        collision.passable = passable
-        collision.blocks = blocks
         hits[collision.shape] = collision
     end
+    --print('-- END SWEEP --')
 
-    if allowed_amount == nil or allowed_amount >= 1 then
-        -- We don't hit anything this time!  Apply the remaining unopposed
-        -- movement
+    if allowed_fraction == nil or allowed_fraction >= 1 then
+        -- Nothing stands in our way, so allow the full movement
         return attempted, hits
     else
-        return attempted * allowed_amount, hits
+        return attempted * allowed_fraction, hits
     end
+end
+
+function Collider:slide(...)
+    print("warning: Collider:slide is now Collider:sweep")
+    return self:sweep(...)
 end
 
 -- Fires a ray from the given point in the given direction.  Each candidate

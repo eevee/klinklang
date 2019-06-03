@@ -182,10 +182,10 @@ end
 
 -- FIXME this very bad hack is for MultiShape, which i would looove to remove entirely
 -- FIXME this doesn't even copy over all the relevant properties christ
-local function _multi_slide_towards(self, other, movement)
+local function _multi_sweep_towards(self, other, movement)
     local ret
     for _, subshape in ipairs(other.subshapes) do
-        local collision = self:slide_towards(subshape, movement)
+        local collision = self:sweep_towards(subshape, movement)
         if collision == nil then
             -- Do nothing
         elseif ret == nil then
@@ -219,7 +219,7 @@ end
 -- have to be a unit vector), by taking the dot product of its extremes with
 -- the axis, and return:
 --   min_dot, max_dot, min_point, max_point
--- This is used in slide_towards along with the Separating Axis Theorem to do
+-- This is used in sweep_towards along with the Separating Axis Theorem to do
 -- the core of collision detection.
 -- Must be implemented in subtypes!
 function Shape:project_onto_axis(axis)
@@ -231,11 +231,14 @@ end
 -- or touch that results.  Return nil if the shapes don't come into contact,
 -- including if they're initially touching but then move apart.
 -- This is the core of collision detection, and is called by Collider:sweep().
+-- This method has absolutely no opinion on whether or not the other shape
+-- should stop this one; it only reports the effects of the movement.  Blocking
+-- is handled by arguments to Collider:sweep().
 -- Note that the shape isn't actually moved; the movement is only simulated.
 -- FIXME couldn't there be a much simpler version of this for two AABBs?
 -- FIXME incorporate the improvements i made when porting this to rust
 -- FIXME maybe write a little benchmark too
-function Shape:slide_towards(other, movement)
+function Shape:sweep_towards(other, movement)
     -- We cannot possibly collide if the bboxes don't overlap
     local ax0, ay0, ax1, ay1 = self:extended_bbox(movement:unpack())
     local bx0, by0, bx1, by1 = other:bbox()
@@ -256,7 +259,7 @@ function Shape:slide_towards(other, movement)
     --    from taking square roots.
 
     if other.subshapes then
-        return _multi_slide_towards(self, other, movement)
+        return _multi_sweep_towards(self, other, movement)
     end
 
     -- Collect all the normals (i.e., projection axes) from both shapes,
@@ -552,44 +555,50 @@ function Shape:slide_towards(other, movement)
         if slide_axis then
             contact_type = 0
         end
-        -- Figure out whether we're actually allowed to move or not; for
-        -- overlaps, it's all or nothing
-        local allowed
-        if contact_type <= 0 then
-            -- Moving out or sliding
-            allowed = 1
-        else
-            -- Trying to go deeper
-            allowed = 0
-        end
         return Collision:bless{
-            movement = movement * allowed,
-            amount = allowed,
-            touchdist = 0,
-            touchtype = -1,
+            attempted = movement,
+            movement = movement,
+            fraction = 1,
+            overlaps = true,
+            -- Deprecated?
+            shape = other,
+
+            contact_start = 0,
+            contact_end = contact_end,
+            contact_type = contact_type,
+
             left_normal = left_normal,
             right_normal = right_normal,
             left_normal_dot = max_left_normal_dot,
             right_normal_dot = max_right_normal_dot,
 
-            contact_start = 0,
-            contact_end = contact_end,
-            contact_type = contact_type,
+            our_shape = self,
+            their_shape = other,
+            -- XXX other stuff, if it's even meaningful?
         }
     end
 
     -- XXX aha, interesting, maybe i don't need slide_axis at all?
-    assert((slide_axis ~= nil) == (x_contact_axis * movement == 0))
+    assert((slide_axis ~= nil) == (zero_trim(x_contact_axis * movement) == 0))
 
     if slide_axis then
         -- This is a slide; we will touch (or are already touching) the other
         -- object, but can continue past it.  (If we wouldn't touch, fraction
         -- would exceed 1, and we would've returned earlier.)
         return Collision:bless{
+            attempted = movement,
             movement = movement,
-            amount = 1,
-            touchdist = math.max(0, max_fraction),
-            touchtype = 0,
+            fraction = 1,
+            overlaps = false,
+            -- Deprecated?
+            shape = other,
+
+            -- This is the max fraction found along every /other/ axis, which
+            -- is when we'll first touch.  If it's negative, no other axis had
+            -- a gap, so we're already touching, so it should be zero.
+            contact_start = math.max(0, max_fraction),
+            contact_end = min_outer_fraction,
+            contact_type = 0,
 
             left_normal = left_normal,
             right_normal = right_normal,
@@ -602,29 +611,22 @@ function Shape:slide_towards(other, movement)
             our_point = x_our_pt,
             their_point = x_their_pt,
             axis = slide_axis,
-
-            -- FIXME do i even use amount anywhere?  only in slide() apparently, which only uses it as "touchdist but for collisions"!
-            attempted = movement,
-            -- This is the max fraction found along every /other/ axis, which
-            -- is when we'll first touch.  If it's negative, no other axis had
-            -- a gap, so we're already touching, so it should be zero.
-            contact_start = math.max(0, max_fraction),
-            contact_end = min_outer_fraction,
-            contact_type = 0,
         }
-    elseif max_fraction == NEG_INFINITY then
-        -- We don't hit anything at all!
-        print("*** surprise i didn't think i could actually hit this case where max_fraction is neg infinity ***")
-        return
     end
 
     -- If none of the special cases apply, this is a regular old collision
     -- where we're about to run head-first into something
     return Collision:bless{
+        attempted = movement,
         movement = movement * max_fraction,
-        amount = max_fraction,
-        touchdist = max_fraction,
-        touchtype = 1,
+        fraction = max_fraction,
+        overlaps = false,
+        -- Deprecated?
+        shape = other,
+
+        contact_start = max_fraction,
+        contact_end = min_outer_fraction,
+        contact_type = 1,
 
         left_normal = left_normal,
         right_normal = right_normal,
@@ -636,12 +638,12 @@ function Shape:slide_towards(other, movement)
         our_point = x_our_pt,
         their_point = x_their_pt,
         axis = x_contact_axis,
-
-        attempted = movement,
-        contact_start = max_fraction,
-        contact_end = min_outer_fraction,
-        contact_type = 1,
     }
+end
+
+function Shape:slide_towards(...)
+    print("warning: Shape:slide_towards is now Shape:sweep_towards")
+    return self:sweep_towards(...)
 end
 
 -- Given a point and a projection axis resulting from collision detection, find
