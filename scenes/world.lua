@@ -53,11 +53,11 @@ function DebugLayer:draw()
 
     if game.debug_twiddles.show_collision then
         for hit, collision in pairs(game.debug_hits) do
-            if collision.touchtype > 0 then
+            if collision.contact_type > 0 then
                 -- Collision: red
                 love.graphics.setColor(1, 0, 0, 0.5)
-            elseif collision.touchtype < 0 then
-                -- Overlap: blue
+            elseif collision.contact_type < 0 then
+                -- Overlap separation: blue
                 love.graphics.setColor(0, 0.25, 1, 0.5)
             else
                 -- Touch: green

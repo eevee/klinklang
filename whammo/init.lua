@@ -42,7 +42,7 @@ local function _collision_sort(a, b)
     if a.contact_start == b.contact_start then
         -- In the case of a tie, prefer overlaps first, since we're "more"
         -- touching them
-        return a.overlaps and not b.overlaps
+        return a.overlapped and not b.overlapped
     end
     return a.contact_start < b.contact_start
 end

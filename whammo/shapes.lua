@@ -522,7 +522,7 @@ function Shape:sweep_towards(other, movement)
         return Collision:bless{
             -- Basic info about the requested movement
             attempted = movement,
-            overlaps = true,
+            overlapped = true,
             our_shape = self,
             their_shape = other,
 
@@ -553,7 +553,7 @@ function Shape:sweep_towards(other, movement)
         return Collision:bless{
             -- Basic info about the requested movement
             attempted = movement,
-            overlaps = false,
+            overlapped = false,
             our_shape = self,
             their_shape = other,
 
@@ -584,7 +584,7 @@ function Shape:sweep_towards(other, movement)
     return Collision:bless{
         -- Basic info about the requested movement
         attempted = movement,
-        overlaps = false,
+        overlapped = false,
         our_shape = self,
         their_shape = other,
 

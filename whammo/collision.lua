@@ -16,8 +16,7 @@ local Collision = Object:extend{
     -- (Vector) How far this shape could move before contact, i.e. attempted * fraction
     movement = nil,
     -- (bool) Whether the shapes already overlapped, BEFORE the movement
-    -- TODO should this be 'overlapped', to match 'attempted'?
-    overlaps = nil,
+    overlapped = nil,
 
     -- (number) How much of 'attempted' this shape could move before coming
     -- into contact with the other shape, as a fraction >= 0
@@ -195,7 +194,7 @@ function Collision.bless(class, collision)
     -- TODO remove these sometime
     collision.touchdist = collision.contact_start
     collision.shape = collision.their_shape
-    if collision.overlaps then
+    if collision.overlapped then
         collision.touchtype = -1
     else
         collision.touchtype = collision.contact_type
@@ -225,7 +224,7 @@ end
 -- concave shapes, and assumes the movement has already happened and the
 -- objects are now touching!  blorf
 function Collision:get_contact()
-    if self.touchtype < 0 then
+    if self.overlapped then
         -- Someday...
         return
     end

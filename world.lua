@@ -247,17 +247,16 @@ end
 function Map:is_blocked(shape, predicate)
     local blocked = false
     -- FIXME i wish i could cancel the slide partway through?
-    self.collider:slide(shape, Vector.zero, function(collision)
+    self.collider:sweep(shape, Vector.zero, function(collision)
         -- FIXME i hate how many dumb ass hacks are required here; the one-way
-        -- thing could go away entirely if these were actors!!!!
-        if collision.touchtype == 0 then
+        -- thing could go away entirely if it were moved into blocks()?
+        if collision.contact_type <= 0 then
             return
         end
         if collision.shape._xxx_is_one_way_platform then
             return
         end
-        local actor = self.collider:get_owner(collision.shape)
-        if predicate(actor, collision) then
+        if predicate(collision.their_owner, collision) then
             blocked = true
         end
     end)

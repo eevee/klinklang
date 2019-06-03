@@ -496,18 +496,19 @@ function MobileActor:on_collide_with(actor, collision)
         return 'slide'
     end
 
+    -- FIXME doubtless need to fix overlap collision with a pushable
     -- One-way platforms only block us when we collide with an
     -- upwards-facing surface.  Expressing that correctly is hard.
     -- FIXME un-xxx this and get it off the shape
     -- FIXME make this less about gravity and more about a direction
+    -- FIXME why is this here and not in blocks()??  oh because blocks didn't always take collision, and still isn't documented as such
     if collision.shape._xxx_is_one_way_platform then
-        if not any_normal_faces(collision, -self:get_gravity()) then
+        if collision.overlapped or not any_normal_faces(collision, -self:get_gravity()) then
             return true
         end
     end
 
     -- Otherwise, fall back to trying blocks(), if the other thing is an actor
-    -- TODO is there any reason not to just merge blocks() with on_collide()?
     if actor and not actor:blocks(self, collision) then
         return true
     end
@@ -556,7 +557,7 @@ function MobileActor:_collision_callback(collision, pushers, already_hit)
             -- through the platform.
             return true
         elseif actor.is_portable and
-            not passable and collision.touchtype >= 0 and
+            not passable and not collision.overlapped and
             any_normal_faces(collision, gravity) and
             not pushers[actor]
         then
@@ -579,7 +580,7 @@ function MobileActor:_collision_callback(collision, pushers, already_hit)
         -- It has to be pushable, of course
         self.can_push and actor.is_pushable and
         -- It has to be in our way
-        not passable and collision.touchtype >= 0 and
+        not passable and not collision.overlapped and
         -- We must be on the ground to push something
         -- FIXME wellll, arguably, aircontrol should factor in.  also, objects
         -- with no gravity are probably exempt from this
@@ -1257,11 +1258,13 @@ function SentientActor:on_collide_with(actor, collision)
     if actor and actor.is_climbable then
         -- The reason for the up/down distinction is that if you're standing at
         -- the top of a ladder, you should be able to climb down, but not up
-        if collision.touchtype < 0 or any_normal_faces(collision, Vector(0, -1)) then
-            self.ptrs.climbable_up = actor
-        end
-        if collision.touchtype < 0 or any_normal_faces(collision, Vector(0, 1)) then
+        -- FIXME these seem like they should specifically grab the highest and lowest in case of ties...
+        -- FIXME aha, shouldn't this check if we're overlapping /now/?
+        if collision.overlapped or any_normal_faces(collision, Vector(0, -1)) then
             self.ptrs.climbable_down = actor
+        end
+        if collision.overlapped or any_normal_faces(collision, Vector(0, 1)) then
+            self.ptrs.climbable_up = actor
         end
     end
 
