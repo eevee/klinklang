@@ -1,6 +1,8 @@
 --[[
 Collision type, used and returned by Shape collision stuff.
 ]]
+local Vector = require 'klinklang.vendor.hump.vector'
+
 local Object = require 'klinklang.object'
 
 
@@ -68,6 +70,120 @@ local Collision = Object:extend{
     our_owner = nil,
     their_owner = nil,
 }
+
+-- Given a set of collisions, slide a movement (or velocity?) vector along them
+-- using their normals, and return the slid vector and a bool indicating
+-- whether any sliding was necessary.  This works best if the direction of the
+-- given vector is "kinda-sorta close to" to direction of movement that
+-- produced the collisions; if it's in completely the opposite direction, none
+-- of the normals will even face it, and nothing will happen.
+-- TODO i observe that most of this has nothing to do with 'direction' and is
+-- just about computing axes from a set of collisions.  should a set of
+-- collisions be a first-class thing?
+function Collision.slide_along_normals(class, hits, direction)
+    local minleftdot = 0
+    local minleftnorm
+    local minrightdot = 0
+    local minrightnorm
+    local blocked_left = false
+    local blocked_right = false
+
+    -- Each collision tracks two normals: the nearest surface blocking movement
+    -- on the left, and the nearest on the right (relative to the direction of
+    -- movement).  Most collisions only have one or the other, meaning we hit a
+    -- wall on that side.  If a single collision has BOTH normals, that means
+    -- this is a corner-corner collision, which is ambiguous: we could slide
+    -- either way, and we'll pick whichever is closest to our direction of
+    -- movement.
+    -- If there are two DIFFERENT collisions, one with only a left normal and
+    -- one with only a right normal, then we're stuck: we're completely blocked
+    -- by separate objects on both sides, like being wedged into the corner of
+    -- a room.
+    -- However, if there's a collision with ONLY (e.g.) a left normal and
+    -- another collision with BOTH normals, we're fine: the corner-corner
+    -- collision allows us to move either direction, so we'll use whichever
+    -- left normal is most oppressive.
+    -- Of course, if there are a zillion collisions that all have only left
+    -- normals, that's also fine, and we'll slide along the most oppressive of
+    -- those, too.
+    -- FIXME this is not the case for MultiShape of course, which needs fixing
+    -- so that each of its sub-parts is a separate collision...  unless the
+    -- collision table gets a flag indicating it was a corner collision or not?
+    -- FIXME wait, are these dot products even correct for an arbitrary vector
+    -- like this?  should i be taking new ones?
+    -- FIXME the "two different collisions" case is wrong; if you run smack into something, you'll get the same normal on both sides.  the trouble is that this is used to slide velocity, which is not necessarily pointing in the same direction as the movement was to get these normals.  this SHOULD still be enough information, i just need to use it a bit better
+
+    for _, collision in pairs(hits) do
+        -- FIXME probably only consider "slide" when the given vector is not in fact perpendicular?
+        if not collision.passable or collision.passable == 'slide' then
+            --print('slide', collision, collision.touchtype, collision.blocks, collision.shape, collision.left_normal, collision.right_normal)
+            -- TODO comment stuff in shapes.lua
+            -- TODO explain why i used <= below (oh no i don't remember, but i think it was related to how this is done against the last slide only)
+            -- FIXME i'm now using normals compared against our /last slide/ on our /velocity/ and it's unclear what ramifications that could have (especially since it already had enough ramifications to need the <=) -- think about this i guess lol
+
+            if collision.left_normal then
+                if collision.left_normal_dot <= minleftdot then
+                    minleftdot = collision.left_normal_dot
+                    minleftnorm = collision.left_normal
+                end
+                -- If we have a left normal but NOT a right normal, then we're
+                -- blocked on the left side
+                if not collision.right_normal then
+                    blocked_left = true
+                end
+            end
+            if collision.right_normal then
+                if collision.right_normal_dot <= minrightdot then
+                    minrightdot = collision.right_normal_dot
+                    minrightnorm = collision.right_normal
+                end
+                if not collision.left_normal then
+                    blocked_right = true
+                end
+            end
+        end
+    end
+
+    -- If we're blocked on both sides, we can't possibly move at all
+    if blocked_left and blocked_right then
+        -- ...UNLESS we're blocked by walls parallel to us (i.e. dot of 0), in
+        -- which case we can perfectly slide between them!
+        if minleftdot == 0 and minrightdot == 0 then
+            return direction, true
+        end
+        return Vector(), false
+    end
+
+    -- Otherwise, we can probably slide
+    local axis
+    if minleftnorm and minrightnorm then
+        -- We hit a corner somewhere!  If we also hit a wall, then we have to
+        -- slide in that direction.  Otherwise, we pick the normal with the
+        -- BIGGEST dot, which is furthest away from the direction and thus the
+        -- least disruptive.  In the case of a tie, this was a perfect corner
+        -- collision, so we give up and stop.
+        if blocked_left then
+            axis = minleftnorm
+        elseif blocked_right then
+            axis = minrightnorm
+        elseif minrightdot > minleftdot then
+            axis = minrightnorm
+        elseif minleftdot > minrightdot then
+            axis = minleftnorm
+        else
+            return Vector(), false
+        end
+    else
+        axis = minleftnorm or minrightnorm
+    end
+
+    if axis then
+        return direction - direction:projectOn(axis), true
+    else
+        return direction, true
+    end
+end
+
 
 function Collision:init()
     error("Collision has no constructor, sorry")

@@ -2,10 +2,8 @@ local Vector = require 'klinklang.vendor.hump.vector'
 
 local Object = require 'klinklang.object'
 local util = require 'klinklang.util'
-local whammo_shapes = require 'klinklang.whammo.shapes'
+local Collision = require 'klinklang.whammo.collision'
 
--- FIXME rather not
-local tiledmap = require 'klinklang.tiledmap'
 
 -- ========================================================================== --
 -- BareActor
@@ -657,114 +655,6 @@ function MobileActor:_collision_callback(collision, pushers, already_hit)
     end
 end
 
--- This function has the glorious and awkward honor of having to handle literal
--- corner cases.  To do that, it splits the normals into two: those on our left
--- (ccw), and those on our right (cw).  When we hit a corner, its two sides are
--- handled separately.  When we hit a wall, that makes one slide direction
--- impossible, so we mark it as such.
-local function slide_along_normals(hits, direction)
-    local minleftdot = 0
-    local minleftnorm
-    local minrightdot = 0
-    local minrightnorm
-    local blocked_left = false
-    local blocked_right = false
-
-    -- Each collision tracks two normals: the nearest surface blocking movement
-    -- on the left, and the nearest on the right (relative to the direction of
-    -- movement).  Most collisions only have one or the other, meaning we hit a
-    -- wall on that side.  If a single collision has BOTH normals, that means
-    -- this is a corner-corner collision, which is ambiguous: we could slide
-    -- either way, and we'll pick whichever is closest to our direction of
-    -- movement.
-    -- If there are two DIFFERENT collisions, one with only a left normal and
-    -- one with only a right normal, then we're stuck: we're completely blocked
-    -- by separate objects on both sides, like being wedged into the corner of
-    -- a room.
-    -- However, if there's a collision with ONLY (e.g.) a left normal and
-    -- another collision with BOTH normals, we're fine: the corner-corner
-    -- collision allows us to move either direction, so we'll use whichever
-    -- left normal is most oppressive.
-    -- Of course, if there are a zillion collisions that all have only left
-    -- normals, that's also fine, and we'll slide along the most oppressive of
-    -- those, too.
-    -- FIXME this is not the case for MultiShape of course, which needs fixing
-    -- so that each of its sub-parts is a separate collision...  unless the
-    -- collision table gets a flag indicating it was a corner collision or not?
-    -- FIXME wait, are these dot products even correct for an arbitrary vector
-    -- like this?  should i be taking new ones?
-    -- FIXME the "two different collisions" case is wrong; if you run smack into something, you'll get the same normal on both sides.  the trouble is that this is used to slide velocity, which is not necessarily pointing in the same direction as the movement was to get these normals.  this SHOULD still be enough information, i just need to use it a bit better
-
-    for _, collision in pairs(hits) do
-        -- FIXME really don't like the collision.pushed check here but what am i gonna do about it
-        if collision.touchtype >= 0 and not collision.passable and not collision.pushed then
-            -- TODO comment stuff in shapes.lua
-            -- TODO explain why i used <= below (oh no i don't remember, but i think it was related to how this is done against the last slide only)
-            -- FIXME i'm now using normals compared against our /last slide/ on our /velocity/ and it's unclear what ramifications that could have (especially since it already had enough ramifications to need the <=) -- think about this i guess lol
-
-            if collision.left_normal then
-                if collision.left_normal_dot <= minleftdot then
-                    minleftdot = collision.left_normal_dot
-                    minleftnorm = collision.left_normal
-                end
-                -- If we have a left normal but NOT a right normal, then we're
-                -- blocked on the left side
-                if not collision.right_normal then
-                    blocked_left = true
-                end
-            end
-            if collision.right_normal then
-                if collision.right_normal_dot <= minrightdot then
-                    minrightdot = collision.right_normal_dot
-                    minrightnorm = collision.right_normal
-                end
-                if not collision.left_normal then
-                    blocked_right = true
-                end
-            end
-        end
-    end
-
-    -- If we're blocked on both sides, we can't possibly move at all
-    if blocked_left and blocked_right then
-        -- ...UNLESS we're blocked by walls parallel to us (i.e. dot of 0), in
-        -- which case we can perfectly slide between them!
-        if minleftdot == 0 and minrightdot == 0 then
-            return direction, true
-        end
-        return Vector(), false
-    end
-
-    -- Otherwise, we can probably slide
-    local axis
-    if minleftnorm and minrightnorm then
-        -- We hit a corner somewhere!  If we also hit a wall, then we have to
-        -- slide in that direction.  Otherwise, we pick the normal with the
-        -- BIGGEST dot, which is furthest away from the direction and thus the
-        -- least disruptive.  In the case of a tie, this was a perfect corner
-        -- collision, so we give up and stop.
-        if blocked_left then
-            axis = minleftnorm
-        elseif blocked_right then
-            axis = minrightnorm
-        elseif minrightdot > minleftdot then
-            axis = minrightnorm
-        elseif minleftdot > minrightdot then
-            axis = minleftnorm
-        else
-            return Vector(), false
-        end
-    else
-        axis = minleftnorm or minrightnorm
-    end
-
-    if axis then
-        return direction - direction:projectOn(axis), true
-    else
-        return direction, true
-    end
-end
-
 -- Move some distance, respecting collision.
 -- No other physics like gravity or friction happen here; only the actual movement.
 -- FIXME a couple remaining bugs:
@@ -813,7 +703,7 @@ function MobileActor:nudge(movement, pushers, xxx_no_slide)
 
         -- Find the allowed slide direction that's closest to the direction of movement.
         local slid
-        movement, slid = slide_along_normals(hits, remaining)
+        movement, slid = Collision:slide_along_normals(hits, remaining)
         if not slid then
             break
         end
@@ -1195,7 +1085,7 @@ function MobileActor:update(dt)
     --      the best i can think of here is if we trim velocity to movement /
     --      dt, which sounds, slightly crazy
     if self.velocity ~= Vector.zero then
-        self.velocity = slide_along_normals(hits, self.velocity)
+        self.velocity = Collision:slide_along_normals(hits, self.velocity)
     end
 
     -- Friction -- the general tendency for everything to decelerate.
@@ -1794,5 +1684,4 @@ return {
     SentientActor = SentientActor,
     get_jump_velocity = get_jump_velocity,
     any_normal_faces = any_normal_faces,
-    slide_along_normals = slide_along_normals,
 }
