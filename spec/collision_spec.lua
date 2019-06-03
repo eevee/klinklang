@@ -1,18 +1,18 @@
 local Vector = require 'klinklang.vendor.hump.vector'
 
-local util = require 'klinklang.util'
 local whammo = require 'klinklang.whammo'
+local Collision = require 'klinklang.whammo.collision'
 local whammo_shapes = require 'klinklang.whammo.shapes'
-
--- FIXME this isn't ideal, but i need slide_along_normals!  should be a method
--- on a set of collisions, or something.  or even just computed on the fly as
--- we go since all it really needs is the axis?
-local slide_along_normals = require('klinklang.actors.base').slide_along_normals
 
 -- FIXME this code doesn't test normals, barely tests contacts, doesn't test separation or penetration...
 
+-- Default blocking behavior: block on actual collisions, i.e. contact_type > 0
+local function default_pass_callback(collision)
+    return collision.contact_type <= 0
+end
+
 local function do_simple_slide(collider, shape, movement)
-    local successful, hits = collider:slide(shape, movement)
+    local successful, hits = collider:sweep(shape, movement, default_pass_callback)
     shape:move(successful:unpack())
     if successful == movement then
         return successful, hits
@@ -22,10 +22,10 @@ local function do_simple_slide(collider, shape, movement)
     -- XXX it seems weird to have tests that rely largely on how well this
     -- utility function works.  i would love some tests for the actor stuff
     -- (though i'd need to ditch worldscene, ideally)
-    local remaining, slid = slide_along_normals(hits, movement - successful)
+    local remaining, slid = Collision:slide_along_normals(hits, movement - successful)
     if slid then
         local successful2
-        successful2, hits = collider:slide(shape, remaining)
+        successful2, hits = collider:sweep(shape, remaining, default_pass_callback)
         shape:move(successful2:unpack())
         return successful + successful2, hits
     else
@@ -39,7 +39,7 @@ local function run_simple_test(args)
     collider:add(obstacle)
 
     local player = whammo_shapes.Box(args.player.x, args.player.y, 100, 100)
-    local successful, hits = collider:slide(player, args.attempted)
+    local successful, hits = collider:sweep(player, args.attempted, default_pass_callback)
     assert.are.equal(args.successful, successful)
 
     -- FIXME need a better way to separate input from expected output
@@ -514,7 +514,7 @@ describe("Collision", function()
         collider:add(floor)
 
         local player = whammo_shapes.Box(0, 0, 100, 100)
-        local successful, hits = collider:slide(player, Vector(0, 50))
+        local successful, hits = collider:sweep(player, Vector(0, 50), default_pass_callback)
         assert.are.equal(Vector(0, 0), successful)
         assert.are.equal(1, hits[floor].touchtype)
 
@@ -537,7 +537,7 @@ describe("Collision", function()
         collider:add(floor)
 
         local player = whammo_shapes.Box(4, -3, 2, 2)
-        local successful, hits = collider:slide(player, Vector(-3, -0.5))
+        local successful, hits = collider:sweep(player, Vector(-3, -0.5), default_pass_callback)
         assert.are.equal(Vector(-2, -1/3), successful)
         assert.are.equal(1, hits[floor].touchtype)
 
@@ -569,7 +569,7 @@ describe("Collision", function()
         collider:add(floor2)
 
         local player = whammo_shapes.Box(50, 0, 100, 100)
-        local successful, hits = collider:slide(player, Vector(0, 150))
+        local successful, hits = collider:sweep(player, Vector(0, 150), default_pass_callback)
         assert.are.equal(Vector(0, 50), successful)
         assert.are.equal(1, hits[floor1].touchtype)
         assert.are.equal(nil, hits[floor2])
@@ -595,7 +595,7 @@ describe("Collision", function()
         collider:add(wall)
 
         local player = whammo_shapes.Box(100, 150, 100, 100)
-        local successful, hits = collider:slide(player, Vector(0, -150))
+        local successful, hits = collider:sweep(player, Vector(0, -150), default_pass_callback)
         assert.are.equal(Vector(0, -150), successful)
         assert.are.equal(0, hits[wall].touchtype)
 
@@ -624,7 +624,7 @@ describe("Collision", function()
 
         local player = whammo_shapes.Box(0, 100, 100, 100)
         local move = Vector(300, 0)
-        local successful, hits = collider:slide(player, move)
+        local successful, hits = collider:sweep(player, move, default_pass_callback)
         assert.are.equal(move, successful)
         assert.are.equal(0, hits[floor].touchtype)
         assert.are.equal(0, hits[wall].touchtype)
@@ -700,7 +700,7 @@ describe("Collision", function()
         collider:add(wall3)
 
         local player = whammo_shapes.Box(100, 100, 100, 100)
-        local successful, hits = collider:slide(player, Vector(-50, -50))
+        local successful, hits = collider:sweep(player, Vector(-50, -50), default_pass_callback)
         assert.are.equal(Vector(0, 0), successful)
         assert.are.equal(1, hits[wall1].touchtype)
         assert.are.equal(1, hits[wall2].touchtype)
@@ -807,12 +807,12 @@ describe("Collision", function()
         collider:add(floor)
 
         local player = whammo_shapes.Box(415 - 8, 553 - 29, 13, 28)
-        local successful, hits = collider:slide(player, Vector(0, 2))
+        local successful, hits = collider:sweep(player, Vector(0, 2), default_pass_callback)
         assert.are.equal(1, hits[floor].touchtype)
 
         -- We don't actually care about the exact results; we just want to be
         -- sure we aren't inside the slope on the next tic
-        local successful, hits = collider:slide(player, Vector(0, 10))
+        local successful, hits = collider:sweep(player, Vector(0, 10), default_pass_callback)
         assert.are.equal(1, hits[floor].touchtype)
     end)
     --[==[ TODO i...  am not sure how to make this work yet
@@ -842,13 +842,13 @@ describe("Collision", function()
         collider:add(floor)
 
         local player = whammo_shapes.Box(100, 0, 100, 100)
-        local successful, hits = collider:slide(player, Vector(-100, 200))
+        local successful, hits = collider:sweep(player, Vector(-100, 200), default_pass_callback)
         --assert.are.equal(Vector(-49, 98), successful)
         assert.are.equal(1, hits[wall].touchtype)
         assert.are.equal(1, hits[floor].touchtype)
-        local successful, hits = collider:slide(player, Vector(-100, 200))
-        local successful, hits = collider:slide(player, Vector(-100, 200))
-        local successful, hits = collider:slide(player, Vector(-100, 200))
+        local successful, hits = collider:sweep(player, Vector(-100, 200), default_pass_callback)
+        local successful, hits = collider:sweep(player, Vector(-100, 200), default_pass_callback)
+        local successful, hits = collider:sweep(player, Vector(-100, 200), default_pass_callback)
     end)
     ]==]
     it("should not round you into a wall", function()
@@ -874,12 +874,12 @@ describe("Collision", function()
         collider:add(floor)
 
         local player = whammo_shapes.Box(491.125 - 8, 1537.75 - 29, 13, 28)
-        local successful, hits = collider:slide(player, Vector(-1, 2.25))
+        local successful, hits = collider:sweep(player, Vector(-1, 2.25), default_pass_callback)
         assert.are.equal(1, hits[wall].touchtype)
 
         -- We don't actually care about the exact results; we just want to be
         -- sure we aren't inside the slope on the next tic
-        local successful, hits = collider:slide(player, Vector(-0.875, 2.375))
+        local successful, hits = collider:sweep(player, Vector(-0.875, 2.375), default_pass_callback)
         assert.are.equal(1, hits[wall].touchtype)
     end)
     it("should not register slides against objects out of range", function()
@@ -899,7 +899,7 @@ describe("Collision", function()
         collider:add(floor2)
 
         local player = whammo_shapes.Box(0, 0, 100, 100)
-        local successful, hits = collider:slide(player, Vector(100, 0))
+        local successful, hits = collider:sweep(player, Vector(100, 0), default_pass_callback)
         assert.are.equal(Vector(100, 0), successful)
         assert.are_equal(0, hits[floor1].touchtype)
         assert.are_equal(nil, hits[floor2])
@@ -923,7 +923,7 @@ describe("Collision", function()
         collider:add(floor3)
 
         local player = whammo_shapes.Box(100, 0, 100, 100)
-        local successful, hits = collider:slide(player, Vector(0, 0))
+        local successful, hits = collider:sweep(player, Vector(0, 0), default_pass_callback)
         assert.are.equal(Vector(0, 0), successful)
         assert.are.equal(0, hits[floor1].touchtype)
         assert.are.equal(0, hits[floor2].touchtype)
@@ -943,7 +943,7 @@ describe("Collision", function()
         collider:add(floor)
 
         local player = whammo_shapes.Box(80, 80, 100, 100)
-        local successful, hits = collider:slide(player, Vector(-200, 0))
+        local successful, hits = collider:sweep(player, Vector(-200, 0), default_pass_callback)
         --assert.are.equal(Vector(-200, 0), successful)
         assert.are.equal(Vector(0, 0), successful)
         assert.are.equal(-1, hits[floor].touchtype)
@@ -953,7 +953,7 @@ describe("Collision", function()
         print("other stuff:", c.separation)
 
         -- Now try moving out of it
-        local successful, hits = collider:slide(player, Vector(200, 0))
+        local successful, hits = collider:sweep(player, Vector(200, 0), default_pass_callback)
         assert.are.equal(Vector(200, 0), successful)
         assert.are.equal(-1, hits[floor].touchtype)
         local c = hits[floor]
@@ -1005,7 +1005,7 @@ describe("Collision", function()
 
         local player = whammo_shapes.Box(0, 0, 100, 100)
         local move = Vector(150, 150)
-        local successful, hits = collider:slide(player, move)
+        local successful, hits = collider:sweep(player, move, default_pass_callback)
         assert.are.equal(move, successful)
         assert.are.equal(nil, hits[floor])
     end)
@@ -1030,7 +1030,7 @@ describe("Collision", function()
         for _, case in ipairs{{400}} do
             local attempted_x = unpack(case)
             local attempted = Vector(attempted_x, 0)
-            local successful, hits = collider:slide(player, attempted)
+            local successful, hits = collider:sweep(player, attempted, default_pass_callback)
             assert.are.equal(attempted, successful)
 
             local collision = hits[floor]
