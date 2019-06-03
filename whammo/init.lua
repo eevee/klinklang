@@ -1,9 +1,5 @@
-local Vector = require 'klinklang.vendor.hump.vector'
-
 local Object = require 'klinklang.object'
-local util = require 'klinklang.util'
 local Blockmap = require 'klinklang.whammo.blockmap'
-local shapes = require 'klinklang.whammo.shapes'
 
 local Collider = Object:extend{
     _NOTHING = {},
@@ -74,7 +70,7 @@ function Collider:sweep(shape, attempted, pass_callback)
     for neighbor in pairs(neighbors) do
         local collision = shape:sweep_towards(neighbor, attempted)
         if collision then
-            --print(("< got move %f = %s, touchtype %d, clock %s"):format(collision.fraction, collision.movement, collision.touchtype, collision.clock))
+            --print(("< got move %f = %s, touchtype %d, clock %s"):format(collision.contact_start, collision.movement, collision.touchtype, collision.clock))
             table.insert(collisions, collision)
         end
     end
@@ -87,7 +83,7 @@ function Collider:sweep(shape, attempted, pass_callback)
     for i, collision in ipairs(collisions) do
         -- TODO add owners in here too so i don't have to keep fetching actors
 
-        --print("checking collision...", collision.movement, collision.fraction, collision.touchtype, collision.touchdist, "at", collision.shape:bbox())
+        --print("checking collision...", collision.movement, collision.contact_start, collision.touchtype, collision.touchdist, "at", collision.their_shape:bbox())
         -- If we've already hit something, and this collision is further away,
         -- stop here.  (This means we call the callback for ALL of a set of
         -- shapes the same distance away, even if the first one blocks us.)
@@ -97,17 +93,16 @@ function Collider:sweep(shape, attempted, pass_callback)
 
         -- Check if the other shape actually blocks us
         local passable = pass_callback(collision)
-        --print(i, collision.shape, self:get_owner(collision.shape), passable)
+        --print(i, collision.their_shape, self:get_owner(collision.their_shape), passable)
         if passable == 'retry' then
             -- Special case: the other object just moved, so keep moving
             -- and re-evaluate when we hit it again.  Useful for pushing.
-            if i > 1 and collisions[i - 1].shape == collision.shape then
+            if i > 1 and collisions[i - 1].their_shape == collision.their_shape then
                 -- To avoid loops, don't retry a shape twice in a row
                 passable = false
             else
-                local new_collision = shape:sweep_towards(collision.shape, attempted)
+                local new_collision = shape:sweep_towards(collision.their_shape, attempted)
                 if new_collision then
-                    new_collision.shape = collision.shape
                     for j = i + 1, #collisions + 1 do
                         if j > #collisions or not _collision_sort(collisions[j], new_collision) then
                             table.insert(collisions, j, new_collision)
@@ -123,16 +118,16 @@ function Collider:sweep(shape, attempted, pass_callback)
         -- FIXME ah wait, true slides shouldn't block us!  maybe i need blocks after all?
         if not passable then
             allowed_fraction = collision.contact_start
-            --print("< found first collision:", collision.movement, "fraction:", collision.fraction, self:get_owner(collision.shape))
+            --print("< found first collision:", collision.movement, "fraction:", collision.contact_start, self:get_owner(collision.their_shape))
         end
 
         -- Update some properties on the collision
         collision.passable = passable
-        collision.this_owner = self:get_owner(shape)
-        collision.that_owner = self:get_owner(collision.shape)
+        collision.our_owner = self:get_owner(shape)
+        collision.their_owner = self:get_owner(collision.their_shape)
 
         -- Log the last contact with each shape
-        hits[collision.shape] = collision
+        hits[collision.their_shape] = collision
     end
     --print('-- END SWEEP --')
 

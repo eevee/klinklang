@@ -556,12 +556,15 @@ function Shape:sweep_towards(other, movement)
             contact_type = 0
         end
         return Collision:bless{
+            -- Basic info about the requested movement
             attempted = movement,
+            overlaps = true,
+            our_shape = self,
+            their_shape = other,
+
+            -- Deprecated?
             movement = movement,
             fraction = 1,
-            overlaps = true,
-            -- Deprecated?
-            shape = other,
 
             contact_start = 0,
             contact_end = contact_end,
@@ -572,8 +575,6 @@ function Shape:sweep_towards(other, movement)
             left_normal_dot = max_left_normal_dot,
             right_normal_dot = max_right_normal_dot,
 
-            our_shape = self,
-            their_shape = other,
             -- XXX other stuff, if it's even meaningful?
         }
     end
@@ -586,12 +587,14 @@ function Shape:sweep_towards(other, movement)
         -- object, but can continue past it.  (If we wouldn't touch, fraction
         -- would exceed 1, and we would've returned earlier.)
         return Collision:bless{
+            -- Basic info about the requested movement
             attempted = movement,
-            movement = movement,
-            fraction = 1,
             overlaps = false,
+            our_shape = self,
+            their_shape = other,
+
             -- Deprecated?
-            shape = other,
+            movement = movement,
 
             -- This is the max fraction found along every /other/ axis, which
             -- is when we'll first touch.  If it's negative, no other axis had
@@ -606,8 +609,6 @@ function Shape:sweep_towards(other, movement)
             right_normal_dot = max_right_normal_dot,
 
             -- FIXME rename these, maybe this/that?  also definitely axis, that's hokey.  is it ever different from normals?  how does it handle corners?
-            our_shape = self,
-            their_shape = other,
             our_point = x_our_pt,
             their_point = x_their_pt,
             axis = slide_axis,
@@ -617,12 +618,18 @@ function Shape:sweep_towards(other, movement)
     -- If none of the special cases apply, this is a regular old collision
     -- where we're about to run head-first into something
     return Collision:bless{
+        -- Basic info about the requested movement
         attempted = movement,
-        movement = movement * max_fraction,
-        fraction = max_fraction,
         overlaps = false,
+        our_shape = self,
+        their_shape = other,
+
         -- Deprecated?
-        shape = other,
+        -- XXX movement is used:
+        -- - for pushing/carrying from below, to figure out remaining push distance (could fix this by passing another arg to collision callback; this is kinda hokey anyway since it's in the middle of a sweep)
+        -- - in water, where it should be using movement anyway
+        -- - for something with stone lexy, with a comment saying it's very bad lol
+        movement = movement * max_fraction,
 
         contact_start = max_fraction,
         contact_end = min_outer_fraction,
@@ -633,8 +640,6 @@ function Shape:sweep_towards(other, movement)
         left_normal_dot = max_left_normal_dot,
         right_normal_dot = max_right_normal_dot,
 
-        our_shape = self,
-        their_shape = other,
         our_point = x_our_pt,
         their_point = x_their_pt,
         axis = x_contact_axis,

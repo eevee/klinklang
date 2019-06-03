@@ -56,6 +56,16 @@ local Collision = Object:extend{
     right_normal_dot = nil,
 
     -- TODO shapes, points, etc.
+
+    -- Properties added to collisions that come out of Collider:sweep()
+    -- (bool) Whether the collision should stop our movement
+    -- NOTE: This is NOT whether the other object is solid; it very well may
+    -- be, but if this is a slide or a separating overlap, this should still be
+    -- true.  Do NOT use this to check whether the object is solid!
+    passable = nil,
+    -- (?) The registered owners of the respective shapes
+    our_owner = nil,
+    their_owner = nil,
 }
 
 function Collision:init()
@@ -66,8 +76,8 @@ end
 function Collision.bless(class, collision)
     -- Populate a few deprecated properties
     -- TODO remove these sometime
-    collision.amount = collision.fraction
     collision.touchdist = collision.contact_start
+    collision.shape = collision.their_shape
     if collision.overlaps then
         collision.touchtype = -1
     else
