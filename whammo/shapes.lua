@@ -193,10 +193,17 @@ local function _multi_sweep_towards(self, other, movement)
             ret = collision
         else
             -- Need to combine
-            if collision.amount < ret.amount then
+            if collision.contact_start < ret.contact_start then
                 ret = collision
-            elseif collision.amount == ret.amount then
-                ret.touchdist = math.min(ret.touchdist, collision.touchdist)
+            elseif collision.contact_start == ret.contact_start then
+                ret.contact_start = math.min(ret.contact_start, collision.contact_start)
+                ret.contact_end = math.max(ret.contact_end, collision.contact_end)
+                if collision.overlaps then
+                    ret.overlaps = true
+                end
+                if ret.contact_type == 0 then
+                    ret.contact_type = collision.contact_type
+                end
                 if ret.touchtype == 0 then
                     ret.touchtype = collision.touchtype
                 end

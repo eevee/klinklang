@@ -58,7 +58,8 @@ local Collision = Object:extend{
     -- TODO shapes, points, etc.
 
     -- Properties added to collisions that come out of Collider:sweep()
-    -- (bool) Whether the collision should stop our movement
+    -- (bool/string) Whether the collision allows us to continue moving.  May
+    -- also be one of two special strings; see sweep() documentation
     -- NOTE: This is NOT whether the other object is solid; it very well may
     -- be, but if this is a slide or a separating overlap, this should still be
     -- true.  Do NOT use this to check whether the object is solid!

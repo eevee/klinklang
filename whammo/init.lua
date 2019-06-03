@@ -48,9 +48,19 @@ local function _collision_sort(a, b)
 end
 
 -- Perform sweep/continuous collision detection: attempt to move the given
--- shape the given distance, and return everything it would hit, in order.  If
--- the callback is provided, it'll be called with each collision in order; if
--- it returns falsey, the shape won't try to move any further.
+-- shape the given distance, and return everything it would hit, in order.
+-- If a callback is provided, it'll be called with each collision in order; if
+-- it returns falsey, the shape won't try to move any further.  The return
+-- value is available on the returned Collisions as 'passable'.
+-- The callback may also return one of two special strings:
+-- - "retry" means the callback altered the other shape in some way, and this
+--   specific collision should be retried.  This is useful for e.g. pushable
+--   objects.  A returned Collision should never have this as its 'passable',
+--   since the retried collision will replace it.
+-- - "slide" means the other object is considered solid, but doesn't block this
+--   one because the movement is a slide.  This function has no special
+--   handling for "slide" (treating it simply as true), but it's used in
+--   Collision:slide_along_normals() and may be helpful in game code.
 -- Note that if no callback is provided, the default behavior is to assume
 -- nothing is blocking!  Also note that the callback is allowed to block even
 -- in the case of a slide; this function has absolutely no special cases.
