@@ -277,17 +277,6 @@ local function _is_vector_almost_zero(v)
     return math.abs(v.x) < 1e-8 and math.abs(v.y) < 1e-8
 end
 
--- FIXME probably make this a method on a Collision object or something
-local function any_normal_faces(collision, direction)
-    if collision.left_normal and collision.left_normal * direction > 0 then
-        return true
-    end
-    if collision.right_normal and collision.right_normal * direction > 0 then
-        return true
-    end
-    return false
-end
-
 local MobileActor = Actor:extend{
     _type_name = 'MobileActor',
 
@@ -503,7 +492,7 @@ function MobileActor:on_collide_with(actor, collision)
     -- FIXME make this less about gravity and more about a direction
     -- FIXME why is this here and not in blocks()??  oh because blocks didn't always take collision, and still isn't documented as such
     if collision.shape._xxx_is_one_way_platform then
-        if collision.overlapped or not any_normal_faces(collision, -self:get_gravity()) then
+        if collision.overlapped or not collision:faces(-self:get_gravity()) then
             return true
         end
     end
@@ -558,7 +547,7 @@ function MobileActor:_collision_callback(collision, pushers, already_hit)
             return true
         elseif actor.is_portable and
             not passable and not collision.overlapped and
-            any_normal_faces(collision, gravity) and
+            collision:faces(gravity) and
             not pushers[actor]
         then
             -- If we rise into a portable actor, pick it up -- push it the rest
@@ -1260,10 +1249,10 @@ function SentientActor:on_collide_with(actor, collision)
         -- the top of a ladder, you should be able to climb down, but not up
         -- FIXME these seem like they should specifically grab the highest and lowest in case of ties...
         -- FIXME aha, shouldn't this check if we're overlapping /now/?
-        if collision.overlapped or any_normal_faces(collision, Vector(0, -1)) then
+        if collision.overlapped or collision:faces(Vector(0, -1)) then
             self.ptrs.climbable_down = actor
         end
-        if collision.overlapped or any_normal_faces(collision, Vector(0, 1)) then
+        if collision.overlapped or collision:faces(Vector(0, 1)) then
             self.ptrs.climbable_up = actor
         end
     end
@@ -1687,5 +1676,4 @@ return {
     MobileActor = MobileActor,
     SentientActor = SentientActor,
     get_jump_velocity = get_jump_velocity,
-    any_normal_faces = any_normal_faces,
 }

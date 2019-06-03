@@ -220,6 +220,20 @@ function Collision:print()
     end
 end
 
+-- Return whether either of our normals faces < 90° of the given direction
+-- (i.e., is within the half-plane described by the given normal).  Perfect
+-- right angles return false!
+-- For example, a typical one-way platform blocks if the collision faces up.
+function Collision:faces(direction)
+    if self.left_normal and self.left_normal * direction > 0 then
+        return true
+    end
+    if self.right_normal and self.right_normal * direction > 0 then
+        return true
+    end
+    return false
+end
+
 -- NOTE: this is very rough, doesn't work for overlaps, may or may not work for
 -- concave shapes, and assumes the movement has already happened and the
 -- objects are now touching!  blorf
