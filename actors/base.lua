@@ -489,9 +489,11 @@ end
 -- object blocks us
 -- FIXME now that they're next to each other, these two methods look positively silly!  and have a bit of a symmetry problem: the other object can override via the simple blocks(), but we have this weird thing
 function MobileActor:on_collide_with(actor, collision)
-    if collision.touchtype < 0 then
-        -- Objects we're overlapping are always passable
+    -- Moving away or along is always fine
+    if collision.contact_type < 0 then
         return true
+    elseif collision.contact_type == 0 then
+        return 'slide'
     end
 
     -- One-way platforms only block us when we collide with an
@@ -687,7 +689,7 @@ function MobileActor:nudge(movement, pushers, xxx_no_slide)
     local last_direction = movement
     while true do
         local successful
-        successful, hits = self.map.collider:slide(self.shape, movement, pass_callback)
+        successful, hits = self.map.collider:sweep(self.shape, movement, pass_callback)
         self.shape:move(successful:unpack())
         self.pos = self.pos + successful
         total_movement = total_movement + successful
@@ -780,8 +782,7 @@ function MobileActor:check_for_ground(attempted, hits)
     local carrier
     local carrier_normal
     for _, collision in pairs(hits) do
-        -- XXX is it guaranteed to get a normal if touchtype >= 0?
-        if not collision.passable and collision.touchtype >= 0 then
+        if not collision.passable or collision.passable == 'slide' then
             -- Find the most upwards-facing normal
             local norm, dot
             if collision.left_normal and collision.right_normal then
@@ -1526,7 +1527,7 @@ function SentientActor:update(dt)
         -- without firing any collision triggers or whatever.  Try moving a
         -- little further than our max, just because that's an easy way to
         -- distinguish exactly hitting the ground from not hitting anything.
-        local prelim_movement = self.map.collider:slide(self.shape, drop * 1.1, function(collision)
+        local prelim_movement = self.map.collider:sweep(self.shape, drop * 1.1, function(collision)
             local actor = self.map.collider:get_owner(collision.shape)
             if actor == self then
                 return true

@@ -37,7 +37,7 @@ function GenericSlidingDoor:on_enter(...)
     -- Do a shape cast to figure out how tall the door should be
     local test_shape = whammo_shapes.Box(-12, 0, 24, 1)
     test_shape:move(self.pos:unpack())
-    local movement = self.map.collider:slide(test_shape, Vector(0, 256), function(collision)
+    local movement = self.map.collider:sweep(test_shape, Vector(0, 256), function(collision)
         local actor = self.map.collider:get_owner(collision.shape)
         if actor and actor:blocks(self) then
             return false
