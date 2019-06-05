@@ -79,7 +79,7 @@ local Collision = Object:extend{
 -- TODO i observe that most of this has nothing to do with 'direction' and is
 -- just about computing axes from a set of collisions.  should a set of
 -- collisions be a first-class thing?
-function Collision.slide_along_normals(class, hits, direction)
+function Collision.slide_along_normals(class, collisions, direction)
     local minleftdot = 0
     local minleftnorm
     local minrightdot = 0
@@ -112,7 +112,7 @@ function Collision.slide_along_normals(class, hits, direction)
     -- like this?  should i be taking new ones?
     -- FIXME the "two different collisions" case is wrong; if you run smack into something, you'll get the same normal on both sides.  the trouble is that this is used to slide velocity, which is not necessarily pointing in the same direction as the movement was to get these normals.  this SHOULD still be enough information, i just need to use it a bit better
 
-    for _, collision in pairs(hits) do
+    for _, collision in pairs(collisions) do
         -- FIXME probably only consider "slide" when the given vector is not in fact perpendicular?
         if not collision.passable or collision.passable == 'slide' then
             --print('slide', collision, collision.touchtype, collision.blocks, collision.shape, collision.left_normal, collision.right_normal)
@@ -209,14 +209,21 @@ end
 -- Consumer API
 
 function Collision:print()
-    local keys = {}
-    for key in pairs(self) do
-        table.insert(keys, key)
+    local fmt = "%20s: %s"
+    for _, key in ipairs{
+        'attempted', 'overlapped', 'our_shape', 'their_shape',
+        'contact_start', 'contact_end', 'contact_type', 'distance',
+        'left_normal', 'right_normal', 'left_separation', 'right_separation',
+    } do
+        print(fmt:format(key, self[key]))
     end
-    table.sort(keys)
-
-    for _, key in ipairs(keys) do
-        print(("%20s  %s"):format(key, self[key]))
+    if self.passable ~= nil then
+        for _, key in ipairs{
+            'passable',
+            'successful', 'success_fraction', 'success_state',
+        } do
+            print(fmt:format(key, self[key]))
+        end
     end
 end
 

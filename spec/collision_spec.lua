@@ -167,6 +167,40 @@ describe("Collision", function()
         }
     end)
 
+    -- TODO various slides
+    -- TODO convert that "don't hit at all" case to this format
+    -- TODO corner-corner hits with different angles
+
+    it("identifies normals in a motionless corner touch", function()
+        --[[
+            PPPP
+            PPPP
+            PPPP
+            PPPP
+                ####
+                ####
+                ####
+                ####
+        ]]
+        -- No movement!
+        run_simple_test{
+            player = Vector(0, 0),
+            obstacle = Vector(100, 100),
+            attempted = Vector(0, 0),
+
+            successful = Vector(0, 0),
+            touchtype = 0,
+            contact_start = Vector(0, 0),
+            contact_end = nil,
+            contact_type = 0,
+            contact_edge = nil,
+            -- FIXME wait, hang on.  there's no notion of "left" or "right" if you're not moving!  should this use...  the axis instead maybe?  if you were LOOKING that way??
+            left_normal = Vector(0, -1),
+            right_normal = Vector(-1, 0),
+        }
+    end)
+
+
     it("allows separating straight out from an overlap", function()
         --[[
             PPPPOOO
@@ -185,8 +219,8 @@ describe("Collision", function()
             contact_end = Vector(-25, 0),
             contact_type = -1,
             contact_edge = nil,
-            left_normal = Vector(-1, 0),
-            right_normal = Vector(-1, 0),
+            left_normal = nil,
+            right_normal = nil,
         }
     end)
 
@@ -209,7 +243,7 @@ describe("Collision", function()
             contact_type = -1,
             contact_edge = nil,
             left_normal = nil,
-            right_normal = Vector(-1, 0),
+            right_normal = nil,
         }
     end)
 
@@ -259,11 +293,10 @@ describe("Collision", function()
             touchtype = -1,
             contact_start = Vector(0, 0),
             contact_end = Vector(0, -50),
-            -- Note that, despite what you might think, these count as slides,
-            -- not separations!  The reason is that as soon as you move even a
-            -- millimeter upwards, you're no longer in a corner, and now you
-            -- can't move /right/ any more.  Also that's just how the math
-            -- worked out.
+            -- You could argue that this is either a slide or a separation, but
+            -- since the movement /causes/ the normal on the right to become
+            -- blocking, I call it a slide along that normal
+            -- FIXME decide on this
             contact_type = 0,
             contact_edge = nil,
             left_normal = nil,
@@ -291,19 +324,14 @@ describe("Collision", function()
             obstacle = Vector(50, 50),
             attempted = Vector(0, 100),
 
-            successful = Vector(0, 100),
+            successful = Vector(0, 0),
             touchtype = -1,
             contact_start = Vector(0, 0),
             contact_end = Vector(0, 150),
-            -- Note that, despite what you might think, these count as slides,
-            -- not separations!  The reason is that as soon as you move even a
-            -- millimeter upwards, you're no longer in a corner, and now you
-            -- can't move /right/ any more.  Also that's just how the math
-            -- worked out.
-            contact_type = 0,
+            contact_type = 1,
             contact_edge = nil,
             left_normal = Vector(-1, 0),
-            right_normal = nil,
+            right_normal = Vector(0, -1),
         }
         -- Right:
         run_simple_test{
@@ -311,13 +339,13 @@ describe("Collision", function()
             obstacle = Vector(50, 50),
             attempted = Vector(100, 0),
 
-            successful = Vector(100, 0),
+            successful = Vector(0, 0),
             touchtype = -1,
             contact_start = Vector(0, 0),
             contact_end = Vector(150, 0),
-            contact_type = 0,
+            contact_type = 1,
             contact_edge = nil,
-            left_normal = nil,
+            left_normal = Vector(-1, 0),
             right_normal = Vector(0, -1),
         }
     end)
@@ -493,6 +521,34 @@ describe("Collision", function()
             contact_edge = nil,
             left_normal = Vector(0, -1),
             right_normal = Vector(0, -1),
+        }
+    end)
+    it("prevents worsening an overlap via sliding 2", function()
+        --[[
+            PPPP
+          / PPPP
+         └  PPPP
+            PPPP##
+              ####
+              ####
+              ####
+        ]]
+        -- Very shallow movement, an obscure case that revealed a gaping hole
+        -- in overlap handling when I found it
+        run_simple_test{
+            player = Vector(0, 0),
+            obstacle = Vector(50, 75),
+            attempted = Vector(-50, 10),
+
+            successful = Vector(0, 0),
+            touchtype = -1,
+            contact_start = Vector(0, 0),
+            contact_end = Vector(-50, 10),
+            contact_type = 1,
+            -- FIXME what /is/ the contact "edge" for overlaps?  should it be a shape??  that sounds very hard.
+            contact_edge = nil,
+            left_normal = Vector(0, -1),
+            right_normal = nil,
         }
     end)
 
@@ -1010,6 +1066,7 @@ describe("Collision", function()
         assert.are.equal(nil, hits[floor])
     end)
 
+    -- FIXME clean up these fuckin tests
     it("should indicate whether we slid past something", function()
         --[[
             +--------+
@@ -1047,5 +1104,96 @@ describe("Collision", function()
             assert.are.equal(Vector(0, 100), second)
             ]]
         end
+    end)
+
+    it("should indicate whether we slid past something 2", function()
+        --[[
+            +--------+
+            | player |
+            +--------+          +--------+
+                               /  floor   \
+                              +------------+
+            movement is due right, such that we graze the floor
+        ]]
+        local collider = whammo.Collider(400)
+        --local floor = whammo_shapes.Box(200, 100, 100, 100)
+        -- This floor is a trapezoid so the initial touch and the eventual
+        -- un-touch are along different axes.  The top runs from 200 to 300.
+        local floor = whammo_shapes.Polygon(200, 100, 300, 100, 350, 200, 150, 200)
+        collider:add(floor)
+
+        local player = whammo_shapes.Polygon(50, 0, 100, 50, 50, 100, 0, 50)
+        player:move(200, 0)
+        for _, case in ipairs{{400}} do
+            local attempted_x = unpack(case)
+            local attempted = Vector(attempted_x, 0)
+            local successful, hits = collider:sweep(player, attempted, default_pass_callback)
+            assert.are.equal(attempted, successful)
+
+            local collision = hits[floor]
+            assert.are.equal(0, collision.touchtype)
+
+            assert.are.equal(Vector(0, 0), attempted * collision.contact_start)
+            assert.are.equal(Vector(50, 0), attempted * collision.contact_end)
+            assert.are.equal(0, collision.contact_type)
+
+            --[[
+            -- Check contacts
+            local first, second = hits[floor]:get_contact()
+            assert.are.equal(Vector(100, 100), first)
+            assert.are.equal(Vector(0, 100), second)
+            ]]
+        end
+    end)
+
+    it("blah blah", function()
+        local collider = whammo.Collider(400)
+        --local floor = whammo_shapes.Box(200, 100, 100, 100)
+        -- This floor is a trapezoid so the initial touch and the eventual
+        -- un-touch are along different axes.  The top runs from 200 to 300.
+        local floor = whammo_shapes.Polygon(0, 0, 300, 200, 0, 200)
+        collider:add(floor)
+
+        -- Should be exactly touching the floor
+        local player = whammo_shapes.Box(150, 0, 100, 100)
+        local attempted = Vector(75, 50)
+        local successful, hits = collider:sweep(player, attempted, default_pass_callback)
+        assert.are.equal(attempted, successful)
+
+        local collision = hits[floor]
+
+        assert.are.equal(Vector(0, 0), attempted * collision.contact_start)
+        assert.are.equal(Vector(150, 100), attempted * collision.contact_end)
+        assert.are.equal(0, collision.contact_type)
+
+        --[[
+        -- Check contacts
+        local first, second = hits[floor]:get_contact()
+        assert.are.equal(Vector(100, 100), first)
+        assert.are.equal(Vector(0, 100), second)
+        ]]
+    end)
+
+    it("blah blah blah", function()
+        local collider = whammo.Collider(400)
+        --local floor = whammo_shapes.Box(200, 100, 100, 100)
+        local floor = whammo_shapes.Polygon(100, 200, 300, 300, 100, 300)
+        collider:add(floor)
+
+        -- Will come into the floor at a 45° angle and hit its top corner with our own corner, but the floor is shallower than that
+        local player = whammo_shapes.Box(0, 0, 100, 100)
+        local attempted = Vector(200, 200)
+        local successful, hits = collider:sweep(player, attempted, default_pass_callback)
+        assert.are.equal(Vector(100, 100), successful)
+
+        local collision = hits[floor]
+
+        assert.are.equal(nil, collision.left_normal)
+        assert.are.equal(Vector(100, -200), collision.right_normal)
+
+        assert.are.equal(Vector(100, 100), attempted * collision.contact_start)
+        assert.are.equal(Vector(300, 300), attempted * collision.contact_end)
+        assert.are.equal(1, collision.contact_type)
+
     end)
 end)
