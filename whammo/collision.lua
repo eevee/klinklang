@@ -9,16 +9,13 @@ local Object = require 'klinklang.object'
 local Collision = Object:extend{
     -- (Vector) How far this shape attempted to move
     attempted = nil,
-    -- FIXME not right for slides!  maybe fraction SHOULD be inf for those??  wait, do i even use fraction?  IS FRACTION EVEN THE RIGHT THING ANYWHERE, EVEN IN SWEEP_TOWARDS??
-    -- (number) How much of 'attempted' this shape could move before coming into contact
-    -- with the other shape, as a fraction >= 0
-    fraction = nil,
-    -- (Vector) How far this shape could move before contact, i.e. attempted * fraction
-    movement = nil,
-    -- (bool) Whether the shapes already overlapped, BEFORE the movement
+    -- (bool) Whether the shapes already overlapped, before any movement
     overlapped = nil,
+    -- (Shape) The shapes themselves
+    our_shape = nil,
+    their_shape = nil,
 
-    -- (number) How much of 'attempted' this shape could move before coming
+    -- (number) How much of 'attempted' this shape *could* move before coming
     -- into contact with the other shape, as a fraction
     -- NOTE: If 'attempted' is a zero vector, this is meaningless.
     -- NOTE: This may be negative, if the shapes were already touching or
@@ -32,9 +29,8 @@ local Collision = Object:extend{
     -- negative if moving apart, zero if sliding exactly against one another,
     -- positive if collision
     -- NOTE: Negative can only occur for overlapping shapes; separate shapes
-    -- moving apart don't return a Collision at all.
+    -- moving apart don't produce a Collision at all.
     contact_type = nil,
-    -- FIXME if 'attempted' is a zero vector, how do you figure out whether they're already touching or not?  oh i guess contact_type > 0 is no longer plausible
 
     -- Collisions have two normals in order to handle corner-corner collisions:
     -- one on the left and one on the right.  For head-on collisions, both will
@@ -43,24 +39,27 @@ local Collision = Object:extend{
     -- Note that at least one will always exist EXCEPT when contact_type < 0,
     -- i.e. when the shapes overlap and are moving apart.
     -- XXX should this be normalized?  Probably
-    -- (Vector) The normal vector of the closest surface on our left side, when
-    -- looking along the direction of movement.  If the other shape is solid,
-    -- this is what stops us from moving more leftward
+    -- (Vector?) The normal vector of the closest surface on our left side,
+    -- when looking along the direction of movement.  If the other shape is
+    -- solid, this is what stops us from moving more leftward
     left_normal = nil,
-    -- (Vector) Same, but for the right side
+    -- (Vector?) Same, but for the right side
     right_normal = nil,
-
-    amount = nil,
-    touchdist = nil,
-    touchtype = nil,
-
     -- TODO get rid of these later?
     left_normal_dot = nil,
     right_normal_dot = nil,
+    -- (Vector?) The shortest distance between the two shapes on the left side
+    left_separation = nil,
+    -- (Vector?) Same, but for the right side
+    right_separation = nil,
 
-    -- TODO shapes, points, etc.
+    -- TODO still unsure about these, used mainly for contact detection
+    our_point = nil,
+    their_point = nil,
+    axis = nil,
 
-    -- Properties added to collisions that come out of Collider:sweep()
+    -- Properties added to collisions that come out of Collider:sweep().  These
+    -- WILL NOT EXIST for other collisions!
     -- (bool/string) Whether the collision allows us to continue moving.  May
     -- also be one of two special strings; see sweep() documentation
     -- NOTE: This is NOT whether the other object is solid; it very well may
@@ -70,6 +69,13 @@ local Collision = Object:extend{
     -- (?) The registered owners of the respective shapes
     our_owner = nil,
     their_owner = nil,
+    -- (Vector) How far this shape ultimately moved
+    successful = nil,
+    -- (number) How far this shape moved, as a fraction of 'attempted'
+    success_fraction = nil,
+    -- (number) The type of contact left after the movement: -1 if overlapping,
+    -- 0 if touching, 1 if no contact
+    success_state = nil,
 }
 
 -- Given a set of collisions, slide a movement (or velocity?) vector along them

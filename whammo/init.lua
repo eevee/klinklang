@@ -1,6 +1,10 @@
 local Object = require 'klinklang.object'
 local Blockmap = require 'klinklang.whammo.blockmap'
 
+
+local PRECISION = 1e-8
+
+
 local Collider = Object:extend{
     _NOTHING = {},
 }
@@ -149,17 +153,49 @@ function Collider:sweep(shape, attempted, pass_callback)
         collision.our_owner = self:get_owner(shape)
         collision.their_owner = self:get_owner(collision.their_shape)
 
-        -- Log the last contact with each shape
+        -- Log contacts in the order we encounter them
         hits[collision.their_shape] = collision
     end
     --print('-- END SWEEP --')
 
+    local successful
     if allowed_fraction == nil or allowed_fraction >= 1 then
         -- Nothing stands in our way, so allow the full movement
-        return attempted, hits
+        successful = attempted
+        allowed_fraction = 1
     else
-        return attempted * allowed_fraction, hits
+        successful = attempted * allowed_fraction
     end
+
+    -- Tell all the collisions about the movement results
+    -- TODO maybe this belongs on a "set of collisions" type?
+    for _, collision in pairs(hits) do
+        collision.successful = successful
+        collision.success_fraction = allowed_fraction
+
+        -- Mark whether we're still touching the thing
+        if math.abs(allowed_fraction - collision.contact_start) < PRECISION or
+            math.abs(allowed_fraction - collision.contact_end) < PRECISION
+        then
+            -- Exactly at contact_start/end means we should be touching
+            collision.success_state = 0
+        elseif allowed_fraction < collision.contact_start or
+            allowed_fraction > collision.contact_end
+        then
+            -- Outside the contact range, we're not touching any more
+            collision.success_state = 1
+        else
+            -- Otherwise, we're in the middle, which means we're overlapping...
+            -- unless this is a slide
+            if not collision.overlapped and collision.contact_type == 0 then
+                collision.success_state = 0
+            else
+                collision.success_state = -1
+            end
+        end
+    end
+
+    return successful, hits
 end
 
 function Collider:slide(...)
