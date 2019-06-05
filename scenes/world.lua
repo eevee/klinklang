@@ -216,31 +216,16 @@ function WorldScene:read_player_input(dt)
     local walk_y = read_key_axis('up', 'down')
     self.player:decide_move(walk_x, walk_y)
 
-    -- FIXME this is such a fucking mess lmao
-    -- TODO up+jump doesn't work correctly, but it's a little fiddly, since
-    -- you should only resume climbing once you reach the peak of the jump?
-    local climb = read_key_axis('descend', 'ascend')
-    if climb == -1 then
-        -- FIXME shouldn't we only start climbing on a new press in general...?
-        -- Only start climbing down if this is a NEW press, so that down+jump
-        -- doesn't immediately regrab on the next frame
-        if not game.input:pressed('descend') then
-            climb = nil
-        end
-    end
+    local climb = read_key_axis('ascend', 'descend')
     if climb == 0 then
         self.player:decide_pause_climbing()
-    elseif climb ~= nil then
+    else
         self.player:decide_climb(climb)
     end
 
     -- Jumping is slightly more subtle.  The initial jump is an instant action,
     -- but /continuing/ to jump is a continuous action.
     if game.input:pressed('jump') then
-        -- Down + jump also means let go
-        if game.input:down('descend') then
-            self.player:decide_climb(nil)
-        end
         self.player:decide_jump()
     end
     if not game.input:down('jump') then

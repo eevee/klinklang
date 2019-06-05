@@ -18,7 +18,9 @@ local TiledMapTile = actors_base.BareActor:extend{
     terrain = nil,
     fluid = nil,
 
-    PROPS_USED = {'permeable', 'terrain', 'fluid'},
+    -- Properties that must be the same between neighboring tiles in order to
+    -- merge their collision boxes
+    MERGABILITY_PROPS = {'permeable', 'terrain', 'fluid'},
 }
 
 function TiledMapTile:init(tiled_tile)
@@ -29,9 +31,9 @@ function TiledMapTile:init(tiled_tile)
 
     -- Compatibility with some physics properties
     -- TODO consolidate with above
-    -- TODO wait what is PROPS_USED for
     self.friction_multiplier = tiled_tile:prop('friction')
     self.terrain_type = tiled_tile:prop('terrain')
+    self.is_climbable = tiled_tile:prop('climbable')
 end
 
 function TiledMapTile:__tostring()
@@ -77,7 +79,7 @@ function TiledMapLayer:init(layer, tiled_map, z)
 end
 
 local function _are_tiles_merge_compatible(a, b)
-    for _, prop in ipairs(TiledMapTile.PROPS_USED) do
+    for _, prop in ipairs(TiledMapTile.MERGABILITY_PROPS) do
         if a:prop(prop) ~= b:prop(prop) then
             return false
         end

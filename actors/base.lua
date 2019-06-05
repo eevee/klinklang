@@ -1157,9 +1157,11 @@ local SentientActor = MobileActor:extend{
     decision_jump_mode = 0,
     decision_walk = 0,
     decision_move = Vector(),
+    decision_climb = 0,
     decision_use = false,
     in_mid_jump = false,
     jump_count = 0,
+    is_climbing = false,
     is_dead = false,
     is_locked = false,
 }
@@ -1205,9 +1207,29 @@ function SentientActor:decide_abandon_jump()
     self.decision_jump_mode = 0
 end
 
--- Decide to climb.  -1 up, 1 down, 0 to stay in place, nil to let go.
+-- Decide to climb.  Negative for up, positive for down, zero to stay in place,
+-- nil to let go.
+-- XXX i feel like perhaps i need to distinguish between "starting to climb" and "continuing to climb"
+-- FIXME wait what is "nil"?  when can that happen?  there's no button for letting go??  check world i guess
 function SentientActor:decide_climb(direction)
-    self.decision_climb = direction
+    -- Like jumping, climbing has multiple states: we use -2/+2 for the initial
+    -- attempt, and -1/+1 to indicate we're still climbing.  Unlike jumping,
+    -- this may still be called every frame, so updating it is a bit fiddlier.
+    if direction == 0 or direction == nil then
+        self.decision_climb = direction
+    elseif direction > 0 then
+        if self.decision_climb > 0 then
+            self.decision_climb = 1
+        else
+            self.decision_climb = 2
+        end
+    else
+        if self.decision_climb < 0 then
+            self.decision_climb = -1
+        else
+            self.decision_climb = -2
+        end
+    end
 end
 
 -- If already climbing, stop, but keep holding on
@@ -1223,7 +1245,7 @@ function SentientActor:decide_use()
 end
 
 function SentientActor:get_gravity_multiplier()
-    if self.decision_climb and not self.xxx_useless_climb then
+    if self.is_climbing and not self.xxx_useless_climb then
         return 0
     end
     return SentientActor.__super.get_gravity_multiplier(self)
@@ -1250,19 +1272,30 @@ function SentientActor:on_collide_with(actor, collision)
         -- FIXME aha, shouldn't this check if we're overlapping /now/?
         if collision.overlapped or collision:faces(Vector(0, -1)) then
             self.ptrs.climbable_down = actor
+            self.on_climbable_down = collision
         end
         if collision.overlapped or collision:faces(Vector(0, 1)) then
             self.ptrs.climbable_up = actor
+            self.on_climbable_up = collision
         end
     end
 
     -- Ignore collision with one-way platforms when climbing ladders, since
     -- they tend to cross (or themselves be) one-way platforms
-    if collision.shape._xxx_is_one_way_platform and self.decision_climb then
+    if collision.shape._xxx_is_one_way_platform and self.is_climbing then
         return true
     end
 
-    return SentientActor.__super.on_collide_with(self, actor, collision)
+    local passable = SentientActor.__super.on_collide_with(self, actor, collision)
+
+    -- If we're climbing downwards and hit something (i.e., the ground), let go
+    if self.is_climbing and self.decision_climb > 0 and not passable and collision:faces(Vector(0, -1)) then
+        self.is_climbing = false
+        self.climbing = nil
+        self.decision_climb = 0
+    end
+
+    return passable
 end
 
 function SentientActor:check_for_ground(...)
@@ -1290,22 +1323,11 @@ function SentientActor:check_for_ground(...)
 end
 
 function SentientActor:update(dt)
-    -- TODO why is decision_climb special-cased in so many places here?
     if self.is_dead or self.is_locked then
         -- Ignore conscious decisions; just apply physics
+        -- FIXME used to stop climbing here, why?  so i fall off ladders during transformations i guess?
         -- FIXME i think "locked" only makes sense for the player?
-        self.decision_climb = nil
         return SentientActor.__super.update(self, dt)
-    end
-
-    -- Check whether climbing is possible
-    -- FIXME i'd like to also stop climbing when we hit an object?  downwards i mean
-    -- TODO does climbing make sense in no-gravity mode?
-    if self.decision_climb and not (
-        (self.decision_climb <= 0 and self.ptrs.climbable_up) or
-        (self.decision_climb >= 0 and self.ptrs.climbable_down))
-    then
-        self.decision_climb = nil
     end
 
     local xmult
@@ -1408,7 +1430,7 @@ function SentientActor:update(dt)
     elseif self.ground_shallow then
         -- Not walking means we're trying to stop, albeit leisurely
         -- Climbing means you're holding onto something sturdy, so give a deceleration bonus
-        if self.decision_climb then
+        if self.is_climbing then
             xmult = xmult * 3
         end
         local dx = math.min(math.abs(self.velocity * xdir), self.xaccel * self.deceleration * xmult * dt)
@@ -1424,31 +1446,87 @@ function SentientActor:update(dt)
 
     -- Climbing
     -- Immunity to gravity while climbing is handled via get_gravity_multiplier
+    -- FIXME down+jump to let go, but does that belong here or in input handling?  currently it's in both and both are awkward
+    -- TODO does climbing make sense in no-gravity mode?
     if self.decision_climb then
-        if self.xxx_useless_climb then
-            -- Can try to climb, but is just affected by gravity as normal
-        elseif self.decision_climb > 0 then
-            -- Climbing is done with a nudge, rather than velocity, to avoid
-            -- building momentum which would then launch you off the top
-            -- FIXME need to cancel all velocity (and reposition??) when first grabbing the ladder
-            self:nudge(Vector(0, -self.climb_speed * dt))
-        elseif self.decision_climb < 0 then
-            self:nudge(Vector(0, self.climb_speed * dt))
-        else
-            self.velocity.y = 0
+        if math.abs(self.decision_climb) == 2 or (math.abs(self.decision_climb) == 1 and self.is_climbing) then
+            -- Trying to grab a ladder for the first time.  See if we're
+            -- actually touching one!
+            -- FIXME Note that we might already be on a ladder, but not moving.  unless we should prevent that case in decide_climb?
+            if self.decision_climb < 0 and self.ptrs.climbable_up then
+                self.ptrs.climbing = self.ptrs.climbable_up
+                self.is_climbing = true
+                self.climbing = self.on_climbable_up
+                self.decision_climb = -1
+            elseif self.decision_climb > 0 and self.ptrs.climbable_down then
+                self.ptrs.climbing = self.ptrs.climbable_down
+                self.is_climbing = true
+                self.climbing = self.on_climbable_down
+                self.decision_climb = 1
+            else
+                -- There's nothing to climb!
+                self.is_climbing = false
+            end
+            if self.is_climbing then
+                -- If we just grabbed a ladder, snap us instantly to its center
+                local x0, _y0, x1, _y1 = self.climbing.shape:bbox()
+                local ladder_center = (x0 + x1) / 2
+                --self:nudge(Vector(ladder_center - self.pos.x, 0), nil, true)
+            end
         end
+        -- FIXME handle all yon cases, including the "is it possible" block above
+        if self.is_climbing then
+            -- We have no actual velocity...  unless...  sigh
+            if self.xxx_useless_climb then
+                self.velocity = self.velocity:projectOn(gravity)
+            else
+                self.velocity = Vector()
+            end
 
-        -- Never flip a climbing sprite, since they can only possibly face in
-        -- one direction: away from the camera!
-        self.facing = 'right'
+            -- Slide us gradually towards the center of a ladder
+            -- FIXME gravity dependant...?  how do ladders work in other directions?
+            local x0, _y0, x1, _y1 = self.climbing.shape:bbox()
+            local ladder_center = (x0 + x1) / 2
+            local dx = ladder_center - self.pos.x
+            local max_dx = self.climb_speed * dt
+            dx = util.sign(dx) * math.min(math.abs(dx), max_dx)
 
-        -- FIXME pretty sure this doesn't actually work, since it'll be
-        -- overwritten by update() below and never gets to apply to jumping
-        self.on_ground = true
-        self.ground_normal = Vector(0, -1)
+            -- FIXME oh i super hate this var lol, it exists only for fox flux's slime lexy
+            if self.xxx_useless_climb then
+                -- Can try to climb, but is just affected by gravity as normal
+                self:nudge(Vector(dx, 0))
+            elseif self.decision_climb < 0 then
+                -- Climbing is done with a nudge, rather than velocity, to avoid
+                -- building momentum which would then launch you off the top
+                local climb_distance = self.climb_speed * dt
+
+                -- Figure out how far we are from the top of the ladder
+                local ladder = self.on_climbable_up
+                local separation = ladder.left_separation or ladder.right_separation
+                if separation then
+                    local distance_to_top = separation * Vector(0, -1)
+                    if distance_to_top > 0 then
+                        climb_distance = math.min(distance_to_top, climb_distance)
+                    end
+                end
+                self:nudge(Vector(dx, -climb_distance))
+            elseif self.decision_climb > 0 then
+                self:nudge(Vector(dx, self.climb_speed * dt))
+            end
+
+            -- Never flip a climbing sprite, since they can only possibly face in
+            -- one direction: away from the camera!
+            self.facing = 'right'
+
+            -- We're not on the ground, but this still clears our jump count
+            self.jump_count = 0
+        end
     end
+    -- Clear these pointers so collision detection can repopulate them
     self.ptrs.climbable_up = nil
     self.ptrs.climbable_down = nil
+    self.on_climbable_up = nil
+    self.on_climbable_down = nil
 
     -- Slope resistance: a sentient actor will resist sliding down a slope
     if self:has_gravity() and self.on_ground then
@@ -1487,7 +1565,7 @@ function SentientActor:update(dt)
     -- just explicitly slide in a custom direction
     if self:has_gravity() and
         was_on_ground and not self.on_ground and
-        self.decision_jump_mode == 0 and self.decision_climb == nil and
+        self.decision_jump_mode == 0 and not self.is_climbing and
         self.gravity_multiplier > 0 and self.gravity_multiplier_down > 0
     then
         local gravity = self:get_gravity()
@@ -1573,39 +1651,52 @@ function SentientActor:handle_jump(dt)
     -- increases!) the player's y velocity, and releasing jump lowers the y
     -- velocity to a threshold
     if self.decision_jump_mode == 2 then
-        -- You cannot climb while jumping, sorry
-        -- TODO but maybe...  you can hold up + jump, and regrab the ladder only at the apex of the jump?
         self.decision_jump_mode = 1
-        if self.jump_count == 0 and not self.ground_shallow then
+        if self.velocity.y <= -self.jumpvel then
+            -- Already moving upwards at jump speed, so nothing to do
+            return
+        end
+
+        -- You can "jump" off a ladder, but you just let go.  Only works if
+        -- you're holding a direction or straight down
+        if self.is_climbing then
+            if self.decision_climb > 0 or self.decision_move ~= Vector.zero then
+                -- Drop off
+                self.is_climbing = false
+            end
+            return
+        end
+
+        if self.jump_count == 0 and not self.ground_shallow and not self.is_climbing then
+            -- If we're in mid-air for some other reason, act like we jumped to
+            -- get here, for double-jump counting purposes
             self.jump_count = 1
         end
-        if self.jump_count < self.max_jumps or (self.decision_climb and not self.xxx_useless_climb) then
-            -- TODO maybe jump away from the ground, not always up?  then could
-            -- allow jumping off of steep slopes
-            local jumped
-            if self.ground_normal and not self.ground_shallow then
-                self.velocity = self.jumpvel * self.ground_normal
-                jumped = true
-            elseif self.velocity.y > -self.jumpvel then
-                self.velocity.y = -self.jumpvel
-                jumped = true
-            end
-
-            if jumped then
-                self.in_mid_jump = true
-                self.jump_count = self.jump_count + 1
-                self.decision_climb = nil
-                if self.jump_sound then
-                    -- FIXME oh boy, this is gonna be a thing that i have to care about in a lot of places huh
-                    local sfx = game.resource_manager:get(self.jump_sound):clone()
-                    if sfx:getChannelCount() == 1 then
-                        sfx:setRelative(true)
-                    end
-                    sfx:play()
-                end
-            end
+        if self.jump_count >= self.max_jumps then
+            -- No more jumps left
+            return
         end
+
+        -- Perform the actual jump
+        self.velocity.y = -self.jumpvel
+        self.in_mid_jump = true
+        self.jump_count = self.jump_count + 1
+
+        if self.jump_sound then
+            -- FIXME oh boy, this is gonna be a thing that i have to care about in a lot of places huh
+            local sfx = game.resource_manager:get(self.jump_sound):clone()
+            if sfx:getChannelCount() == 1 then
+                sfx:setRelative(true)
+            end
+            sfx:play()
+        end
+
+        -- If we were climbing, we shouldn't be now
+        self.is_climbing = false
+        self.climbing = nil
+        self.decision_climb = 0
     elseif self.decision_jump_mode == 0 then
+        -- We released jump at some point, so cut our upwards velocity
         if not self.on_ground and self.in_mid_jump then
             self.velocity.y = math.max(self.velocity.y, -self.jumpvel * self.jumpcap)
         end
@@ -1641,19 +1732,13 @@ function SentientActor:determine_pose()
         return 'die'
     elseif self.is_floating then
         return 'fall'
-    elseif self.decision_climb then
+    elseif self.is_climbing then
         if self.decision_climb < 0 then
-            self.sprite.anim:resume()
             return 'climb'
-        elseif self.decision_climb > 0 or self.velocity.x ~= 0 then
-            -- Include "climbing" sideways
-            self.sprite.anim:resume()
+        elseif self.decision_climb > 0 then
             return 'descend'
         else
-            -- Not moving; pause the current pose (which must already be climb
-            -- or descend, since getting on a ladder requires movement)
-            self.sprite.anim:pause()
-            return
+            return 'hold'
         end
     elseif not self:has_gravity() or (self.ground_normal and self.ground_shallow) then
         if self.decision_move ~= Vector.zero then
