@@ -74,7 +74,6 @@ function Collider:sweep(shape, attempted, pass_callback)
         pass_callback = function() return true end
     end
 
-    local hits = {}
     local collisions = {}
     local neighbors = self.blockmap:neighbors(shape, attempted:unpack())
     for neighbor in pairs(neighbors) do
@@ -102,6 +101,7 @@ function Collider:sweep(shape, attempted, pass_callback)
     -- stop at the first that blocks us
     table.sort(collisions, _collision_sort)
     local allowed_fraction
+    local hits = {}
     for i, collision in ipairs(collisions) do
         -- TODO add owners in here too so i don't have to keep fetching actors
 
@@ -139,7 +139,8 @@ function Collider:sweep(shape, attempted, pass_callback)
         -- furthest we can go, and we'll stop when we see something further
         -- FIXME ah wait, true slides shouldn't block us!  maybe i need blocks after all?
         if not passable then
-            allowed_fraction = collision.contact_start
+            -- Overlaps report a negative start, but we're already at zero, so
+            allowed_fraction = math.max(0, collision.contact_start)
             --print("< found first collision:", collision.movement, "fraction:", collision.contact_start, self:get_owner(collision.their_shape))
         end
 

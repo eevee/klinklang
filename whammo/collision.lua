@@ -19,8 +19,10 @@ local Collision = Object:extend{
     overlapped = nil,
 
     -- (number) How much of 'attempted' this shape could move before coming
-    -- into contact with the other shape, as a fraction >= 0
+    -- into contact with the other shape, as a fraction
     -- NOTE: If 'attempted' is a zero vector, this is meaningless.
+    -- NOTE: This may be negative, if the shapes were already touching or
+    -- overlapping!
     contact_start = nil,
     -- (number) How much of 'attempted' this shape would need to move before
     -- passing out its other side, as a fraction >= 0

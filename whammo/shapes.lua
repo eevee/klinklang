@@ -212,23 +212,48 @@ function Shape:sweep_towards(other, movement)
         return
     end
 
-    -- Use the separating axis theorem.
-    -- 1. Choose a bunch of axes, generally normals of the shapes.
-    -- 2. Project both shapes along each axis.
-    -- 3. If the projects overlap along ANY axis, the shapes overlap.
-    --    Otherwise, they don't.
-    -- This code also does a couple other things.
-    -- b. It uses the direction of movement as an extra axis, in order to find
-    --    the minimum possible movement between the two shapes.
-    -- a. It keeps values around in terms of their original vectors, rather
-    --    than lengths or normalized vectors, to avoid precision loss
-    --    from taking square roots.
+    -- Use the separating axis theoreom, which essentially says that two shapes
+    -- overlap iff they appear to overlap from every angle.
+    -- More rigorously: using every normal of both shapes in turn as an "axis",
+    -- project the shapes onto that axis, by taking the dot product of the
+    -- vertices with the axis.  The result will be a segment, and if those
+    -- segments overlap, the shapes overlap on that axis.  Visually, consider
+    -- the projection of these two boxes onto the x/y axes:
+    --
+    --          +-----+ → → → → → → → → → A
+    --          |  A  |       +---+       & (both)
+    --          +-----+ → → → | B | → → → & (both)
+    --           ↓ ↓ ↓        +---+       B
+    --           ↓ ↓ ↓         ↓ ↓        .
+    --      ....AAAAAAA.......BBBBB.....
+    --
+    -- Here, the shapes appear to overlap when projected onto the vertical axis
+    -- (or, if you like, when looking at them from the left side with the
+    -- vertical axis as a "wall" behind them), but they DON'T overlap on the
+    -- horizontal axis, so they must not overlap!  It really is that simple,
+    -- just with some vector math involved.
+    -- This code gets a little fancier: it examines the SIZE of the separation
+    -- between the shapes to figure out what happens when this shape moves some
+    -- distance towards the other.  Instead of merely looking for ANY gap, this
+    -- code looks for the BEST gap (and associated axis), where "best" means
+    -- "has the greatest distance along the movement vector".
+    -- One further wrinkle: if the shapes do in fact overlap, then there won't
+    -- be a "best" gap, or any gap at all.  In that case, the "best axis" is
+    -- the one along which the shapes overlap the LEAST:
+    --          +----+
+    --          | +--*----+
+    --          +-*--+    |
+    --            +-------+
+    -- Here, the best axis is the vertical axis, where the shapes only overlap
+    -- by an absolute distance of 2, versus 4 for the horizontal axis.
+    -- Got all that?  Great, let's go!
 
-    -- This should be handled by Collider:sweep()!
+    -- MultiShape is a nightmare and should be handled by Collider:sweep()!
     assert(not other.subshapes)
 
-    -- Collect all the normals (i.e., projection axes) from both shapes,
-    -- including any vertical/horizontal normal and the movement normal.
+    -- Collect the axes (i.e., normals) from both shapes.  As an optimization
+    -- for the very common case of boxes hitting boxes, horizontal and vertical
+    -- normals are specifically checked for, so they're only tried once.
     -- The move normal is necessary to take into account, well, movement;
     -- otherwise there's no way for the SAT to know that a box could move
     -- diagonally /past/ another box without hitting it.
@@ -237,10 +262,9 @@ function Shape:sweep_towards(other, movement)
     local use_y_normal = self.has_vertical_normal or other.has_vertical_normal
     local movenormal = movement:perpendicular()
     if movenormal == Vector.zero then
-        -- Zero movement is valid, but makes for a poor normal
+        -- Zero movement is allowed, but makes for a poor normal!
     elseif movenormal.x == 0 then
-        -- Perfectly horizontal or vertical movement can also make use of the
-        -- shared unit normals
+        -- Use the shared unit normals for movement too, if possible
         use_y_normal = true
     elseif movenormal.y == 0 then
         use_x_normal = true
@@ -260,35 +284,55 @@ function Shape:sweep_towards(other, movement)
         table.insert(fullaxes, normal)
     end
 
-    -- Search for the axis that yields the greatest distance between the shapes
-    -- (which must then be /the/ greatest distance between them), by projecting
-    -- both shapes onto each axis in turn.
-    -- Also track a whole bunch of stuff along the way.
-    -- Greatest distance we've seen thusfar, as a signed fraction of movement.
-    -- This does NOT count touches that are perpendicular to movement; those
-    -- would explode, so they're handled as a separate case, which handily
-    -- leaves this telling us when two sliding shapes would first touch.
-    local max_fraction = NEG_INFINITY
-    -- Greatest distance between the shapes, in world units.
-    local max_real_distance = NEG_INFINITY
-    -- Minimum distance between OUTER points
-    -- XXX explain this better, with a diagram
+    -- Main loop: try every axis in turn and keep track of the best one found,
+    -- the one that allows the freest movement.  For regular collisions, that's
+    -- the axis with the greatest gap, measured as a fraction of movement
+    -- vector.  For overlaps, that's the axis with the shortest absolute
+    -- overlap distance.
+    -- Also, track a bunch of stuff along the way.
+
+    -- Track the fraction of movement required for the leading edge of this
+    -- shape to exactly touch the other shape (closing the small gap between
+    -- them, hence "inner"), and similarly the most movement required to ensure
+    -- that the trailing edge of this shape passes completely out the *other
+    -- side* of the other shape (hence "outer").  These do NOT include results
+    -- from parallel slides, where the fractions would be inf and -inf.  (If
+    -- we're trying to move parallel to an existing edge contact, this measures
+    -- how far back/forward we'd have to move to make that a corner contact.)
+    -- Note that for slides and overlaps, the inner fraction might be negative,
+    -- indicating that we'd have to move backwards to be touching!
+    local max_inner_fraction = NEG_INFINITY
     local min_outer_fraction = POS_INFINITY
-    -- Shallowest normals on our left and right sides, if we move max_fraction
+    -- Greatest absolute distance between the shapes, in world units.  For
+    -- overlaps, this will be negative, and also the minimum separation.
+    local max_real_distance = NEG_INFINITY
+    -- Tracking normals is tricky, because of literal corner cases: when a
+    -- corner hits a corner, the normal is technically undefined, but game code
+    -- still needs to know about it.  So track two normals, one on the left and
+    -- one on the right (from the point of view of the movement vector), which
+    -- is enough to describe a corner-corner collision and let game code decide
+    -- how to deal with it.  Only the shallowest normal on each side is
+    -- tracked, as that's the one that most restricts movement.
     local max_left_normal_dot = NEG_INFINITY
     local left_normal
-    local left_separation
     local max_right_normal_dot = NEG_INFINITY
     local right_normal
+    -- Similarly, the minimum separation vectors on both sides are tracked.
+    -- Mostly useful for resolving overlaps.
+    local left_separation
     local right_separation
-    -- XXX note that this is only set to 0 at the very end, because we use it in the overlap case to tell if we're separating or passing through
+    -- This describes the type of contact that this movement will cause: -1 if
+    -- the shapes move apart (only possible for existing overlaps, otherwise
+    -- it's not a collision!); 0 if the shapes will slide parallel; 1 if the
+    -- shapes will collide.
     local contact_type = -1
-    -- If the shapes are touching but allowed to slide against each other, this
-    -- is the contact normal
+    -- If this shape is trying to slide exactly parallel to the other, this
+    -- will be the contact normal of that slide.
     -- TODO i kind of want to remove this somehow.  feels like such a weird ass
     -- special case i don't know.  also what happens if they're initially
     -- touching at corners?
     local slide_axis
+    -- TODO figure out what i'm doing with these
     local x_our_pt, x_their_pt, x_contact_axis
     for _, fullaxis in ipairs(fullaxes) do
         -- Much of this work is done with the original unscaled normal for
@@ -301,26 +345,53 @@ function Shape:sweep_towards(other, movement)
             axis = fullaxis:normalized()
         end
 
+        -- Project both shapes onto the axis.  This returns the ends of the
+        -- resulting span (which are scalar numbers, in the axis's own units),
+        -- and two points on the shapes corresponding to those ends.
+        -- The rest of this loop is essentially working with a number line:
+        --      ....AAAAAAA..........BBBBB.....
+        --      min1↑     ↑max1  min2↑   ↑max2
         local min1, max1, minpt1, maxpt1 = self:project_onto_axis(fullaxis)
         local min2, max2, minpt2, maxpt2 = other:project_onto_axis(fullaxis)
-        -- The scalar distance between the two shapes, in fullaxis units (so
-        -- not useful for comparing between iterations, but useful to compare
-        -- to zero)
-        local dist
-        local outer_sep
-        -- The closest points to the gap/overlap along this axis
+        -- The axis might point either from us to them or from them to us, but
+        -- we want it pointing towards us (even if it's our axis!), to make it
+        -- a collision normal.  That means B should come FIRST, with our side
+        -- facing them further left, so the above example needs flipping:
+        --      ....BBBBB..........AAAAAAA.....
+        --      max2↑   ↑min2  max1↑     ↑min1
+        -- Easy enough.  But what if A and B overlap, perhaps completely?
+        --      ....BBBBBBBBBBB&&&&&&&&&&&&&BBB.....
+        --      min2↑          ↑min1   max2↑  ↑max2
+        -- For overlaps, this shape is moving "towards" the other if it would
+        -- make the penetration worse.  In this example, moving right would put
+        -- A deeper inside B, so the orientation is correct.
+        -- To sort this out, compute two distances: the distance from the end
+        -- of shape A to the beginning of shape B, and the distance from the
+        -- end of shape B to the beginning of shape A.  In the simple separated
+        -- case, the "inner" distance will be positive and the "outer" distance
+        -- will be negative, so whichever is greater tells us the order.
+        --      ....AAAAAAA..........BBBBB.....
+        --                |→→→→→→→→→→|
+        --          |←←←←←←←←←←←←←←←←←←←←|
+        -- Here, A→B (inner) is positive and B→A (outer) is negative, so A
+        -- comes first and the axis needs flipping.
+        -- Handily, this approach still works for overlaps:
+        --      ....BBBBBBBBBBB&&&&&&&&&&&&&BBB.....
+        --          |←←←←←←←←←←←←←←←←←←←←←←|
+        --                     |←←←←←←←←←←←←←←|
+        -- Now both are negative, but the "right" distance is shorter (less
+        -- negative, so larger!), so B comes first and no flip is necessary.
+        -- Inner distance, and the inner points
+        local inner_dist
         local our_point, their_point
-        -- Depending on the axis and the relative position of the shapes, the
-        -- results might be aligned in any number of ways.  Reorient if
-        -- necessary, so the axis is always pointing towards us, i.e. is the
-        -- direction we should move to get away from them.  (A normal!)
-        -- Ignore extremely tiny overlaps, which are likely precision errors.
-        -- TODO this direly needs a diagram and explanation of what this does (collapse into a line)
+        -- Vector difference of the outer points
+        local outer_sep
+        -- Take the left and right differences, and figure out whether to flip.
         local dist_left = zero_trim(min2 - max1)
         local dist_right = zero_trim(min1 - max2)
         if dist_left >= dist_right then
-            -- 1 appears first, so take the distance from 1 to 2
-            dist = dist_left
+            -- This shape (1) appears first, so flip, and use the left distance
+            inner_dist = dist_left
             outer_sep = maxpt2 - minpt1
             our_point = maxpt1
             their_point = minpt2
@@ -329,109 +400,100 @@ function Shape:sweep_towards(other, movement)
             fullaxis = -fullaxis
         else
             -- Other way around
-            dist = dist_right
+            inner_dist = dist_right
             outer_sep = minpt2 - maxpt1
             our_point = minpt1
             their_point = maxpt2
         end
-
-        -- Vector distance between the extreme points found on the two shapes,
-        -- pointing from us to them, in world units.  Note that this is only
-        -- meaningful when projected on (or dotted with) the axis, since the
-        -- points themselves could be wildly distance in 2D space
-        local sep = their_point - our_point
-        -- This dot product is negative if we're moving closer along this axis,
-        -- positive if we're moving away
+        -- Vector difference of the inner points
+        local inner_sep = their_point - our_point
+        -- Projection of movement onto the axis, in axis units.  This is
+        -- negative if we're moving closer, positive if we're separating
         local dot = zero_trim(movement * fullaxis)
 
         -- If the shapes are touching but moving apart (which doesn't count as
         -- a touch), or not touching but not moving closer together, they can
         -- never collide, so stop here.
         -- Note if BOTH are zero, this is a slide, which counts as touching!
-        if (dot > 0 and dist == 0) or (dot >= 0 and dist > 0) then
+        if (dot > 0 and inner_dist == 0) or (dot >= 0 and inner_dist > 0) then
             -- FIXME if i try to move away from something but can't because
             -- i'm stuck, this won't detect the touch then?  hmm
             return
         end
         -- If we're moving towards them but won't reach them (note these are
         -- both dot products with movement, so same units), stop here.
-        if dot < 0 and dist > -dot then
+        if dot < 0 and inner_dist > -dot then
             return
         end
 
-        -- The following logic is for figuring out whether this is the axis with
-        -- the most freedom of movement (seen so far).  That's different for
-        -- overlaps vs collisions, so track whether we've found it for now and
-        -- do the actual work at the end.
+        -- Time to track whether this axis is better than any seen so far.  The
+        -- different criteria for overlaps complicate things a bit, so use some
+        -- flags and do the real work last
         local is_best_axis = false      -- i.e., new >= old
         local is_new_best_axis = false  -- i.e., new > old
 
         -- TODO since this always exists, consider renaming slide_axis to contact_axis or something?  if it exists by the end, it's always equal to x_contact_axis, which happens iff x_contact_axis * movement == 0
         if dot == 0 then
             -- Zero dot means the movement is parallel and this shape can move
-            -- infinitely far without changing their distance.  But they do
-            -- still come into contact, which should be reported as a
-            -- collision, and the other axes need inspecting to know *when*
-            -- they come into contact.
-            if dist == 0 then
+            -- infinitely far without changing their distance.  But it does
+            -- touch the other shape at some point, and the other axes will
+            -- reveal when that is, so we can't stop yet.
+            if inner_dist == 0 then
                 -- This is a touch, so the allowed movement is infinite in both
                 -- directions, so this axis wins hands down.  (Overlaps have
-                -- different criteria; see below.)
+                -- different criteria, handled below, and if inner_dist > 0, we
+                -- would've early returned above.)
                 is_best_axis = true
                 is_new_best_axis = true
             end
         else
-            -- Four cases remain: overlapping and trying to separate (dist < 0,
-            -- dot > 0), or any state but trying to move closer (dot < 0).
+            -- Four cases remain: moving closer (dot < 0, inner_dist anything),
+            -- or overlapping and separating (dot > 0, inner_dist < 0).
 
-            -- Figure out how much movement is allowed, as a fraction.
-            -- That would be sep / movement, but we can't divide vectors!
-            -- However, we CAN project them both onto this axis (i.e., take dot
-            -- products) and divide those.
-            -- Note that dist is already sep * fullaxis, since dist and sep
-            -- both came from projection.  It's negated here because it points
-            -- towards us, but we want to know how much we can move away.
-            -- Also, the direction is already contained in dist's sign, so
-            -- discard dot's sign.  Note it can't be zero if we got here.
-            local fraction = zero_trim(dist / abs(dot))
-
-            -- Update the OUTER fraction, which is similar to max_fraction, but
-            -- for how far this shape must move to exit the other shape on its
-            -- far side.  May be along a different axis than max_fraction
-            -- because of the geometry on the outsides.
-            local outer_fraction
+            -- Find the distance between the shapes as a fraction of movement,
+            -- or in other words: what multiple of 'movement' would this shape
+            -- need to make to be touching the other?  (For overlaps, this
+            -- might be negative!)  Do this for both inner and outer contact.
+            -- Note that while we can't divide vectors, we can dot them against
+            -- a common axis and divide the results.  'inner_dist' is already
+            -- 'inner_sep * fullaxis', since they came from the same
+            -- projection, and 'dot' is 'movement * fullaxis'.
+            -- Also, the direction is already contained in inner_dist's sign, so
+            -- discard dot's sign (which can't be zero if we got here).
+            local inner_fraction = zero_trim(inner_dist / abs(dot))
+            -- But outer_sep might point anywhere, so trust dot's sign here.
+            local outer_fraction = zero_trim(outer_sep * fullaxis / dot)
+            -- Normally, this shape would be moving towards the other, or we
+            -- would've early returned above.  But in the odd (overlap-only)
+            -- case that the shapes are moving *apart*, movement is backwards
+            -- and the order in which inner/outer contact happens is reversed,
+            -- so those fractions need to be swapped
             if dot > 0 then
-                -- A positive dot product means we're trying to "get away"
-                -- along this axis, which means we're already on our way out,
-                -- and the separation we want is the inner fraction
-                outer_fraction = -fraction
-            else
-                -- Otherwise we're trying to penetrate, and we want the
-                -- separation between the OUTER points
-                outer_fraction = zero_trim(outer_sep * fullaxis / dot)
+                inner_fraction, outer_fraction = outer_fraction, -inner_fraction
             end
+
             min_outer_fraction = math.min(outer_fraction, min_outer_fraction)
 
             -- Check whether this is the best axis so far, remembering that
             -- nothing can beat a slide axis
             if not slide_axis then
                 -- Do a little handwaving to handle float precision issues
-                local d = fraction - max_fraction
+                local d = inner_fraction - max_inner_fraction
                 is_new_best_axis = d > PRECISION
                 is_best_axis = d > -PRECISION
             end
-            max_fraction = math.max(fraction, max_fraction)
+            max_inner_fraction = math.max(inner_fraction, max_inner_fraction)
         end
 
         -- Track the maximum distance between the shapes, in world units,
         -- independent of movement.  This doesn't tell us anything that the
-        -- above "fraction" calculation doesn't...  EXCEPT in the case of a
-        -- slide, where the fraction is inf/nan and max_fraction isn't updated.
+        -- "inner fraction" doesn't...  EXCEPT for a slide, where the inner
+        -- fraction is inf/nan and the max isn't updated.
         -- This is crucial for overlaps, where an axis counts as an "edge" iff
-        -- it's the direction with the shortest overlap (or tied).
+        -- it's the direction with the shortest absolute overlap (or tied).
         -- Reverse the sign, so positive means there's a gap.  Note that this
-        -- is equal to -dist / fullaxis:len().
-        local real_distance = -zero_trim(sep * axis)
+        -- is equal to -inner_dist / fullaxis:len().
+        local real_distance = -zero_trim(inner_sep * axis)
         -- If this is an overlap, the criteria for "freest" axis are completely
         -- different, so explicitly overwrite any "best" decision made above
         if max_real_distance < 0 then
@@ -456,7 +518,8 @@ function Shape:sweep_towards(other, movement)
                 slide_axis = nil
             end
 
-            -- If this is a slide, remember it
+            -- If this is a slide, remember it, so a better fraction won't
+            -- think it's a new best axis
             if dot == 0 then
                 slide_axis = fullaxis
             end
@@ -474,9 +537,8 @@ function Shape:sweep_towards(other, movement)
 
             -- Update normals.  If it's facing away from us, it ain't a normal.
             if dot <= 0 then
-                -- Update some separation stuff while we're here; this is also
-                -- tied to the freest actual gap, where a slide axis trumps all
-                -- else
+                -- Update separation stuff while we're here; this is also tied
+                -- to the freest actual gap, where a slide axis trumps all else
                 x_our_pt = our_point
                 x_their_pt = their_point
                 x_contact_axis = fullaxis
@@ -495,92 +557,23 @@ function Shape:sweep_towards(other, movement)
                 local ourdot = movement * axis
                 if cross >= 0 and ourdot > max_left_normal_dot then
                     left_normal = fullaxis
-                    left_separation = sep:projectOn(fullaxis)
+                    left_separation = inner_sep:projectOn(fullaxis)
                     max_left_normal_dot = ourdot
                 end
                 if cross <= 0 and ourdot > max_right_normal_dot then
                     right_normal = fullaxis
-                    right_separation = sep:projectOn(fullaxis)
+                    right_separation = inner_sep:projectOn(fullaxis)
                     max_right_normal_dot = ourdot
                 end
             end
         end
     end
 
-    if max_real_distance < 0 then
-        -- Shapes are already overlapping, oops
-        return Collision:bless{
-            -- Basic info about the requested movement
-            attempted = movement,
-            overlapped = true,
-            our_shape = self,
-            their_shape = other,
-
-            -- Deprecated?
-            movement = movement,
-            fraction = 1,
-
-            contact_start = 0,
-            contact_end = min_outer_fraction,
-            contact_type = contact_type,
-            distance = max_real_distance,
-
-            left_normal = left_normal,
-            right_normal = right_normal,
-            left_separation = left_separation,
-            right_separation = right_separation,
-            left_normal_dot = max_left_normal_dot,
-            right_normal_dot = max_right_normal_dot,
-
-            -- XXX other stuff, if it's even meaningful?
-        }
-    end
-
-    -- XXX aha, interesting, maybe i don't need slide_axis at all?
-    --assert((slide_axis ~= nil) == (zero_trim(x_contact_axis * movement) == 0))
-
-    if contact_type == 0 then
-        -- This is a slide; we will touch (or are already touching) the other
-        -- object, but can continue past it.  (If we wouldn't touch, fraction
-        -- would exceed 1, and we would've returned earlier.)
-        return Collision:bless{
-            -- Basic info about the requested movement
-            attempted = movement,
-            overlapped = false,
-            our_shape = self,
-            their_shape = other,
-
-            -- Deprecated?
-            movement = movement,
-
-            -- This is the max fraction found along every /other/ axis, which
-            -- is when we'll first touch.  If it's negative, no other axis had
-            -- a gap, so we're already touching, so it should be zero.
-            contact_start = math.max(0, max_fraction),
-            contact_end = min_outer_fraction,
-            contact_type = 0,
-            distance = max_real_distance,
-
-            left_normal = left_normal,
-            right_normal = right_normal,
-            left_separation = left_separation,
-            right_separation = right_separation,
-            left_normal_dot = max_left_normal_dot,
-            right_normal_dot = max_right_normal_dot,
-
-            -- FIXME rename these, maybe this/that?  also definitely axis, that's hokey.  is it ever different from normals?  how does it handle corners?
-            our_point = x_our_pt,
-            their_point = x_their_pt,
-            axis = slide_axis,
-        }
-    end
-
-    -- If none of the special cases apply, this is a regular old collision
-    -- where we're about to run head-first into something
+    -- And, we're done!
     return Collision:bless{
         -- Basic info about the requested movement
         attempted = movement,
-        overlapped = false,
+        overlapped = max_real_distance < 0,
         our_shape = self,
         their_shape = other,
 
@@ -589,11 +582,11 @@ function Shape:sweep_towards(other, movement)
         -- - for pushing/carrying from below, to figure out remaining push distance (could fix this by passing another arg to collision callback; this is kinda hokey anyway since it's in the middle of a sweep)
         -- - in water, where it should be using movement anyway
         -- - for something with stone lexy, with a comment saying it's very bad lol
-        movement = movement * max_fraction,
+        movement = movement * max_inner_fraction,
 
-        contact_start = max_fraction,
+        contact_start = max_inner_fraction,
         contact_end = min_outer_fraction,
-        contact_type = 1,
+        contact_type = contact_type,
         distance = max_real_distance,
 
         left_normal = left_normal,
