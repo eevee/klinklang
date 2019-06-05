@@ -1330,118 +1330,85 @@ function SentientActor:update(dt)
         return SentientActor.__super.update(self, dt)
     end
 
-    local xmult
-    local max_speed = self.max_speed
-    local xdir = Vector(1, 0)
-    if not self:has_gravity() then
-        xmult = 1
-    elseif self.on_ground then
-        local uphill = self.decision_walk * self.ground_normal.x < 0
-        -- This looks a bit more convoluted than just moving the player right
-        -- and letting sliding take care of it, but it means that walking
-        -- /down/ a slope will actually walk us along it
-        xdir = self.ground_normal:perpendicular()
-        xmult = self.ground_friction
-        if uphill then
+    -- Walking, in a way that works for both 1D and 2D behavior.  Treat the
+    -- player's input (even zero) as a desired velocity, and try to accelerate
+    -- towards it, capping at xaccel if necessary.
+    -- (anonymous block because there are a lot of variables)
+    do
+        -- First figure out our target velocity
+        local goal
+        local current
+        if self:has_gravity() then
+            -- For 1D, find the direction of the ground, so walking on a slope
+            -- will attempt to walk *along* the slope, not into it
+            local ground_axis
             if self.ground_shallow then
-                xmult = 0
+                ground_axis = self.ground_normal:perpendicular()
             else
-                -- Linearly scale the slope slowdown, based on the y coordinate (of
-                -- the normal, which is the x coordinate of the slope itself).
-                -- This isn't mathematically correct, but it feels fine.
-                local ground_y = math.abs(self.ground_normal.y)
-                local max_y = math.abs(self.max_slope.y)
-                local slowdown = 1 - (1 - self.max_slope_slowdown) * (1 - ground_y) / (1 - max_y)
-                max_speed = max_speed * slowdown
-                xmult = xmult * slowdown
+                -- We're in the air, so movement is horizontal
+                ground_axis = Vector(1, 0)
             end
+            goal = ground_axis * self.decision_move.x * self.max_speed
+            current = self.velocity:projectOn(ground_axis)
+        else
+            -- For 2D, just move in the input direction
+            -- FIXME this shouldn't normalize the movement vector, but i can't do it in decide_move for reasons described there
+            goal = self.decision_move:normalized() * self.max_speed
+            current = self.velocity
         end
-    else
-        xmult = self.aircontrol
-    end
 
-    -- If we're pushing something, then treat our movement as a force that's
-    -- now being spread across greater mass
-    -- XXX should this check can_push, can_carry?  can we get rid of total_mass i don't like it??
-    xmult = xmult * self.mass / self.total_mass
-
-    -- Explicit movement
-    if not self:has_gravity() then
-        -- The idea here is to treat your attempted direction times your max
-        -- speed as a goal, attempt to accelerate your current velocity towards
-        -- it, and cap that acceleration at your acceleration speed.
-        -- This works as you'd expect for 1D cases, but extends neatly to 2D.
-        -- TODO use this for 1D as well!  needs to ignore the gravity axis tho
-        -- FIXME this shouldn't normalize the movement vector, but i can't do it in decide_move for reasons described there
-        local goal = self.decision_move:normalized() * self.max_speed
-        -- NOTE: This is equivalent to delta:trimmed(...), but trimmed() chokes
-        -- on zero vectors.
-        local delta = goal - self.velocity
+        local delta = goal - current
         local delta_len = delta:len()
         local accel_cap = self.xaccel * dt
+        -- Collect factors that affect our walk acceleration
+        local walk_accel_multiplier = 1
         if delta_len > accel_cap then
-            delta = delta * (accel_cap / delta_len)
-            delta_len = accel_cap
+            walk_accel_multiplier = accel_cap / delta_len
         end
+        if self:has_gravity() then
+            -- In the air (or on a steep slope), we're subject to air control
+            if not self.ground_shallow then
+                walk_accel_multiplier = walk_accel_multiplier * self.aircontrol
+            end
+        end
+        -- If we're pushing something, then treat our movement as a force
+        -- that's now being spread across greater mass
+        -- XXX should this check can_push, can_carry?  can we get rid of total_mass i don't like it??
+        walk_accel_multiplier = walk_accel_multiplier * self.mass / self.total_mass
+
         -- When inputting no movement at all, an actor is considered to be
-        -- /de/celerating, since they clearly want to stop.  Deceleration is
-        -- slower then acceleration, and this "skid" factor interpolates
-        -- between full decel and full accel using the dot product.
+        -- /de/celerating, since they clearly want to stop.  Deceleration can
+        -- have its own multiplier, and this "skid" factor interpolates between
+        -- full decel and full accel using the dot product.
         -- Slightly tricky to normalize them, since they could be zero.
-        local skid_dot = delta * self.velocity
+        local skid_dot = delta * current
         if skid_dot ~= 0 then
-            skid_dot = skid_dot / self.velocity:len() / delta_len
+            -- If the dot product is nonzero, then both vectors must be
+            skid_dot = skid_dot / current:len() / delta_len
         end
         local skid = util.lerp((skid_dot + 1) / 2, self.deceleration, 1)
-        -- And we're done.
-        self.velocity = self.velocity + delta * skid
 
-        -- Update facing, based on the input, not the velocity
-        -- FIXME should this have memory the same way conflicting direction keys do?
-        local abs_vx = math.abs(self.decision_move.x)
-        local abs_vy = math.abs(self.decision_move.y)
-        if abs_vx > abs_vy then
-            if self.decision_move.x < 0 then
-                self.facing = 'left'
-            elseif self.decision_move.x > 0 then
-                self.facing = 'right'
-            end
-        else
-            if self.decision_move.y < 0 then
-                self.facing = 'up'
-            elseif self.decision_move.y > 0 then
-                self.facing = 'down'
-            end
+        -- Put it all together, and we're done
+        self.velocity = self.velocity + delta * (skid * walk_accel_multiplier)
+    end
+
+    -- Update facing -- based on the input, not the velocity!
+    -- FIXME should this have memory the same way conflicting direction keys do?
+    if self:has_gravity() or math.abs(self.decision_move.x) > math.abs(self.decision_move.y) then
+        if self.decision_move.x < 0 then
+            self.facing = 'left'
+        elseif self.decision_move.x > 0 then
+            self.facing = 'right'
         end
-    elseif self.decision_walk > 0 then
-        -- FIXME hmm is this the right way to handle a maximum walking speed?
-        -- it obviously doesn't work correctly in another frame of reference
-        if self.velocity.x < max_speed then
-            local dx = math.min(max_speed - self.velocity.x, self.xaccel * xmult * dt)
-            self.velocity = self.velocity + dx * xdir
-        end
-        self.facing = 'right'
-    elseif self.decision_walk < 0 then
-        if self.velocity.x > -max_speed then
-            local dx = math.min(max_speed + self.velocity.x, self.xaccel * xmult * dt)
-            self.velocity = self.velocity - dx * xdir
-        end
-        self.facing = 'left'
-    elseif self.ground_shallow then
-        -- Not walking means we're trying to stop, albeit leisurely
-        -- Climbing means you're holding onto something sturdy, so give a deceleration bonus
-        if self.is_climbing then
-            xmult = xmult * 3
-        end
-        local dx = math.min(math.abs(self.velocity * xdir), self.xaccel * self.deceleration * xmult * dt)
-        local dv = dx * xdir
-        if dv * self.velocity < 0 then
-            self.velocity = self.velocity + dv
-        else
-            self.velocity = self.velocity - dv
+    else
+        if self.decision_move.y < 0 then
+            self.facing = 'up'
+        elseif self.decision_move.y > 0 then
+            self.facing = 'down'
         end
     end
 
+    -- Jumping
     self:handle_jump(dt)
 
     -- Climbing
