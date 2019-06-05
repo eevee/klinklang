@@ -478,11 +478,9 @@ end
 -- object blocks us
 -- FIXME now that they're next to each other, these two methods look positively silly!  and have a bit of a symmetry problem: the other object can override via the simple blocks(), but we have this weird thing
 function MobileActor:on_collide_with(actor, collision)
-    -- Moving away or along is always fine
+    -- Moving away is always fine
     if collision.contact_type < 0 then
         return true
-    elseif collision.contact_type == 0 then
-        return 'slide'
     end
 
     -- FIXME doubtless need to fix overlap collision with a pushable
@@ -502,8 +500,12 @@ function MobileActor:on_collide_with(actor, collision)
         return true
     end
 
-    -- Otherwise, we're blocked!
-    return false
+    -- Otherwise, it's solid, and we're blocked!  But a slide is okay.
+    if collision.contact_type == 0 then
+        return 'slide'
+    else
+        return false
+    end
 end
 
 
