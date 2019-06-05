@@ -756,15 +756,9 @@ function MobileActor:check_for_ground(attempted, hits)
 
     local gravity = self:get_gravity()
 
-    -- If we didn't even try to move in the direction of gravity, we shouldn't
-    -- count as on the ground, even if we're a projectile sliding along it.
-    if attempted * gravity <= 0 then
-        -- TODO maybe clear out all the ground stuff?
-        return
-    end
-
     -- Ground test: did we collide with something facing upwards?
     -- Find the normal that faces /most/ upwards, i.e. most away from gravity.
+    -- FIXME is that right?  isn't ground the flattest thing you're on?
     -- FIXME what if we hit the ground, then slid off of it?
     local mindot = 0  -- 0 is vertical, which we don't want
     local normal
@@ -774,7 +768,10 @@ function MobileActor:check_for_ground(attempted, hits)
     local carrier
     local carrier_normal
     for _, collision in pairs(hits) do
-        if not collision.passable or collision.passable == 'slide' then
+        -- This is a little tricky, but to be standing on something, (a) it
+        -- must have blocked us OR we slid along it, and (b) we must not have
+        -- moved past it
+        if (not collision.passable or collision.passable == 'slide') and collision.success_state <= 0 then
             -- Find the most upwards-facing normal
             local norm, dot
             if collision.left_normal and collision.right_normal then
@@ -872,7 +869,7 @@ function MobileActor:check_for_ground(attempted, hits)
             carrier.cargo[self] = manifest
         end
         manifest.state = CARGO_CARRYING
-        manifest.normal = normal
+        manifest.normal = carrier_normal
 
         self.ptrs.cargo_of = carrier
     end
