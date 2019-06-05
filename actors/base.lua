@@ -1582,29 +1582,31 @@ function SentientActor:update(dt)
         -- The bottom part might end up pointing the wrong way, because
         -- max_slope is a normal and can arbitrarily point either left or right
         -- FIXME wait max slope is gravity-dependant, rrgh!
+        local drop
         if bottom_drop * gravity < 0 then
-            bottom_drop = -bottom_drop
+            drop = top_drop - bottom_drop
+        else
+            drop = top_drop + bottom_drop
         end
-        -- This factor of 2 solves a subtle problem: on the frame we walk off a
-        -- slope, we don't hit anything else, so we don't bother checking for
-        -- new collisions and we think we're still on the ground!  So we need
-        -- to account for TWO frames' worth of drop, urgh.
-        -- FIXME this would be nice to fix somehow
-        local drop = (top_drop + bottom_drop) * 2
 
         -- Try dropping our shape, just to see if we /would/ hit anything, but
         -- without firing any collision triggers or whatever.  Try moving a
         -- little further than our max, just because that's an easy way to
         -- distinguish exactly hitting the ground from not hitting anything.
+        -- TODO this all seems a bit ad-hoc, like the sort of thing that oughta be on Map
         local prelim_movement = self.map.collider:sweep(self.shape, drop * 1.1, function(collision)
+            if collision.contact_type <= 0 then
+                return true
+            end
             local actor = self.map.collider:get_owner(collision.shape)
             if actor == self then
                 return true
             end
             if actor then
                 return not actor:blocks(self, collision)
+            else
+                return false
             end
-            return true
         end)
 
         if prelim_movement:len2() <= drop:len2() then
@@ -1612,7 +1614,7 @@ function SentientActor:update(dt)
             local drop_movement
             drop_movement, hits = self:nudge(drop, nil, true)
             movement = movement + drop_movement
-            self:check_for_ground(drop, hits)
+            self:check_for_ground(drop_movement, hits)
 
             if self.on_ground then
                 -- Now we're on the ground, so flatten our velocity to indicate
