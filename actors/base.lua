@@ -976,32 +976,10 @@ function MobileActor:update(dt)
     local fluidres = self:get_fluid_resistance()
     self.velocity.y = math.min(self.velocity.y, terminal_velocity / fluidres)
 
-    local displacement = frame_velocity * dt
-    if displacement == Vector.zero and self.may_skip_nudge then
+    local attempted = frame_velocity * (dt / fluidres)
+    if attempted == Vector.zero and self.may_skip_nudge then
         return Vector(), {}
     end
-
-    -- Fudge the movement to try ending up aligned to the pixel grid.
-    -- This helps compensate for the physics engine's love of gross float
-    -- coordinates, and should allow the player to position themselves
-    -- pixel-perfectly when standing on pixel-perfect (i.e. flat) ground.
-    -- FIXME i had to make this round to the nearest eighth because i found a
-    -- place where standing on a gentle slope would make you vibrate back and
-    -- forth between pixels.  i don't think that's the case any more, though,
-    -- and it would be nice to make this work for pushing as well, so you can
-    -- push an object down a gap its own size!  the only problem is that it has
-    -- a nontrivial impact on overall speed.  maybe we should only do this when
-    -- moving slowly?
-    local goalpos = self.pos + displacement / fluidres
-    --[[
-    if self.velocity.x ~= 0 then
-        goalpos.x = math.floor(goalpos.x * 8 + 0.5) / 8
-    end
-    if self.velocity.y ~= 0 then
-        goalpos.y = math.floor(goalpos.y * 8 + 0.5) / 8
-    end
-    ]]
-    local attempted = goalpos - self.pos
 
     -- Collision time!
     local movement, hits = self:nudge(attempted)
