@@ -1203,7 +1203,10 @@ local SentientActor = MobileActor:extend{
     decision_move = Vector(),
     decision_climb = 0,
     decision_use = false,
-    in_mid_jump = false,
+    -- Flag indicating that we were deliberately pushed upwards since the last
+    -- time we were on the ground; disables ground adherence and the jump
+    -- velocity capping behavior
+    was_launched = false,
     jump_count = 0,
     is_climbing = false,
     is_dead = false,
@@ -1298,9 +1301,8 @@ end
 function SentientActor:push(dv)
     SentientActor.__super.push(self, dv)
 
-    -- This flag disables trimming our upwards velocity when releasing jump
-    if self.in_mid_jump and dv * self:get_gravity() < 0 then
-        self.in_mid_jump = false
+    if dv * self:get_gravity() < 0 then
+        self.was_launched = true
     end
 end
 
@@ -1579,6 +1581,7 @@ function SentientActor:update(dt)
     -- just explicitly slide in a custom direction
     if self:has_gravity() and
         was_on_ground and not self.on_ground and
+        not self.was_launched and
         self.decision_jump_mode == 0 and not self.is_climbing and
         self.gravity_multiplier > 0 and self.gravity_multiplier_down > 0
     then
@@ -1642,7 +1645,7 @@ function SentientActor:update(dt)
     -- Handle our own passive physics
     if self:has_gravity() and self.on_ground then
         self.jump_count = 0
-        self.in_mid_jump = false
+        self.was_launched = false
     end
 
     -- Update the pose
@@ -1695,7 +1698,6 @@ function SentientActor:handle_jump(dt)
 
         -- Perform the actual jump
         self.velocity.y = -self.jumpvel
-        self.in_mid_jump = true
         self.jump_count = self.jump_count + 1
 
         if self.jump_sound then
@@ -1713,7 +1715,7 @@ function SentientActor:handle_jump(dt)
         self.decision_climb = 0
     elseif self.decision_jump_mode == 0 then
         -- We released jump at some point, so cut our upwards velocity
-        if not self.on_ground and self.in_mid_jump then
+        if not self.on_ground and not self.was_launched then
             self.velocity.y = math.max(self.velocity.y, -self.jumpvel * self.jumpcap)
         end
     end
@@ -1760,7 +1762,7 @@ function SentientActor:determine_pose()
         if self.decision_move ~= Vector.zero then
             return 'walk'
         end
-    elseif self.in_mid_jump and self.velocity.y < 0 then
+    elseif self.velocity.y < 0 then
         return 'jump'
     else
         return 'fall'
