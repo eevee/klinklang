@@ -557,10 +557,10 @@ function MobileActor:_collision_callback(collision, pushers, already_hit)
             -- If we rise into a portable actor, pick it up -- push it the rest
             -- of the distance we're going to move.  On its next ground check,
             -- it should notice us as its carrier.
-            -- FIXME this isn't quite right, since we might get blocked and not
-            -- actually move this whole distance!  but chances are they will be
-            -- too so this isn't a huge deal
-            local nudge = collision.attempted - collision.movement
+            -- FIXME this isn't quite right, since we might get blocked later
+            -- and not actually move this whole distance!  but chances are they
+            -- will be too so this isn't a huge deal
+            local nudge = collision.attempted * (1 - math.max(0, collision.contact_start))
             if not _is_vector_almost_zero(nudge) then
                 actor:nudge(nudge, pushers)
             end
