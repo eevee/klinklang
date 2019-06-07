@@ -502,12 +502,8 @@ function MobileActor:on_collide_with(actor, collision)
         return true
     end
 
-    -- Otherwise, it's solid, and we're blocked!  But a slide is okay.
-    if collision.contact_type == 0 then
-        return 'slide'
-    else
-        return false
-    end
+    -- Otherwise, it's solid, and we're blocked!
+    return false
 end
 
 

@@ -62,11 +62,10 @@ local Collision = Object:extend{
     -- WILL NOT EXIST for other collisions!
     -- (bool/string) Whether the collision allows us to continue moving.  May
     -- also be one of two special strings; see sweep() documentation
-    -- NOTE: This is NOT whether the other object is solid; it very well may
-    -- be, but if this is a slide or a separating overlap, this should still be
-    -- true.  Do NOT use this to check whether the object is solid!
     passable = nil,
     -- (?) The registered owners of the respective shapes
+    -- Note that these are added very early by Collider:sweep(), so unlike the
+    -- other properties here, these are available in a pass_callback
     our_owner = nil,
     their_owner = nil,
     -- (Vector) How far this shape ultimately moved
@@ -122,6 +121,7 @@ function Collision.slide_along_normals(class, collisions, direction)
 
     for _, collision in pairs(collisions) do
         -- FIXME probably only consider "slide" when the given vector is not in fact perpendicular?
+        -- FIXME hey hey also, should we be using success_state here?
         if not collision.passable or collision.passable == 'slide' then
             --print('slide', collision, collision.touchtype, collision.blocks, collision.shape, collision.left_normal, collision.right_normal)
             -- TODO comment stuff in shapes.lua

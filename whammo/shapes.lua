@@ -361,7 +361,7 @@ function Shape:sweep_towards(other, movement)
         --      max2↑   ↑min2  max1↑     ↑min1
         -- Easy enough.  But what if A and B overlap, perhaps completely?
         --      ....BBBBBBBBBBB&&&&&&&&&&&&&BBB.....
-        --      min2↑          ↑min1   max2↑  ↑max2
+        --      min2↑          ↑min1   max1↑  ↑max2
         -- For overlaps, this shape is moving "towards" the other if it would
         -- make the penetration worse.  In this example, moving right would put
         -- A deeper inside B, so the orientation is correct.
@@ -576,13 +576,6 @@ function Shape:sweep_towards(other, movement)
         overlapped = max_real_distance < 0,
         our_shape = self,
         their_shape = other,
-
-        -- Deprecated?
-        -- XXX movement is used:
-        -- - for pushing/carrying from below, to figure out remaining push distance (could fix this by passing another arg to collision callback; this is kinda hokey anyway since it's in the middle of a sweep)
-        -- - in water, where it should be using movement anyway
-        -- - for something with stone lexy, with a comment saying it's very bad lol
-        movement = movement * max_inner_fraction,
 
         contact_start = max_inner_fraction,
         contact_end = min_outer_fraction,

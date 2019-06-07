@@ -66,8 +66,8 @@ end
 --   handling for "slide" (treating it simply as true), but it's used in
 --   Collision:slide_along_normals() and may be helpful in game code.
 -- Note that if no callback is provided, the default behavior is to assume
--- nothing is blocking!  Also note that the callback is allowed to block even
--- in the case of a slide; this function has absolutely no special cases.
+-- nothing is blocking!  Also note that if the callback returns false, but the
+-- movement is a slide, the value 'slide' is used instead.
 -- Returns the successful movement and a table mapping encountered shapes to
 -- the resulting Collision.
 function Collider:sweep(shape, attempted, pass_callback)
@@ -94,22 +94,22 @@ function Collider:sweep(shape, attempted, pass_callback)
         else
             local collision = shape:sweep_towards(neighbor, attempted)
             if collision then
-                --print(("< got move %f = %s, touchtype %d, clock %s"):format(collision.contact_start, collision.movement, collision.touchtype, collision.clock))
                 table.insert(collisions, collision)
             end
         end
     end
 
-    --print('-- SWEEP --', self:get_owner(shape), attempted)
     -- Look through the objects we'll hit, in the order we'll /touch/ them, and
     -- stop at the first that blocks us
     table.sort(collisions, _collision_sort)
     local allowed_fraction
     local hits = {}
+    local our_owner = self:get_owner(shape)
     for i, collision in ipairs(collisions) do
-        -- TODO add owners in here too so i don't have to keep fetching actors
+        -- Put owners on the collision, so they're available to the callback
+        collision.our_owner = our_owner
+        collision.their_owner = self:get_owner(collision.their_shape)
 
-        --print("checking collision...", collision.movement, collision.contact_start, collision.touchtype, collision.touchdist, "at", collision.their_shape:bbox())
         -- If we've already hit something, and this collision is further away,
         -- stop here.  (This means we call the callback for ALL of a set of
         -- shapes the same distance away, even if the first one blocks us.)
@@ -119,7 +119,6 @@ function Collider:sweep(shape, attempted, pass_callback)
 
         -- Check if the other shape actually blocks us
         local passable = pass_callback(collision)
-        --print(i, collision.their_shape, self:get_owner(collision.their_shape), passable)
         if passable == 'retry' then
             -- Special case: the other object just moved, so keep moving
             -- and re-evaluate when we hit it again.  Useful for pushing.
@@ -138,25 +137,23 @@ function Collider:sweep(shape, attempted, pass_callback)
                 end
             end
         end
+        -- Special case, important for slide_along_normals and other cases: if
+        -- the object is solid but this is a slide, it's still passable
+        if not passable and collision.contact_type == 0 then
+            passable = 'slide'
+        end
+        collision.passable = passable
 
         -- If we're hitting the object and it's not passable, mark this as the
         -- furthest we can go, and we'll stop when we see something further
-        -- FIXME ah wait, true slides shouldn't block us!  maybe i need blocks after all?
         if not passable then
             -- Overlaps report a negative start, but we're already at zero, so
             allowed_fraction = math.max(0, collision.contact_start)
-            --print("< found first collision:", collision.movement, "fraction:", collision.contact_start, self:get_owner(collision.their_shape))
         end
-
-        -- Update some properties on the collision
-        collision.passable = passable
-        collision.our_owner = self:get_owner(shape)
-        collision.their_owner = self:get_owner(collision.their_shape)
 
         -- Log contacts in the order we encounter them
         hits[collision.their_shape] = collision
     end
-    --print('-- END SWEEP --')
 
     local successful
     if allowed_fraction == nil or allowed_fraction >= 1 then
