@@ -1679,6 +1679,7 @@ function SentientActor:handle_jump(dt)
         self.is_climbing = false
         self.climbing = nil
         self.decision_climb = 0
+        return true
     elseif self.decision_jump_mode == 0 then
         -- We released jump at some point, so cut our upwards velocity
         if not self.on_ground and not self.was_launched then
