@@ -221,23 +221,29 @@ function Sprite:update(dt)
     self.anim:update(dt)
 end
 
-function Sprite:draw_at(point)
+function Sprite:draw_at(x, y)
+    if type(x) == 'table' then
+        x, y = x:unpack()
+    end
     self.changed_this_frame = false
     -- TODO hm, how do i auto-batch?  shame there's nothing for doing that
     -- built in?  seems an obvious thing
     self.anim:draw(
         self.spriteset.image,
-        math.floor(point.x - self.anchor.x * self.scale + 0.5),
-        math.floor(point.y - self.anchor.y * self.scale + 0.5),
+        math.floor(x - self.anchor.x * self.scale + 0.5),
+        math.floor(y - self.anchor.y * self.scale + 0.5),
         0, self.scale, self.scale)
 end
 
-function Sprite:draw_anchorless(point)
+function Sprite:draw_anchorless(x, y)
+    if type(x) == 'table' then
+        x, y = x:unpack()
+    end
     self.changed_this_frame = false
     self.anim:draw(
         self.spriteset.image,
-        math.floor(point.x + 0.5),
-        math.floor(point.y + 0.5),
+        math.floor(x + 0.5),
+        math.floor(y + 0.5),
         0, self.scale, self.scale)
 end
 
