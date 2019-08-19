@@ -2,14 +2,9 @@ local Vector = require 'klinklang.vendor.hump.vector'
 
 local Object = require 'klinklang.object'
 local util = require 'klinklang.util'
+local Component = require 'klinklang.components.base'
+local components_physics = require 'klinklang.components.physics'
 
-
-local Component = Object:extend{
-    slot = nil,  -- for unique components, the name of their slot
-}
-
-function Component:after_collisions(actor, movement, collisions)
-end
 
 -- TODO a sprite component
 -- sprites are basically already components tbh, although they should absorb facing too
@@ -61,356 +56,6 @@ end
 
 
 
-local Fall2D = Component:extend{
-    slot = 'fall',
-}
-
-function Fall2D:init(friction_decel)
-    self.friction_decel = friction_decel
-end
-
-function Fall2D:get_friction(actor, normalized_direction)
-    -- In top-down mode, everything is always on flat ground, so
-    -- friction is always the full amount, away from velocity
-    return normalized_direction:normalized() * (-self.friction_decel * actor:_get_carried_mass())
-end
-
-
-local Fall = Fall2D:extend{
-    slot = 'fall',
-
-    terminal_speed = 1536,
-}
-
-function Fall:init(...)
-    Fall.__super.init(self, ...)
-
-    -- FIXME are these actually used for anything interesting?  pooltoy i guess, but i think by far the most common use is just to disable gravity, which...  is...  much easier now...
-    self.multiplier = 1
-    self.multiplier_down = 1
-
-    -- TODO should have a gravity prop that gets early_updated or something
-end
-
-function Fall:get_base_gravity()
-    -- TODO move gravity to, like, the world, or map, or somewhere?  though it
-    -- might also vary per map, so maybe something like Map:get_gravity(shape)?
-    -- but variable gravity feels like something that would be handled by
-    -- zones, which should already participate in collision, so........  i
-    -- dunno think about this later
-    -- TODO should this return a zero vector if has_gravity() is on?  seems
-    -- reasonable, but also you shouldn't be checking for gravity at all if
-    -- has_gravity is off, but,
-    -- FIXME i think Game needs a 'constants' or something
-    return Vector(0, 768)
-end
-
--- XXX this is a FORCE, NOT acceleration!  and it is NOT trimmed to velocity
-function Fall:get_friction(actor, normalized_direction)
-    if self.ground_normal then
-        local gravity1 = self:get_base_gravity():normalized()
-        -- Get the strength of the normal force by dotting the ground normal
-        -- with gravity
-        local normal_strength = gravity1 * self.ground_normal * actor:_get_carried_mass()
-        local friction = self.ground_normal:perpendicular() * (self.friction_decel * self.ground_friction * normal_strength)
-        local dot = friction * normalized_direction
-        if math.abs(dot) < 1e-8 then
-            -- Something went wrong and friction is perpendicular to movement?
-            return Vector.zero
-        elseif friction * normalized_direction > 0 then
-            return -friction
-        else
-            return friction
-        end
-    else
-        --local friction = -self.friction_decel * normalized_direction:normalized() * actor.mass
-        -- FIXME need some real air resistance; as written, the above also reverses gravity, oops
-        return Vector.zero
-    end
-end
-
-function Fall:act(actor, dt)
-    -- TODO factor the ground_friction constant into this, and also into slope
-    -- resistance
-    local multiplier = self.multiplier
-    if actor.velocity.y >= 0 then
-        multiplier = multiplier * self.multiplier_down
-    end
-
-    actor.pending_force = actor.pending_force + self:get_base_gravity() * multiplier
-end
-
-function Fall:after_collisions(actor, movement, collisions)
-    self:check_for_ground(actor, collisions)
-end
-
-function Fall:check_for_ground(actor, hits)
-    local gravity = self:get_base_gravity()
-
-    -- Ground test: did we collide with something facing upwards?
-    -- Find the normal that faces /most/ upwards, i.e. most away from gravity.
-    -- FIXME is that right?  isn't ground the flattest thing you're on?
-    -- FIXME what if we hit the ground, then slid off of it?
-    local mindot = 0  -- 0 is vertical, which we don't want
-    local normal
-    local obstacle
-    local friction
-    local terrain
-    local carrier
-    local carrier_normal
-    for _, collision in ipairs(hits) do
-        -- This is a little tricky, but to be standing on something, (a) it
-        -- must have blocked us OR we slid along it, and (b) we must not have
-        -- moved past it
-        if (not collision.passable or collision.passable == 'slide') and collision.success_state <= 0 then
-            -- Find the most upwards-facing normal
-            local norm, dot
-            if collision.left_normal and collision.right_normal then
-                local left_normal = collision.left_normal:normalized()
-                local left_dot = left_normal * gravity
-                local right_normal = collision.right_normal:normalized()
-                local right_dot = right_normal * gravity
-                if left_dot < right_dot then
-                    norm = left_normal
-                    dot = left_dot
-                else
-                    norm = right_normal
-                    dot = right_dot
-                end
-            else
-                norm = (collision.left_normal or collision.right_normal):normalized()
-                dot = norm * gravity
-            end
-
-            -- FIXME wait, hang on, does this even make sense?  you could be
-            -- resting on multiple things and they're all equally valid.  i
-            -- guess think about the case with boulder on wedge and ground
-            if dot < mindot then
-                -- New winner, easy peasy!
-                mindot = dot
-                normal = norm
-                obstacle = collision.their_owner
-                if obstacle then
-                    friction = obstacle.friction_multiplier
-                    terrain = obstacle.terrain_type
-                    if obstacle.can_carry and actor.is_portable then
-                        carrier = obstacle
-                        carrier_normal = norm
-                    end
-                else
-                    -- TODO should we use the friction from every ground we're on...?
-                    friction = nil
-                    terrain = nil
-                    -- Don't clear carrier, that's still valid
-                end
-            elseif dot == mindot and dot < 0 then
-                -- Deal with ties.  (Note that dot must be negative so as to
-                -- not tie with the initial mindot of 0, which would make
-                -- vertical walls seem like ground!)
-
-                local obstacle2 = collision.their_owner
-                if obstacle2 then
-                    -- Prefer to stay on the same ground actor
-                    if not (obstacle and obstacle == actor.ptrs.ground) then
-                        obstacle = obstacle2
-                    end
-
-                    -- Use the HIGHEST of any friction multiplier we're touching
-                    -- FIXME should friction just be a property of terrain type?  where would that live, though?
-                    if friction and obstacle2.friction_multiplier then
-                        friction = math.max(friction, obstacle2.friction_multiplier)
-                    else
-                        friction = obstacle2.friction_multiplier
-                    end
-
-                    -- FIXME what does this do for straddling?  should do
-                    -- whichever was more recent, but that seems like a Whole
-                    -- Thing.  also should this live on TiledMapTile instead of
-                    -- being a general feature?
-                    terrain = obstacle2.terrain_type or terrain
-
-                    -- Prefer to stay on the same carrier
-                    if obstacle2.can_carry and actor.is_portable and not (carrier and carrier == actor.ptrs.cargo_of) then
-                        carrier = obstacle2
-                        carrier_normal = norm
-                    end
-                end
-            end
-        end
-    end
-
-    self.grounded = not not normal
-    self.ground_normal = normal
-    -- FIXME do i want this...?  actor.ptrs.ground = actor
-    self.ground_friction = friction or 1
-    self.ground_terrain = terrain
-
-    if actor.ptrs.cargo_of and actor.ptrs.cargo_of ~= carrier then
-        actor.ptrs.cargo_of.cargo[actor] = nil
-        actor.ptrs.cargo_of = nil
-    end
-    -- TODO i still feel like there should be some method for determining whether we're being carried
-    -- TODO still seems rude that we inject ourselves into their cargo also
-    if carrier then
-        local manifest = carrier.cargo[actor]
-        if manifest then
-            manifest.expiring = false
-        else
-            manifest = {}
-            carrier.cargo[actor] = manifest
-        end
-        manifest.state = CARGO_CARRYING
-        manifest.normal = carrier_normal
-
-        actor.ptrs.cargo_of = carrier
-    end
-end
-
-
--- Gravity for sentient actors; includes extra behavior for dealing with slopes
-local SentientFall = Fall:extend{}
-
-function SentientFall:init(max_slope, ...)
-    SentientFall.__super.init(self, ...)
-    self.max_slope = max_slope
-end
-
-function SentientFall:check_for_ground(actor, ...)
-    SentientFall.__super.check_for_ground(self, actor, ...)
-
-    local gravity = self:get_base_gravity()
-    local max_slope_dot = self.max_slope * gravity
-    -- Sentient actors get an extra ground property, indicating whether the
-    -- ground they're on is shallow enough to stand on; if not, they won't be
-    -- able to jump, they won't have slope resistance, and they'll pretty much
-    -- act like they're falling
-    self.ground_shallow = self.ground_normal and not (self.ground_normal * gravity - max_slope_dot > 1e-8)
-    if not self.ground_shallow then
-        self.grounded = false
-    end
-
-    -- Also they don't count as cargo if the contact normal is too steep
-    -- TODO this is kind of weirdly inconsistent given that it works for
-    -- non-sentient actors...?  should max_slope get hoisted just for this?
-    if actor.ptrs.cargo_of then
-        local carrier = actor.ptrs.cargo_of
-        local manifest = carrier.cargo[actor]
-        if manifest and manifest.normal * gravity - max_slope_dot > 1e-8 then
-            carrier.cargo[self] = nil
-            actor.ptrs.cargo_of = nil
-        end
-    end
-end
-
-function SentientFall:act(actor, dt)
-    SentientFall.__super.act(self, actor, dt)
-
-    -- Slope resistance: a sentient actor will resist sliding down a slope
-    if not self.grounded then
-        return
-    end
-
-    local gravity = self:get_base_gravity()
-    -- Slope resistance always pushes upwards along the slope.  It has no
-    -- cap, since it should always exactly oppose gravity, as long as the
-    -- slope is shallow enough.
-    -- Skip it entirely if we're not even moving in the general direction
-    -- of gravity, though, so it doesn't interfere with jumping.
-    -- FIXME this doesn't take into account the gravity multiplier /or/
-    -- fluid resistance, and in general i don't love that it can get out of
-    -- sync like that  :S
-    local slope = self.ground_normal:perpendicular()
-    if slope * gravity > 0 then
-        slope = -slope
-    end
-    local slope_resistance = -(gravity * slope)
-    actor.pending_force = actor.pending_force + slope_resistance * slope
-end
-
-function SentientFall:after_collisions(actor, movement, collisions)
-    local was_on_ground = self.grounded
-
-    SentientFall.__super.after_collisions(self, actor, movement, collisions)
-
-    -- Ground adherence
-    -- If we walk up off the top of a hill, our momentum will carry us into the
-    -- air, which looks very silly; a sentient actor would simply step down
-    -- onto the downslope.  So if we're only a very short distance above the
-    -- ground, AND we were on the ground before moving, AND we're not trying to
-    -- jump, then stick us to the floor.
-    -- TODO i suspect this could be avoided with the same (not yet written)
-    -- logic that would keep critters from walking off of ledges?  or if
-    -- the loop were taken out of collider.slide and put in here, so i could
-    -- just explicitly slide in a custom direction
-    -- FIXME ah, no was_on_ground here
-    if was_on_ground and not self.ground_normal and
-        not self.was_launched and
-        actor.jump_component.decision == 0 and not actor.climb_component.is_climbing and
-        self.multiplier > 0 and self.multiplier_down > 0
-    then
-        local gravity = self:get_base_gravity()
-        -- How far should we drop?  I'm so glad you asked!
-        -- There are two components: the slope we just launched off of ("top"),
-        -- and the one we're trying to drop onto ("bottom").
-        -- The top part is easy; it's the vertical component of however far we
-        -- just moved.  (This might point UP, if we're walking downhill!)
-        local top_drop = -movement:projectOn(gravity)
-        -- The bottom part, we don't know.  But we know the steepest slope we
-        -- can stand on, so we can just use that.
-        -- Please trust this grody vector math, I spent ages coming up with it.
-        local bottom_drop = - ((movement + top_drop) * self.max_slope) / (gravity * self.max_slope) * gravity
-        -- The bottom part might end up pointing the wrong way, because
-        -- max_slope is a normal and can arbitrarily point either left or right
-        -- FIXME wait max slope is gravity-dependant, rrgh!
-        local drop
-        if bottom_drop * gravity < 0 then
-            drop = top_drop - bottom_drop
-        else
-            drop = top_drop + bottom_drop
-        end
-
-        -- Try dropping our shape, just to see if we /would/ hit anything, but
-        -- without firing any collision triggers or whatever.  Try moving a
-        -- little further than our max, just because that's an easy way to
-        -- distinguish exactly hitting the ground from not hitting anything.
-        -- TODO this all seems a bit ad-hoc, like the sort of thing that oughta be on Map
-        local prelim_movement = actor.map.collider:sweep(actor.shape, drop * 1.1, function(collision)
-            if collision.contact_type <= 0 then
-                return true
-            end
-            local obstacle = collision.their_owner
-            if obstacle == actor then
-                return true
-            end
-            if obstacle then
-                return not obstacle:blocks(actor, collision)
-            else
-                return false
-            end
-        end)
-
-        if prelim_movement:len2() <= drop:len2() then
-            -- We hit the ground!  Do that again, but for real this time.
-            local drop_movement, hits = actor:nudge(drop, nil, true)
-            movement = movement + drop_movement
-            self:check_for_ground(actor, hits)
-            -- FIXME update outer movement + hits??
-
-            if self.grounded then
-                -- Now we're on the ground, so flatten our velocity to indicate
-                -- we're walking along it.  Or equivalently, remove the part
-                -- that's trying to launch us upwards.
-                actor.velocity = actor.velocity - actor.velocity:projectOn(self.ground_normal)
-            end
-        end
-    end
-
-    if self.grounded then
-        self.was_launched = false
-    end
-end
-
-
 -- Active decisions
 
 -- Walking, either left/right or in all four directions
@@ -431,14 +76,14 @@ function Walk:decide(dx, dy)
     self.decision:normalizeInplace()
 end
 
-function Walk:act(actor, dt)
+function Walk:update(actor, dt)
     -- Walking, in a way that works for both 1D and 2D behavior.  Treat the
     -- player's input (even zero) as a desired velocity, and try to accelerate
     -- towards it, capping if necessary.
 
     -- First figure out our target velocity
     local goal
-    local current
+    local current = actor.move_component.velocity
     local in_air = false
     if actor.gravity_component then
         -- For 1D, find the direction of the ground, so walking on a slope
@@ -452,12 +97,11 @@ function Walk:act(actor, dt)
             in_air = true
         end
         goal = ground_axis * self.decision.x * self.max_speed
-        current = actor.velocity:projectOn(ground_axis)
+        current = current:projectOn(ground_axis)
     else
         -- For 2D, just move in the input direction
         -- FIXME this shouldn't normalize the movement vector, but i can't do it in decide_move for reasons described there
         goal = self.decision:normalized() * self.max_speed
-        current = actor.velocity
     end
 
     local delta = goal - current
@@ -478,8 +122,8 @@ function Walk:act(actor, dt)
     -- If we're pushing something, then treat our movement as a force
     -- that's now being spread across greater mass
     -- XXX should this check can_push, can_carry?  can we get rid of total_mass i don't like it??
-    if actor.can_push and goal ~= Vector.zero then
-        local total_mass = actor:_get_total_mass(goal)
+    if actor.tote_component and goal ~= Vector.zero then
+        local total_mass = actor.tote_component:_get_total_mass(actor, goal)
         walk_accel_multiplier = walk_accel_multiplier * actor.mass / total_mass
     end
 
@@ -496,7 +140,7 @@ function Walk:act(actor, dt)
     local skid = util.lerp((skid_dot + 1) / 2, self.deceleration_multiplier, 1)
 
     -- Put it all together, and we're done
-    actor.velocity = actor.velocity + delta * (skid * walk_accel_multiplier)
+    actor.move_component:push(delta * (skid * walk_accel_multiplier))
 end
 
 
@@ -521,7 +165,7 @@ function Jump:decide(whether)
     end
 end
 
-function Jump:act(actor)
+function Jump:update(actor, dt)
     if actor.gravity_component.grounded then
         self.consecutive_jump_count = 0
     end
@@ -530,9 +174,10 @@ function Jump:act(actor)
     -- This uses the Sonic approach: pressing jump immediately sets (not
     -- increases!) the player's y velocity, and releasing jump lowers the y
     -- velocity to a threshold
+    local move = actor.move_component
     if self.decision == 2 then
         self.decision = 1
-        if actor.velocity.y <= -self.jump_speed then
+        if move.velocity.y <= -self.jump_speed then
             -- Already moving upwards at jump speed, so nothing to do
             return
         end
@@ -559,7 +204,7 @@ function Jump:act(actor)
         end
 
         -- Perform the actual jump
-        actor.velocity.y = -self.jump_speed
+        move.pending_velocity.y = -self.jump_speed
         self.consecutive_jump_count = self.consecutive_jump_count + 1
 
         if self.sound then
@@ -579,7 +224,7 @@ function Jump:act(actor)
     elseif self.decision == 0 then
         -- We released jump at some point, so cut our upwards velocity
         if not actor.gravity_component.grounded and not actor.was_launched then
-            actor.velocity.y = math.max(actor.velocity.y, -self.abort_speed)
+            move.pending_velocity.y = math.max(move.pending_velocity.y, -self.abort_speed)
         end
     end
 end
@@ -649,7 +294,7 @@ function Climb:after_collisions(actor, movement, collisions)
     end
 end
 
-function Climb:act(actor, dt)
+function Climb:update(actor, dt)
     -- Immunity to gravity while climbing is handled via get_gravity_multiplier
     -- FIXME not any more it ain't
     -- FIXME down+jump to let go, but does that belong here or in input handling?  currently it's in both and both are awkward
@@ -747,7 +392,7 @@ function Interact:decide()
     self.decision = true
 end
 
-function Interact:act(actor, dt)
+function Interact:update(actor, dt)
     if not self.decision then
         return
     end
@@ -794,7 +439,11 @@ local function read_key_axis(a, b)
     end
 end
 
-function PlayerThink:act(actor, dt)
+function PlayerThink:update(actor, dt)
+    if actor.health_component and actor.health_component.is_dead then
+        return
+    end
+
     -- Converts player input to decisions.
     -- Note that actions come in two flavors: instant actions that happen WHEN
     -- a button is pressed, and continuous actions that happen WHILE a button
@@ -830,9 +479,10 @@ return {
     Walk = Walk,
     Jump = Jump,
     Climb = Climb,
-    Fall = Fall,
-    Fall2D = Fall2D,
-    SentientFall = SentientFall,
     Think = Think,
     PlayerThink = PlayerThink,
+    -- XXX back compat, please remove
+    Fall = components_physics.Fall,
+    Fall2D = components_physics.Fall2D,
+    SentientFall = components_physics.SentientFall,
 }
