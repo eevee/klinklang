@@ -162,6 +162,8 @@ function Map:add_actor(actor)
     if not actor.map then
         print("ACTOR WITH A BROKEN ON_ENTER PROBABLY:", actor)
     end
+
+    return actor  -- for ease of chaining
 end
 
 -- Schedules the actor to be removed at the end of the next update; this lets
