@@ -997,6 +997,10 @@ function SentientActor:update(dt)
         return SentientActor.__super.update(self, dt)
     end
 
+    if self.think_component then
+        self.think_component:act(self, dt)
+    end
+
     self.walk_component:act(self, dt)
 
     -- Update facing -- based on the input, not the velocity!
@@ -1056,7 +1060,7 @@ function SentientActor:update_pose()
     end
 end
 function SentientActor:determine_pose()
-    if self.health_component.is_dead then
+    if self.health_component and self.health_component.is_dead then
         return 'die'
     elseif self.is_floating then
         return 'fall'

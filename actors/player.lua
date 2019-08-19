@@ -1,6 +1,7 @@
 local Vector = require 'klinklang.vendor.hump.vector'
 
 local actors_base = require 'klinklang.actors.base'
+local components = require 'klinklang.actors.components'
 local actors_misc = require 'klinklang.actors.misc'
 local Inventory = require 'klinklang.inventory'
 local Object = require 'klinklang.object'
@@ -21,6 +22,8 @@ local Player = actors_base.SentientActor:extend{
 
 function Player:init(...)
     Player.__super.init(self, ...)
+
+    self.think_component = components.PlayerThink()
 
     -- TODO not sure how i feel about having player state attached to the
     -- actor, but it /does/ make sense, and it's certainly an improvement over

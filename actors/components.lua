@@ -8,6 +8,9 @@ local Component = Object:extend{
     slot = nil,  -- for unique components, the name of their slot
 }
 
+function Component:after_collisions(actor, movement, collisions)
+end
+
 -- TODO a sprite component
 -- sprites are basically already components tbh, although they should absorb facing too
 -- also it's a bit goofy that poses (and thus also sprites) have physics shapes associated with them, meaning your physics shape can change from a thing you do to your sprite?  don't know how i feel about that.  oh maybe they should just be differently named shapes that code can then alter at specific times?  that's more effort though, hm.
@@ -390,7 +393,7 @@ function SentientFall:after_collisions(actor, movement, collisions)
             -- We hit the ground!  Do that again, but for real this time.
             local drop_movement, hits = actor:nudge(drop, nil, true)
             movement = movement + drop_movement
-            self:check_for_ground(drop_movement, hits)
+            self:check_for_ground(actor, hits)
             -- FIXME update outer movement + hits??
 
             if self.grounded then
@@ -755,6 +758,71 @@ function Interact:act(actor, dt)
 end
 
 
+local Think = Component:extend{
+    slot = 'think',
+}
+
+local PlayerThink = Think:extend{}
+
+-- Given two baton inputs, returns -1 if the left is held, 1 if the right is
+-- held, and 0 if neither is held.  If BOTH are held, returns either the most
+-- recently-pressed, or nil to indicate no change from the previous frame.
+local function read_key_axis(a, b)
+    local a_down = game.input:down(a)
+    local b_down = game.input:down(b)
+    if a_down and b_down then
+        local a_pressed = game.input:pressed(a)
+        local b_pressed = game.input:pressed(b)
+        if a_pressed and b_pressed then
+            -- Miraculously, both were pressed simultaneously, so stop
+            return 0
+        elseif a_pressed then
+            return -1
+        elseif b_pressed then
+            return 1
+        else
+            -- Neither was pressed this frame, so we don't know!  Preserve the
+            -- previous frame's behavior
+            return nil
+        end
+    elseif a_down then
+        return -1
+    elseif b_down then
+        return 1
+    else
+        return 0
+    end
+end
+
+function PlayerThink:act(actor, dt)
+    -- Converts player input to decisions.
+    -- Note that actions come in two flavors: instant actions that happen WHEN
+    -- a button is pressed, and continuous actions that happen WHILE a button
+    -- is pressed.  The former check 'down'; the latter check 'pressed'.
+    -- FIXME reconcile this with a joystick; baton can do that for me, but then
+    -- it considers holding left+right to be no movement at all, which is bogus
+    local walk_x = read_key_axis('left', 'right')
+    local walk_y = read_key_axis('up', 'down')
+    actor.walk_component:decide(walk_x, walk_y)
+
+    local climb = read_key_axis('ascend', 'descend')
+    actor.climb_component:decide(climb)
+
+    -- Jumping is slightly more subtle.  The initial jump is an instant action,
+    -- but /continuing/ to jump is a continuous action.
+    if game.input:pressed('jump') then
+        actor.jump_component:decide(true)
+    end
+    if not game.input:down('jump') then
+        actor.jump_component:decide(false)
+    end
+
+    if game.input:pressed('use') then
+        actor.interactor_component:decide()
+    end
+end
+
+
 return {
     Ail = Ail,
     Interact = Interact,
@@ -765,4 +833,6 @@ return {
     Fall = Fall,
     Fall2D = Fall2D,
     SentientFall = SentientFall,
+    Think = Think,
+    PlayerThink = PlayerThink,
 }

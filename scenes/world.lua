@@ -175,71 +175,11 @@ function WorldScene:_refresh_canvas()
     self.canvas = love.graphics.newCanvas(w, h)
 end
 
--- Given two baton inputs, returns -1 if the left is held, 1 if the right is
--- held, and 0 if neither is held.  If BOTH are held, returns either the most
--- recently-pressed, or nil to indicate no change from the previous frame.
-local function read_key_axis(a, b)
-    local a_down = game.input:down(a)
-    local b_down = game.input:down(b)
-    if a_down and b_down then
-        local a_pressed = game.input:pressed(a)
-        local b_pressed = game.input:pressed(b)
-        if a_pressed and b_pressed then
-            -- Miraculously, both were pressed simultaneously, so stop
-            return 0
-        elseif a_pressed then
-            return -1
-        elseif b_pressed then
-            return 1
-        else
-            -- Neither was pressed this frame, so we don't know!  Preserve the
-            -- previous frame's behavior
-            return nil
-        end
-    elseif a_down then
-        return -1
-    elseif b_down then
-        return 1
-    else
-        return 0
-    end
-end
-
-function WorldScene:read_player_input(dt)
-    -- Converts player input to decisions.
-    -- Note that actions come in two flavors: instant actions that happen WHEN
-    -- a button is pressed, and continuous actions that happen WHILE a button
-    -- is pressed.  The former check 'down'; the latter check 'pressed'.
-    -- FIXME reconcile this with a joystick; baton can do that for me, but then
-    -- it considers holding left+right to be no movement at all, which is bogus
-    local walk_x = read_key_axis('left', 'right')
-    local walk_y = read_key_axis('up', 'down')
-    self.player.walk_component:decide(walk_x, walk_y)
-
-    local climb = read_key_axis('ascend', 'descend')
-    self.player.climb_component:decide(climb)
-
-    -- Jumping is slightly more subtle.  The initial jump is an instant action,
-    -- but /continuing/ to jump is a continuous action.
-    if game.input:pressed('jump') then
-        self.player.jump_component:decide(true)
-    end
-    if not game.input:down('jump') then
-        self.player.jump_component:decide(false)
-    end
-
-    if game.input:pressed('use') then
-        self.player.interactor_component:decide()
-    end
-end
-
 function WorldScene:update(dt)
     -- FIXME could get rid of this entirely if actors had to go through me to
     -- collide
     game.debug_hits = {}
     game.debug_rays = {}
-
-    self:read_player_input(dt)
 
     -- Update the music to match the player's current position
     -- FIXME shouldn't this happen /after/ the actor updates...??  but also
