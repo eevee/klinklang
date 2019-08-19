@@ -39,22 +39,11 @@ function Player:move_to(...)
     -- chances are, we're not touching it any more
     -- This is vaguely hacky, but it gets rid of the dang use prompt after
     -- teleporting to the graveyard
-    self.touching_mechanism = nil
-end
-
-function Player:on_collide_with(actor, ...)
-    if actor and actor.is_usable then
-        -- FIXME this should really really be a ptr
-        self.touching_mechanism = actor
-    end
-
-    return Player.__super.on_collide_with(self, actor, ...)
+    self.interactor_component.target = nil
 end
 
 function Player:update(dt)
     -- Run the base logic to perform movement, collision, sprite updating, etc.
-    self.touching_mechanism = nil
-    local was_on_ground = self.on_ground
     local movement, hits = Player.__super.update(self, dt)
 
     -- A floating player spawns particles
@@ -72,6 +61,7 @@ end
 
 
 
+-- FIXME this no longer exists
 function Player:damage(amount, source)
     -- Apply a force that shoves the player away from the source
     -- FIXME this should maybe be using the direction vector passed to

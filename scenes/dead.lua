@@ -96,7 +96,8 @@ function DeadScene:keypressed(key, scancode, isrepeat)
                     player:move_to(player.ptrs.savepoint.pos + Vector(0, 16))
                     player:resurrect()
                     -- TODO hm..  this will need doing anytime the player is forcibly moved
-                    worldscene:update_camera()
+                    -- FIXME in the middle of a fox flux overhaul of this
+                    --worldscene:update_camera()
                 end))
         end
     end

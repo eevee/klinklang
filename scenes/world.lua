@@ -214,26 +214,22 @@ function WorldScene:read_player_input(dt)
     -- it considers holding left+right to be no movement at all, which is bogus
     local walk_x = read_key_axis('left', 'right')
     local walk_y = read_key_axis('up', 'down')
-    self.player:decide_move(walk_x, walk_y)
+    self.player.walk_component:decide(walk_x, walk_y)
 
     local climb = read_key_axis('ascend', 'descend')
-    if climb == 0 then
-        self.player:decide_pause_climbing()
-    else
-        self.player:decide_climb(climb)
-    end
+    self.player.climb_component:decide(climb)
 
     -- Jumping is slightly more subtle.  The initial jump is an instant action,
     -- but /continuing/ to jump is a continuous action.
     if game.input:pressed('jump') then
-        self.player:decide_jump()
+        self.player.jump_component:decide(true)
     end
     if not game.input:down('jump') then
-        self.player:decide_abandon_jump()
+        self.player.jump_component:decide(false)
     end
 
     if game.input:pressed('use') then
-        self.player:decide_use()
+        self.player.interactor_component:decide()
     end
 end
 
