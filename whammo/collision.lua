@@ -119,7 +119,7 @@ function Collision.slide_along_normals(class, collisions, direction)
     -- like this?  should i be taking new ones?
     -- FIXME the "two different collisions" case is wrong; if you run smack into something, you'll get the same normal on both sides.  the trouble is that this is used to slide velocity, which is not necessarily pointing in the same direction as the movement was to get these normals.  this SHOULD still be enough information, i just need to use it a bit better
 
-    for _, collision in pairs(collisions) do
+    for _, collision in ipairs(collisions) do
         -- FIXME probably only consider "slide" when the given vector is not in fact perpendicular?
         -- FIXME hey hey also, should we be using success_state here?
         if not collision.passable or collision.passable == 'slide' then

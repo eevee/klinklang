@@ -103,6 +103,7 @@ function Collider:sweep(shape, attempted, pass_callback)
     -- stop at the first that blocks us
     table.sort(collisions, _collision_sort)
     local allowed_fraction
+    local seen = {}
     local hits = {}
     local our_owner = self:get_owner(shape)
     for i, collision in ipairs(collisions) do
@@ -152,7 +153,11 @@ function Collider:sweep(shape, attempted, pass_callback)
         end
 
         -- Log contacts in the order we encounter them
-        hits[collision.their_shape] = collision
+        -- FIXME should this use owner instead?  should we just return collisions instead of building a new list?
+        if seen[collision.their_shape] == nil then
+            seen[collision.their_shape] = true
+            table.insert(hits, collision)
+        end
     end
 
     local successful
@@ -166,7 +171,7 @@ function Collider:sweep(shape, attempted, pass_callback)
 
     -- Tell all the collisions about the movement results
     -- TODO maybe this belongs on a "set of collisions" type?
-    for _, collision in pairs(hits) do
+    for _, collision in ipairs(hits) do
         collision.successful = successful
         collision.success_fraction = allowed_fraction
 
@@ -263,7 +268,7 @@ function Collider:raycast(start, direction, distance, filter_func)
         -- This is the dot product with the most distant acceptable point
         local maximum_dot = (start + direction * distance) * direction
         if nearest_dot > maximum_dot then
-            return nil, math.huge
+            return nil, nil
         end
     end
 
