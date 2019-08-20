@@ -105,6 +105,10 @@ function BareActor:get(slot)
 end
 
 function BareActor:each(method, ...)
+    if not self.components then
+        return
+    end
+
     for _, component in ipairs(self.component_order) do
         component[method](component, ...)
     end
@@ -123,9 +127,7 @@ end
 function BareActor:on_enter(map)
     self.map = map
 
-    print('enter', self)
     if self.shape then
-        print('...adding to collider')
         map.collider:add(self.shape, self)
     end
 end

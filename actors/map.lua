@@ -287,7 +287,6 @@ function TiledMapLayer:on_enter(map)
     self:_make_shapes_and_actors()
 
     for shape, tile in pairs(self.shapes) do
-        print('adding', shape, tile)
         map.collider:add(shape, self.tile_actors[tile])
     end
 end

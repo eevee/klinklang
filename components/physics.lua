@@ -193,8 +193,9 @@ function Move:_collision_callback(collision, pushers, already_hit)
     local passable = self:on_collide_with(obstacle, collision)
 
     -- Check for carrying
-    if obstacle and self.actor.can_carry then
-        if self.actor.cargo[obstacle] and self.actor.cargo[obstacle].state == CARGO_CARRYING then
+    local tote = self:get('tote')
+    if obstacle and self.actor.can_carry and tote then
+        if tote.cargo[obstacle] and tote.cargo[obstacle].state == CARGO_CARRYING then
             -- If the other obstacle is already our cargo, ignore collisions with
             -- it for now, since we'll move it at the end of nudge()
             -- FIXME this is /technically/ wrong if the carrier is blockable, but so
@@ -216,7 +217,7 @@ function Move:_collision_callback(collision, pushers, already_hit)
             -- will be too so this isn't a huge deal
             local nudge = collision.attempted * (1 - math.max(0, collision.contact_start))
             if not _is_vector_almost_zero(nudge) then
-                obstacle:nudge(nudge, pushers)
+                obstacle:get('move'):nudge(nudge, pushers)
             end
             return true
         end
@@ -227,6 +228,7 @@ function Move:_collision_callback(collision, pushers, already_hit)
     if obstacle and
         -- It has to be pushable, of course
         self.actor.can_push and obstacle.is_pushable and
+        tote and
         -- It has to be in our way (including slides, to track pushable)
         (not passable or passable == 'slide') and
         -- We can't be overlapping...?
@@ -278,12 +280,12 @@ function Move:_collision_callback(collision, pushers, already_hit)
 
         -- Snag any existing manifest so we can update it
         -- XXX if we get rid of manifest.velocity then this might not matter, just overwrite it?  but note that we do use expiring == nil to detect new pushes specifically
-        local manifest = self.actor.cargo[obstacle]
+        local manifest = tote.cargo[obstacle]
         if manifest then
             manifest.expiring = false
         else
             manifest = {}
-            self.actor.cargo[obstacle] = manifest
+            tote.cargo[obstacle] = manifest
         end
         manifest.normal = axis
 
@@ -333,6 +335,8 @@ function Move:nudge(movement, pushers, xxx_no_slide)
     if movement.x ~= movement.x or movement.y ~= movement.y then
         error(("Refusing to nudge actor %s by NaN vector %s"):format(self.actor, movement))
     end
+
+    local t0 = love.timer.getTime()
 
     pushers = pushers or {}
     pushers[self.actor] = true
@@ -421,6 +425,8 @@ function Move:nudge(movement, pushers, xxx_no_slide)
             end
         end
     end
+
+    _collision_detection_timer = (_collision_detection_timer or 0) + (love.timer.getTime() - t0)
 
     pushers[self.actor] = nil
     return total_movement, hits
