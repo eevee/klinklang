@@ -3,25 +3,26 @@ local Vector = require 'klinklang.vendor.hump.vector'
 local Component = require 'klinklang.components.base'
 local Collision = require 'klinklang.whammo.collision'
 
--- Physical presence: this thing has a shape
+-- Physical presence: this thing has a shape and thus exists physically in the
+-- map (and its collider)
 local Exist = Component:extend{
     slot = 'exist',
 
     shape = nil,
 }
 
-function Exist:init(shape)
-    Exist.__super.init()
+function Exist:init(actor, args)
+    Exist.__super.init(self, actor, args)
 
-    self.shape = shape
+    self.shape = args.shape
 end
 
-function Exist:on_enter(actor, map)
-    map.collider:add(self.shape, actor)
+function Exist:on_enter(map)
+    map.collider:add(self.shape, self.actor)
 end
 
-function Exist:on_leave(actor)
-    actor.map.collider:remove(self.shape)
+function Exist:on_leave()
+    self.actor.map.collider:remove(self.shape)
 end
 
 
@@ -36,17 +37,27 @@ local CARGO_BLOCKED = 'blocked'
 -- mostly via collision
 local Move = Component:extend{
     slot = 'move',
+    priority = 100,
 
-    skip_zero_nudge = false,
     min_speed = 1,
     max_speed = 1536,
+    -- If true, zero nudges are ignored, meaning that collision callbacks
+    -- aren't fired.  Appropriate for fixed objects like platforms or
+    -- decorations, but not so much for players and critters.
+    skip_zero_nudge = false,
+    -- If true, this object is unstoppable and cannot be blocked by anything
+    -- for any reason.
+    -- TODO this used to be is_blockable = false, but i don't remember why i want it, and anyway i could just extend this component a bit?
+    is_juggernaut = false,
 
     velocity = nil,
     pending_velocity = nil,
     pending_force = nil,
 }
 
-function Move:init()
+function Move:init(actor, args)
+    Move.__super.init(self, actor, args)
+
     -- Intrinsic velocity as of the last time we moved.  Please don't modify!
     self.velocity = Vector()
     -- TODO effective overall velocity?
@@ -70,7 +81,7 @@ function Move:push(dv)
     self.pending_velocity = self.pending_velocity + dv
 end
 
-function Move:update(actor, dt)
+function Move:update(dt)
     -- Stash our current velocity, before gravity and friction and other
     -- external forces.  This is (more or less) the /attempted/ movement for a
     -- sentient actor, and lingering momentum for any mobile actor, which is
@@ -110,24 +121,9 @@ function Move:update(actor, dt)
     end
 
     -- Collision time!
-    local movement, hits = self:nudge(actor, attempted)
+    local movement, hits = self:nudge(attempted)
 
-    if actor.gravity_component then
-        actor.gravity_component:after_collisions(actor, movement, hits)
-    end
-
-    if actor.tote_component then
-        actor.tote_component:after_collisions(actor, movement, hits)
-    end
-
-    if actor.interactor_component then
-        actor.interactor_component:after_collisions(actor, movement, hits)
-    end
-
-    if actor.climb_component then
-        actor.climb_component:after_collisions(actor, movement, hits)
-    end
-
+    self.actor:each('after_collisions', movement, hits)
 
     -- Trim velocity as necessary, based on our last slide
     -- FIXME this is clearly wrong and we need to trim it as we go, right?
@@ -145,7 +141,7 @@ end
 -- Lower-level function passed to the collider to determine whether another
 -- object blocks us
 -- FIXME now that they're next to each other, these two methods look positively silly!  and have a bit of a symmetry problem: the other object can override via the simple blocks(), but we have this weird thing
-function Move:on_collide_with(actor, obstacle, collision)
+function Move:on_collide_with(obstacle, collision)
     -- Moving away is always fine
     if collision.contact_type < 0 then
         return true
@@ -172,7 +168,7 @@ function Move:on_collide_with(actor, obstacle, collision)
     return false
 end
 
-function Move:_collision_callback(actor, collision, pushers, already_hit)
+function Move:_collision_callback(collision, pushers, already_hit)
     local obstacle = collision.their_owner
 
     -- Only announce a hit once per frame
@@ -183,7 +179,7 @@ function Move:_collision_callback(actor, collision, pushers, already_hit)
     if obstacle and not hit_this_actor then
         -- FIXME movement is fairly misleading and i'm not sure i want to
         -- provide it, at least not in this order
-        obstacle:on_collide(actor, movement, collision)
+        obstacle:on_collide(self.actor, movement, collision)
         already_hit[obstacle] = true
     end
 
@@ -194,11 +190,11 @@ function Move:_collision_callback(actor, collision, pushers, already_hit)
 
     -- FIXME again, i would love a better way to expose a normal here.
     -- also maybe the direction of movement is useful?
-    local passable = self:on_collide_with(actor, obstacle, collision)
+    local passable = self:on_collide_with(obstacle, collision)
 
     -- Check for carrying
-    if obstacle and actor.can_carry then
-        if actor.cargo[obstacle] and actor.cargo[obstacle].state == CARGO_CARRYING then
+    if obstacle and self.actor.can_carry then
+        if self.actor.cargo[obstacle] and self.actor.cargo[obstacle].state == CARGO_CARRYING then
             -- If the other obstacle is already our cargo, ignore collisions with
             -- it for now, since we'll move it at the end of nudge()
             -- FIXME this is /technically/ wrong if the carrier is blockable, but so
@@ -230,7 +226,7 @@ function Move:_collision_callback(actor, collision, pushers, already_hit)
     -- FIXME i'm starting to think this belongs in nudge(), not here, since we don't even know how far we'll successfully move yet
     if obstacle and
         -- It has to be pushable, of course
-        actor.can_push and obstacle.is_pushable and
+        self.actor.can_push and obstacle.is_pushable and
         -- It has to be in our way (including slides, to track pushable)
         (not passable or passable == 'slide') and
         -- We can't be overlapping...?
@@ -240,9 +236,9 @@ function Move:_collision_callback(actor, collision, pushers, already_hit)
         -- FIXME wellll, arguably, aircontrol should factor in.  also, objects
         -- with no gravity are probably exempt from this
         -- FIXME hm, what does no gravity component imply here?
-        actor.gravity_component and actor.gravity_component.grounded and
+        self:get('fall') and self:get('fall').grounded and
         -- We can't push the ground
-        actor.ptrs.ground ~= obstacle and
+        self.actor.ptrs.ground ~= obstacle and
         -- We can only push things sideways
         -- FIXME this seems far too restrictive, but i don't know what's
         -- correct here.  also this is wrong for no-grav objects, which might
@@ -265,7 +261,7 @@ function Move:_collision_callback(actor, collision, pushers, already_hit)
         local nudge = collision.attempted * (1 - math.max(0, collision.contact_start))
         -- You can only push along the ground, so remove any component along
         -- the ground normal
-        nudge = nudge - nudge:projectOn(actor.gravity_component.ground_normal)
+        nudge = nudge - nudge:projectOn(self:get('fall').ground_normal)
         -- Only push in the direction the collision occurred!  If several
         -- directions, well, just average them
         local axis
@@ -282,12 +278,12 @@ function Move:_collision_callback(actor, collision, pushers, already_hit)
 
         -- Snag any existing manifest so we can update it
         -- XXX if we get rid of manifest.velocity then this might not matter, just overwrite it?  but note that we do use expiring == nil to detect new pushes specifically
-        local manifest = actor.cargo[obstacle]
+        local manifest = self.actor.cargo[obstacle]
         if manifest then
             manifest.expiring = false
         else
             manifest = {}
-            actor.cargo[obstacle] = manifest
+            self.actor.cargo[obstacle] = manifest
         end
         manifest.normal = axis
 
@@ -303,7 +299,7 @@ function Move:_collision_callback(actor, collision, pushers, already_hit)
             -- /it's/ pushing, which will help us figure out how much to cut
             -- our velocity in our own update()
             print("about to nudge", obstacle, collision.attempted, nudge, obstacle.is_pushable, obstacle.is_portable)
-            local actual = obstacle.move_component:nudge(obstacle, nudge, pushers)
+            local actual = obstacle:get('move'):nudge(obstacle, nudge, pushers)
             -- If we successfully moved it, ask collision detection to
             -- re-evaluate this collision
             if not _is_vector_almost_zero(actual) then
@@ -317,7 +313,7 @@ function Move:_collision_callback(actor, collision, pushers, already_hit)
             already_hit[obstacle] = 'nudged'
         end
     end
-    if not actor.is_blockable and not passable then
+    if self.is_juggernaut and not passable then
         return true
     else
         return passable
@@ -330,21 +326,21 @@ end
 -- - player briefly falls when standing on a crate moving downwards -- one frame?
 -- - what's the difference between carry and push, if a carrier can push?
 -- FIXME i do feel like more of this should be back in whammo; i don't think the below loop is especially necessary to have here, for example
-function Move:nudge(actor, movement, pushers, xxx_no_slide)
-    if actor.shape == nil then
-        error(("Can't nudge actor %s without a collision shape"):format(actor))
+function Move:nudge(movement, pushers, xxx_no_slide)
+    if self.actor.shape == nil then
+        error(("Can't nudge actor %s without a collision shape"):format(self.actor))
     end
     if movement.x ~= movement.x or movement.y ~= movement.y then
-        error(("Refusing to nudge actor %s by NaN vector %s"):format(actor, movement))
+        error(("Refusing to nudge actor %s by NaN vector %s"):format(self.actor, movement))
     end
 
     pushers = pushers or {}
-    pushers[actor] = true
+    pushers[self.actor] = true
 
     -- Set up the hit callback, which also tells other actors that we hit them
     local already_hit = {}
     local pass_callback = function(collision)
-        return self:_collision_callback(actor, collision, pushers, already_hit)
+        return self:_collision_callback(collision, pushers, already_hit)
     end
 
     -- Main movement loop!  Try to slide in the direction of movement; if that
@@ -355,9 +351,9 @@ function Move:nudge(actor, movement, pushers, xxx_no_slide)
     local stuck_counter = 0
     while true do
         local successful
-        successful, hits = actor.map.collider:sweep(actor.shape, movement, pass_callback)
-        actor.shape:move(successful:unpack())
-        actor.pos = actor.pos + successful
+        successful, hits = self.actor.map.collider:sweep(self.actor.shape, movement, pass_callback)
+        self.actor.shape:move(successful:unpack())
+        self.actor.pos = self.actor.pos + successful
         total_movement = total_movement + successful
 
         if xxx_no_slide then
@@ -387,7 +383,7 @@ function Move:nudge(actor, movement, pushers, xxx_no_slide)
             stuck_counter = stuck_counter + 1
             if stuck_counter >= 3 then
                 if game.debug then
-                    print("!!!  BREAKING OUT OF LOOP BECAUSE WE'RE STUCK, OOPS", actor, movement, remaining)
+                    print("!!!  BREAKING OUT OF LOOP BECAUSE WE'RE STUCK, OOPS", self.actor, movement, remaining)
                 end
                 break
             end
@@ -404,7 +400,7 @@ function Move:nudge(actor, movement, pushers, xxx_no_slide)
         if hit_type == 'nudged' then
             -- FIXME auughhhh
             for _, hit in ipairs(hits) do
-                if actor.map.collider:get_owner(hit.our_shape) == obstacle then
+                if self.actor.map.collider:get_owner(hit.our_shape) == obstacle then
                     hit.passable = 'pushed'
                 end
             end
@@ -417,16 +413,16 @@ function Move:nudge(actor, movement, pushers, xxx_no_slide)
     -- by collecting all nudges...?  important for some stuff like glass lexy
     -- FIXME doesn't check can_carry, because it needs to handle both
     -- XXX this should be in Tote, of course, but where exactly?
-    if actor.tote_component and not _is_vector_almost_zero(total_movement) then
-        local tote = actor.tote_component
+    local tote = self:get('tote')
+    if tote and not _is_vector_almost_zero(total_movement) then
         for obstacle, manifest in pairs(tote.cargo) do
-            if manifest.state == CARGO_CARRYING and actor.can_carry then
-                obstacle.move_component:nudge(obstacle, total_movement, pushers)
+            if manifest.state == CARGO_CARRYING and self.actor.can_carry then
+                obstacle:get('move'):nudge(total_movement, pushers)
             end
         end
     end
 
-    pushers[actor] = nil
+    pushers[self.actor] = nil
     return total_movement, hits
 end
 
@@ -442,15 +438,17 @@ local Fall2D = Component:extend{
     slot = 'fall',
 }
 
-function Fall2D:init(friction_decel)
-    self.friction_decel = friction_decel
+function Fall2D:init(actor, args)
+    Fall2D.__super.init(self, actor, args)
+
+    self.friction_decel = args.friction_decel or 0
 end
 
-function Fall2D:get_friction(actor, normalized_direction)
+function Fall2D:get_friction(normalized_direction)
     -- In top-down mode, everything is always on flat ground, so
     -- friction is always the full amount, away from velocity
     -- FIXME should be carried mass...?
-    return normalized_direction:normalized() * (-self.friction_decel * actor.mass)
+    return normalized_direction:normalized() * (-self.friction_decel * self.actor.mass)
 end
 
 
@@ -461,12 +459,12 @@ local Fall = Fall2D:extend{
     terminal_speed = 1536,
 }
 
-function Fall:init(...)
-    Fall.__super.init(self, ...)
+function Fall:init(actor, args)
+    Fall.__super.init(self, actor, args)
 
     -- FIXME are these actually used for anything interesting?  pooltoy i guess, but i think by far the most common use is just to disable gravity, which...  is...  much easier now...
-    self.multiplier = 1
-    self.multiplier_down = 1
+    self.multiplier = args.multiplier or 1
+    self.multiplier_down = args.multiplier or 1
 
     -- TODO should have a gravity prop that gets early_updated or something
 end
@@ -485,12 +483,12 @@ function Fall:get_base_gravity()
 end
 
 -- XXX this is a FORCE, NOT acceleration!  and it is NOT trimmed to velocity
-function Fall:get_friction(actor, normalized_direction)
+function Fall:get_friction(normalized_direction)
     if self.ground_normal then
         local gravity1 = self:get_base_gravity():normalized()
         -- Get the strength of the normal force by dotting the ground normal
         -- with gravity
-        local normal_strength = gravity1 * self.ground_normal * self:_get_carried_mass(actor)
+        local normal_strength = gravity1 * self.ground_normal * self:_get_carried_mass()
         local friction = self.ground_normal:perpendicular() * (self.friction_decel * self.ground_friction * normal_strength)
         local dot = friction * normalized_direction
         if math.abs(dot) < 1e-8 then
@@ -509,18 +507,18 @@ function Fall:get_friction(actor, normalized_direction)
 end
 
 -- Return the mass of ourselves, plus everything we're pushing or carrying
-function Fall:_get_total_friction(actor, direction, _seen)
+function Fall:_get_total_friction(direction, _seen)
     direction = direction:normalized()
     if not _seen then
         _seen = {}
     elseif _seen[self] then
-        print("!!! FOUND A CARGO LOOP", self)
+        print("!!! FOUND A CARGO LOOP in _get_total_friction", self.actor)
         for k in pairs(_seen) do print('', k) end
         return Vector.zero
     end
     _seen[self] = true
 
-    local friction = self.gravity_component:get_friction(self, direction)
+    local friction = self:get('fall'):get_friction(self, direction)
 
     for cargum, manifest in pairs(self.cargo) do
         if manifest.state ~= CARGO_CARRYING and manifest.normal * direction < 0 then
@@ -532,31 +530,34 @@ function Fall:_get_total_friction(actor, direction, _seen)
 end
 
 -- XXX this is only used here; how is it different from _get_total_mass?  that one also includes stuff we're pushing, but if this is used for friction...?
-function Fall:_get_carried_mass(actor, _seen)
+function Fall:_get_carried_mass(_seen)
     if not _seen then
         _seen = {}
     elseif _seen[self] then
-        print("!!! FOUND A CARGO LOOP", self)
+        print("!!! FOUND A CARGO LOOP in _get_carried_mass", self)
         for k in pairs(_seen) do print('', k) end
         return 0
     end
     _seen[self] = true
 
-    local mass = actor.mass
-    if actor.tote_component then
-        for cargum, manifest in pairs(actor.tote_component.cargo) do
+    local mass = self.actor.mass
+    local tote = self:get('tote')
+    if tote then
+        for cargum, manifest in pairs(tote.cargo) do
             if manifest.state == CARGO_CARRYING then
-                mass = mass + cargum.gravity_component:_get_carried_mass(cargum, _seen)
+                mass = mass + cargum:get('fall'):_get_carried_mass(cargum, _seen)
             end
         end
     end
     return mass
 end
 
-function Fall:update(actor, dt)
+function Fall:update(dt)
+    Fall.__super.update(self, dt)
+
     -- TODO factor the ground_friction constant into this, and also into slope
     -- resistance
-    local move = actor.move_component
+    local move = self:get('move')
     local multiplier = self.multiplier
     -- TODO gravity dependence
     if move.velocity.y >= 0 then
@@ -582,14 +583,14 @@ function Fall:update(actor, dt)
     -- velocity (like a moving platform) or something immobile
     -- XXX there's cargo stuff in here
     -- XXX frame_velocity and attempted_velocity don't exist yet, figure that out
-    local friction_force = self:get_friction(actor, move.velocity)
+    local friction_force = self:get_friction(move.velocity)
     -- Add up all the friction of everything we're pushing (recursively, since
     -- those things may also be pushing/carrying things)
     -- FIXME each cargo is done independently, so there's a risk of counting
     -- twice?  is there a reason we can't just call _get_total_friction on
     -- ourselves here?
     -- XXX uhh how do we get cargo to override this or whatever
-    local tote = actor.tote_component
+    local tote = self:get('tote')
     if tote then
         for cargum, manifest in pairs(tote.cargo) do
             if (manifest.state == CARGO_PUSHING or manifest.state == CARGO_COULD_PUSH) and manifest.normal * attempted_velocity < -1e-8 then
@@ -606,9 +607,9 @@ function Fall:update(actor, dt)
         -- FIXME hey um what about the force of pushing a thing uphill
         local total_mass
         if tote then
-            total_mass = tote:_get_total_mass(actor, attempted_velocity)
+            total_mass = tote:_get_total_mass(attempted_velocity)
         else
-            total_mass = actor.mass
+            total_mass = self.actor.mass
         end
         local friction_delta = friction_force * (dt / total_mass)
         local friction_delta1 = friction_delta:normalized()
@@ -617,11 +618,11 @@ function Fall:update(actor, dt)
     end
 end
 
-function Fall:after_collisions(actor, movement, collisions)
-    self:check_for_ground(actor, collisions)
+function Fall:after_collisions(movement, collisions)
+    self:check_for_ground(collisions)
 end
 
-function Fall:check_for_ground(actor, hits)
+function Fall:check_for_ground(hits)
     local gravity = self:get_base_gravity()
 
     -- Ground test: did we collide with something facing upwards?
@@ -670,7 +671,7 @@ function Fall:check_for_ground(actor, hits)
                 if obstacle then
                     friction = obstacle.friction_multiplier
                     terrain = obstacle.terrain_type
-                    if obstacle.can_carry and actor.is_portable then
+                    if obstacle.can_carry and self.actor.is_portable then
                         carrier = obstacle
                         carrier_normal = norm
                     end
@@ -688,7 +689,7 @@ function Fall:check_for_ground(actor, hits)
                 local obstacle2 = collision.their_owner
                 if obstacle2 then
                     -- Prefer to stay on the same ground actor
-                    if not (obstacle and obstacle == actor.ptrs.ground) then
+                    if not (obstacle and obstacle == self.actor.ptrs.ground) then
                         obstacle = obstacle2
                     end
 
@@ -707,7 +708,7 @@ function Fall:check_for_ground(actor, hits)
                     terrain = obstacle2.terrain_type or terrain
 
                     -- Prefer to stay on the same carrier
-                    if obstacle2.can_carry and actor.is_portable and not (carrier and carrier == actor.ptrs.cargo_of) then
+                    if obstacle2.can_carry and self.actor.is_portable and not (carrier and carrier == self.actor.ptrs.cargo_of) then
                         carrier = obstacle2
                         carrier_normal = norm
                     end
@@ -722,24 +723,24 @@ function Fall:check_for_ground(actor, hits)
     self.ground_friction = friction or 1
     self.ground_terrain = terrain
 
-    if actor.ptrs.cargo_of and actor.ptrs.cargo_of ~= carrier then
-        actor.ptrs.cargo_of.cargo[actor] = nil
-        actor.ptrs.cargo_of = nil
+    if self.actor.ptrs.cargo_of and self.actor.ptrs.cargo_of ~= carrier then
+        self.actor.ptrs.cargo_of.cargo[self.actor] = nil
+        self.actor.ptrs.cargo_of = nil
     end
     -- TODO i still feel like there should be some method for determining whether we're being carried
     -- TODO still seems rude that we inject ourselves into their cargo also
     if carrier then
-        local manifest = carrier.cargo[actor]
+        local manifest = carrier.cargo[self.actor]
         if manifest then
             manifest.expiring = false
         else
             manifest = {}
-            carrier.cargo[actor] = manifest
+            carrier.cargo[self.actor] = manifest
         end
         manifest.state = CARGO_CARRYING
         manifest.normal = carrier_normal
 
-        actor.ptrs.cargo_of = carrier
+        self.actor.ptrs.cargo_of = carrier
     end
 end
 
@@ -747,13 +748,14 @@ end
 -- Gravity for sentient actors; includes extra behavior for dealing with slopes
 local SentientFall = Fall:extend{}
 
-function SentientFall:init(max_slope, ...)
-    SentientFall.__super.init(self, ...)
-    self.max_slope = max_slope
+function SentientFall:init(actor, args)
+    SentientFall.__super.init(self, actor, args)
+
+    self.max_slope = args.max_slope
 end
 
-function SentientFall:check_for_ground(actor, ...)
-    SentientFall.__super.check_for_ground(self, actor, ...)
+function SentientFall:check_for_ground(...)
+    SentientFall.__super.check_for_ground(self, ...)
 
     local gravity = self:get_base_gravity()
     local max_slope_dot = self.max_slope * gravity
@@ -769,18 +771,18 @@ function SentientFall:check_for_ground(actor, ...)
     -- Also they don't count as cargo if the contact normal is too steep
     -- TODO this is kind of weirdly inconsistent given that it works for
     -- non-sentient actors...?  should max_slope get hoisted just for this?
-    if actor.ptrs.cargo_of then
-        local carrier = actor.ptrs.cargo_of
-        local manifest = carrier.cargo[actor]
+    if self.actor.ptrs.cargo_of then
+        local carrier = self.actor.ptrs.cargo_of
+        local manifest = carrier.cargo[self.actor]
         if manifest and manifest.normal * gravity - max_slope_dot > 1e-8 then
             carrier.cargo[self] = nil
-            actor.ptrs.cargo_of = nil
+            self.actor.ptrs.cargo_of = nil
         end
     end
 end
 
-function SentientFall:update(actor, dt)
-    SentientFall.__super.update(self, actor, dt)
+function SentientFall:update(dt)
+    SentientFall.__super.update(self, dt)
 
     -- Slope resistance: a sentient actor will resist sliding down a slope
     if not self.grounded then
@@ -801,13 +803,14 @@ function SentientFall:update(actor, dt)
         slope = -slope
     end
     local slope_resistance = -(gravity * slope)
-    actor.pending_force = actor.pending_force + slope_resistance * slope
+    local move = self.actor:get('move')
+    move.pending_force = move.pending_force + slope_resistance * slope
 end
 
-function SentientFall:after_collisions(actor, movement, collisions)
+function SentientFall:after_collisions(movement, collisions)
     local was_on_ground = self.grounded
 
-    SentientFall.__super.after_collisions(self, actor, movement, collisions)
+    SentientFall.__super.after_collisions(self, movement, collisions)
 
     -- Ground adherence
     -- If we walk up off the top of a hill, our momentum will carry us into the
@@ -822,7 +825,7 @@ function SentientFall:after_collisions(actor, movement, collisions)
     -- FIXME ah, no was_on_ground here
     if was_on_ground and not self.ground_normal and
         not self.was_launched and
-        actor.jump_component.decision == 0 and not actor.climb_component.is_climbing and
+        self.actor:get('jump').decision == 0 and not self.actor:get('climb').is_climbing and
         self.multiplier > 0 and self.multiplier_down > 0
     then
         local gravity = self:get_base_gravity()
@@ -851,33 +854,34 @@ function SentientFall:after_collisions(actor, movement, collisions)
         -- little further than our max, just because that's an easy way to
         -- distinguish exactly hitting the ground from not hitting anything.
         -- TODO this all seems a bit ad-hoc, like the sort of thing that oughta be on Map
-        local prelim_movement = actor.map.collider:sweep(actor.shape, drop * 1.1, function(collision)
+        local prelim_movement = self.actor.map.collider:sweep(self.actor.shape, drop * 1.1, function(collision)
             if collision.contact_type <= 0 then
                 return true
             end
             local obstacle = collision.their_owner
-            if obstacle == actor then
+            if obstacle == self.actor then
                 return true
             end
             if obstacle then
-                return not obstacle:blocks(actor, collision)
+                return not obstacle:blocks(self.actor, collision)
             else
                 return false
             end
         end)
 
         if prelim_movement:len2() <= drop:len2() then
+            local move = self.actor:get('move')
             -- We hit the ground!  Do that again, but for real this time.
-            local drop_movement, hits = actor:nudge(drop, nil, true)
+            local drop_movement, hits = move:nudge(drop, nil, true)
             movement = movement + drop_movement
-            self:check_for_ground(actor, hits)
+            self:check_for_ground(hits)
             -- FIXME update outer movement + hits??
 
             if self.grounded then
                 -- Now we're on the ground, so flatten our velocity to indicate
                 -- we're walking along it.  Or equivalently, remove the part
                 -- that's trying to launch us upwards.
-                actor.velocity = actor.velocity - actor.velocity:projectOn(self.ground_normal)
+                move.velocity = move.velocity - move.velocity:projectOn(self.ground_normal)
             end
         end
     end

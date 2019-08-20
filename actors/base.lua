@@ -22,16 +22,62 @@ local BareActor = Object:extend{
     -- Used for debug printing; should only be used for abstract types
     _type_name = 'BareActor',
 
+    COMPONENTS = {},
+    components = nil,
+    component_order = nil,
+
     -- Table of all known actor types, indexed by name
     name = nil,
     _ALL_ACTOR_TYPES = {},
 }
+
+function BareActor:init()
+    self.components = {}
+    self.component_order = {}
+    for component_type, args in pairs(self.COMPONENTS) do
+        local component = component_type(self, args)
+        self.components[component_type.slot] = component
+        table.insert(self.component_order, component)
+    end
+    -- TODO could skip this if we did it once in extend?
+    table.sort(self.component_order, function(a, b)
+        return a.priority < b.priority
+    end)
+end
 
 function BareActor:extend(...)
     local class = BareActor.__super.extend(self, ...)
     if class.name ~= nil then
         self._ALL_ACTOR_TYPES[class.name] = class
     end
+
+    -- Special behavior for COMPONENTS
+    if self.COMPONENTS ~= class.COMPONENTS then
+        local theirs_by_slot = {}
+        for component_type in pairs(class.COMPONENTS) do
+            theirs_by_slot[component_type.slot] = component_type
+        end
+
+        for component_type, args in pairs(self.COMPONENTS) do
+            local theirs = theirs_by_slot[component_type.slot]
+            if theirs == nil then
+                -- They don't specify this slot at all, so copy ours in
+                class.COMPONENTS[component_type] = args
+            elseif theirs:isa(component_type) then
+                -- They use the same component type (or a subclass), so copy in
+                -- any old arguments
+                local their_args = class.COMPONENTS[theirs]
+                for key, value in pairs(args) do
+                    if their_args[key] == nil then
+                        their_args[key] = value
+                    end
+                end
+            end
+            -- Otherwise, they use a completely different component type, which
+            -- should override ours
+        end
+    end
+
     return class
 end
 
@@ -48,8 +94,26 @@ function BareActor:get_named_type(name)
 end
 
 
+-- Component handling
+function BareActor:get(slot)
+    if not self.components then
+        return nil
+    end
+
+    -- XXX i guess maybe this should be on Actor, and BareActor can have zero components
+    return self.components[slot]
+end
+
+function BareActor:each(method, ...)
+    for _, component in ipairs(self.component_order) do
+        component[method](component, ...)
+    end
+end
+
+
 -- Main update and draw loops
 function BareActor:update(dt)
+    self:each('update', dt)
 end
 
 function BareActor:draw()
@@ -59,7 +123,9 @@ end
 function BareActor:on_enter(map)
     self.map = map
 
+    print('enter', self)
     if self.shape then
+        print('...adding to collider')
         map.collider:add(self.shape, self)
     end
 end
@@ -99,6 +165,13 @@ function BareActor:destroy()
     self.map:delayed_remove_actor(self)
 end
 
+-- Draw the collision shape, for the debug layer
+function BareActor:draw_shape(mode)
+    if self.shape then
+        self.shape:draw(mode)
+    end
+end
+
 
 -- ========================================================================== --
 -- Actor
@@ -135,6 +208,8 @@ local Actor = BareActor:extend{
 }
 
 function Actor:init(position)
+    Actor.__super.init(self)
+
     self.pos = position
 
     -- Table of weak references to other actors
@@ -158,7 +233,9 @@ function Actor:init(position)
             self.shape = self.sprite.shape:clone()
             self.shape._xxx_is_one_way_platform = self.sprite.shape._xxx_is_one_way_platform
             self.shape:move_to(position:unpack())
-            self.exist_component = components_physics.Exist(self.shape)
+            -- XXX how do i get this in here when it comes from Tiled?
+            -- XXX for that matter, how do i get arbitrary tiled arguments in here?  i guess that oughta be a, thing
+            --self.exist_component = components_physics.Exist(self.shape)
         end
     end
 end
@@ -169,6 +246,7 @@ function Actor:update(dt)
     if self.sprite then
         self.sprite:update(dt)
     end
+    Actor.__super.update(self, dt)
 end
 
 -- Draw the actor
@@ -271,20 +349,15 @@ local MobileActor = Actor:extend{
     pending_force = nil,
     cargo = nil,  -- Set of currently-carried objects
     total_mass = nil,
+
+    COMPONENTS = {
+        [components_physics.Fall] = {
+            friction_decel = 256,
+        },
+        [components_physics.Move] = {},
+        --[components_cargo.Tote]
+    },
 }
-
-function MobileActor:init(...)
-    MobileActor.__super.init(self, ...)
-
-    self.velocity = Vector()
-    self.pending_force = Vector()
-
-    self.gravity_component = components.Fall(self.friction_decel)
-    self.move_component = components_physics.Move()
-    if self.can_push or self.can_carry then
-        self.tote_component = components_cargo.Tote()
-    end
-end
 
 function MobileActor:blocks(actor, d)
     return true
@@ -303,22 +376,6 @@ end
 -- support for properties and change this to an attribute
 function MobileActor:get_fluid_resistance()
     return 1
-end
-
-function MobileActor:update(dt)
-    MobileActor.__super.update(self, dt)
-
-    -- XXX first part of Move:update
-
-    -- Gravity
-    if self.gravity_component then
-        self.gravity_component:update(self, dt)
-    end
-
-    -- XXX second part of Move:update
-
-    self.move_component:update(self, dt)
-
 end
 
 
@@ -373,17 +430,31 @@ local SentientActor = MobileActor:extend{
     is_climbing = false,
     is_dead = false,
     is_locked = false,
+
+    COMPONENTS = {
+        [components.Walk] = {
+            ground_acceleration = 2048,
+            air_acceleration = 512,
+            deceleration = 2048,
+            max_speed = 256,
+        },
+        [components.Jump] = {
+            jump_speed = get_jump_velocity(TILE_SIZE * 2.25),
+            abort_speed = 0.25 * get_jump_velocity(TILE_SIZE * 2.25),
+            -- FIXME jump_sound
+            max_jumps = 1,
+        },
+        [components.Climb] = {
+            climb_speed = 128,
+        },
+        [components.Interact] = {},
+        [components.SentientFall] = {
+            max_slope = Vector(1, -1):normalized(),
+            -- FIXME should be able to subclass a parent's component and not repeat the args
+            friction_decel = 256,
+        },
+    },
 }
-
-function SentientActor:init(...)
-    SentientActor.__super.init(self, ...)
-
-    self.walk_component = components.Walk(self.xaccel, self.xaccel * self.aircontrol, self.deceleration, self.max_speed)
-    self.jump_component = components.Jump(self.jumpvel, self.jumpvel * self.jumpcap, game.resource_manager:get(self.jump_sound))
-    self.climb_component = components.Climb(self.climb_speed)
-    self.interactor_component = components.Interact()
-    self.gravity_component = components.SentientFall(self.max_slope, self.friction_decel)
-end
 
 function SentientActor:get_gravity_multiplier()
     if self.is_climbing and not self.xxx_useless_climb then
@@ -395,7 +466,7 @@ end
 function SentientActor:push(dv)
     SentientActor.__super.push(self, dv)
 
-    if dv * self.gravity_component:get_gravity() < 0 then
+    if dv * self:get('fall'):get_gravity() < 0 then
         self.was_launched = true
     end
 end
@@ -420,34 +491,39 @@ function SentientActor:update(dt)
         return SentientActor.__super.update(self, dt)
     end
 
+    --[[
     if self.think_component then
         self.think_component:update(self, dt)
     end
 
     self.walk_component:update(self, dt)
+    ]]
 
     -- Update facing -- based on the input, not the velocity!
     -- FIXME should this have memory the same way conflicting direction keys do?
     -- FIXME where does this live?  on Walk?  on Think?
-    if math.abs(self.walk_component.decision.x) > math.abs(self.walk_component.decision.y) then
-        if self.walk_component.decision.x < 0 then
+    local walk = self:get('walk')
+    if math.abs(walk.decision.x) > math.abs(walk.decision.y) then
+        if walk.decision.x < 0 then
             self.facing = 'left'
-        elseif self.walk_component.decision.x > 0 then
+        elseif walk.decision.x > 0 then
             self.facing = 'right'
         end
     else
-        if self.walk_component.decision.y < 0 then
+        if walk.decision.y < 0 then
             self.facing = 'up'
-        elseif self.walk_component.decision.y > 0 then
+        elseif walk.decision.y > 0 then
             self.facing = 'down'
         end
     end
 
+    --[[
     -- Jumping
     self.jump_component:update(self, dt)
 
     -- Climbing
     self.climb_component:update(self, dt)
+    ]]
 
     -- Apply physics
     local movement, hits = SentientActor.__super.update(self, dt)
@@ -455,9 +531,11 @@ function SentientActor:update(dt)
     -- Update the pose
     self:update_pose()
 
+    --[[
     -- Use whatever's now in front of us
     -- TODO shouldn't this be earlier?
     self.interactor_component:update(self, dt)
+    ]]
 
     return movement, hits
 end
@@ -480,23 +558,28 @@ function SentientActor:update_pose()
     end
 end
 function SentientActor:determine_pose()
-    if self.health_component and self.health_component.is_dead then
+    local ail = self:get('ail')
+    local climb = self:get('climb')
+    local walk = self:get('walk')
+    local fall = self:get('fall')
+    local move = self:get('move')
+    if ail and ail.is_dead then
         return 'die'
     elseif self.is_floating then
         return 'fall'
-    elseif self.climb_component.is_climbing then
-        if self.climb_component.decision < 0 then
+    elseif climb.is_climbing then
+        if climb.decision < 0 then
             return 'climb'
-        elseif self.climb_component.decision > 0 then
+        elseif climb.decision > 0 then
             return 'descend'
         else
             return 'hold'
         end
-    elseif not self.gravity_component or self.gravity_component.grounded then
-        if self.walk_component.decision ~= Vector.zero then
+    elseif not fall or fall.grounded then
+        if walk.decision ~= Vector.zero then
             return 'walk'
         end
-    elseif self.velocity.y < 0 then
+    elseif move and move.velocity.y < 0 then
         return 'jump'
     else
         return 'fall'

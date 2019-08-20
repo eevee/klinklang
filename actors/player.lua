@@ -18,12 +18,14 @@ local Player = actors_base.SentientActor:extend{
     inventory_cursor = 1,
 
     jump_sound = nil,
+
+    COMPONENTS = {
+        [components.PlayerThink] = {},
+    },
 }
 
 function Player:init(...)
     Player.__super.init(self, ...)
-
-    self.think_component = components.PlayerThink()
 
     -- TODO not sure how i feel about having player state attached to the
     -- actor, but it /does/ make sense, and it's certainly an improvement over
@@ -42,7 +44,7 @@ function Player:move_to(...)
     -- chances are, we're not touching it any more
     -- This is vaguely hacky, but it gets rid of the dang use prompt after
     -- teleporting to the graveyard
-    self.interactor_component.target = nil
+    self:get('interact').target = nil
 end
 
 function Player:update(dt)

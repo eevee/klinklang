@@ -1,6 +1,5 @@
 local Vector = require 'klinklang.vendor.hump.vector'
 
-local Object = require 'klinklang.object'
 local util = require 'klinklang.util'
 local Component = require 'klinklang.components.base'
 local components_physics = require 'klinklang.components.physics'
@@ -17,14 +16,16 @@ local Ail = Component:extend{
     slot = 'ail',
 }
 
-function Ail:init(max_health)
-    self.maximum = max_health
+function Ail:init(actor, args)
+    Ail.__super.init(self, actor)
 
-    self.current = max_health
+    self.maximum = args.max_health
+
+    self.current = self.maximum
     self.is_dead = false
 end
 
-function Ail:damage(actor, amount, type, source)
+function Ail:damage(amount, type, source)
     if self.current == nil or self.is_dead then
         return
     end
@@ -32,12 +33,12 @@ function Ail:damage(actor, amount, type, source)
     self.current = math.max(0, self.current - amount)
     if self.current <= 0 then
         self.is_dead = true
-        self:on_die(actor, source)
+        self:on_die(source)
     end
 end
 
-function Ail:on_die(actor, killer)
-    actor:destroy()
+function Ail:on_die(killer)
+    self.actor:destroy()
 end
 
 
@@ -46,11 +47,11 @@ local React = Component:extend{
     slot = 'react',
 }
 
-function React:on_interact(actor, activator)
+function React:on_interact(activator)
     -- FIXME hm.  this seems like it'd be different for every actor type, which
     -- suggests it's data?  i don't know, i just want to be able to write this
     -- in a simple way
-    actor:on_use(activator)
+    self.actor:on_use(activator)
 end
 
 
@@ -60,15 +61,19 @@ end
 
 -- Walking, either left/right or in all four directions
 local Walk = Component:extend{
+    slot = 'walk',
+
     decision = Vector.zero,
 }
 
 -- TODO air acceleration doesn't make sense for 2D, maybe?
-function Walk:init(ground_acceleration, air_acceleration, deceleration_multiplier, max_speed)
-    self.ground_acceleration = ground_acceleration
-    self.air_acceleration = air_acceleration
-    self.deceleration_multiplier = deceleration_multiplier
-    self.max_speed = max_speed
+function Walk:init(actor, args)
+    Walk.__super.init(self, actor)
+
+    self.ground_acceleration = args.ground_acceleration or 0
+    self.air_acceleration = args.air_acceleration or 0
+    self.deceleration_multiplier = args.deceleration_multiplier or 1
+    self.max_speed = args.max_speed or 0
 end
 
 function Walk:decide(dx, dy)
@@ -76,21 +81,24 @@ function Walk:decide(dx, dy)
     self.decision:normalizeInplace()
 end
 
-function Walk:update(actor, dt)
+function Walk:update(dt)
     -- Walking, in a way that works for both 1D and 2D behavior.  Treat the
     -- player's input (even zero) as a desired velocity, and try to accelerate
     -- towards it, capping if necessary.
 
     -- First figure out our target velocity
     local goal
-    local current = actor.move_component.velocity
+    local current = self:get('move').velocity
     local in_air = false
-    if actor.gravity_component then
+    local fall = self:get('fall')
+    -- XXX genericize this, somehow
+    -- XXX also this is wrong anyway, there's a Fall2D component
+    if fall then
         -- For 1D, find the direction of the ground, so walking on a slope
         -- will attempt to walk *along* the slope, not into it
         local ground_axis
-        if actor.gravity_component.grounded then
-            ground_axis = actor.gravity_component.ground_normal:perpendicular()
+        if fall.grounded then
+            ground_axis = fall.ground_normal:perpendicular()
         else
             -- We're in the air, so movement is horizontal
             ground_axis = Vector(1, 0)
@@ -122,9 +130,10 @@ function Walk:update(actor, dt)
     -- If we're pushing something, then treat our movement as a force
     -- that's now being spread across greater mass
     -- XXX should this check can_push, can_carry?  can we get rid of total_mass i don't like it??
-    if actor.tote_component and goal ~= Vector.zero then
-        local total_mass = actor.tote_component:_get_total_mass(actor, goal)
-        walk_accel_multiplier = walk_accel_multiplier * actor.mass / total_mass
+    local tote = self:get('tote')
+    if tote and goal ~= Vector.zero then
+        local total_mass = tote:_get_total_mass(goal)
+        walk_accel_multiplier = walk_accel_multiplier * self.actor.mass / total_mass
     end
 
     -- When inputting no movement at all, an actor is considered to be
@@ -140,21 +149,25 @@ function Walk:update(actor, dt)
     local skid = util.lerp((skid_dot + 1) / 2, self.deceleration_multiplier, 1)
 
     -- Put it all together, and we're done
-    actor.move_component:push(delta * (skid * walk_accel_multiplier))
+    self:get('move'):push(delta * (skid * walk_accel_multiplier))
 end
 
 
 -- Leap into the air
-local Jump = Object:extend{
+local Jump = Component:extend{
+    slot = 'jump',
+
     consecutive_jump_count = 0,
     decision = 0,
 }
 
 -- FIXME needs to accept max jumps
-function Jump:init(jump_speed, abort_speed, sound)
-    self.jump_speed = jump_speed
-    self.abort_speed = abort_speed
-    self.sound = sound
+function Jump:init(actor, args)
+    Jump.__super.init(self, actor, args)
+    self.jump_speed = args.jump_speed or 0
+    self.abort_speed = args.abort_speed or 0
+    self.sound = args.sound or nil
+    self.max_jumps = args.max_jumps or 1
 end
 
 function Jump:decide(whether)
@@ -165,8 +178,10 @@ function Jump:decide(whether)
     end
 end
 
-function Jump:update(actor, dt)
-    if actor.gravity_component.grounded then
+function Jump:update(dt)
+    local move = self:get('move')
+    local fall = self:get('fall')
+    if fall.grounded then
         self.consecutive_jump_count = 0
     end
 
@@ -174,7 +189,6 @@ function Jump:update(actor, dt)
     -- This uses the Sonic approach: pressing jump immediately sets (not
     -- increases!) the player's y velocity, and releasing jump lowers the y
     -- velocity to a threshold
-    local move = actor.move_component
     if self.decision == 2 then
         self.decision = 1
         if move.velocity.y <= -self.jump_speed then
@@ -185,20 +199,21 @@ function Jump:update(actor, dt)
         -- You can "jump" off a ladder, but you just let go.  Only works if
         -- you're holding a direction or straight down
         -- FIXME move this to controls, get it out of here
-        if actor.is_climbing then
-            if actor.decision_climb > 0 or actor.decision_move ~= Vector.zero then
+        local climb = self:get('climb')
+        if climb and climb.is_climbing then
+            if climb.decision > 0 or self:get('walk').decision ~= Vector.zero then
                 -- Drop off
-                actor.is_climbing = false
+                climb.is_climbing = false
             end
             return
         end
 
-        if self.consecutive_jump_count == 0 and not actor.gravity_component.ground_shallow and not actor.is_climbing then
+        if self.consecutive_jump_count == 0 and not fall.ground_shallow and not climb.is_climbing then
             -- If we're in mid-air for some other reason, act like we jumped to
             -- get here, for double-jump counting purposes
             self.consecutive_jump_count = 1
         end
-        if self.consecutive_jump_count >= actor.max_jumps then
+        if self.consecutive_jump_count >= self.max_jumps then
             -- No more jumps left
             return
         end
@@ -217,13 +232,13 @@ function Jump:update(actor, dt)
         end
 
         -- If we were climbing, we shouldn't be now
-        actor.is_climbing = false
-        actor.climbing = nil
-        actor.decision_climb = 0
+        climb.is_climbing = false
+        climb.climbing = nil
+        climb.decision = 0
         return true
     elseif self.decision == 0 then
         -- We released jump at some point, so cut our upwards velocity
-        if not actor.gravity_component.grounded and not actor.was_launched then
+        if not fall.grounded and not self.actor.was_launched then
             move.pending_velocity.y = math.max(move.pending_velocity.y, -self.abort_speed)
         end
     end
@@ -231,10 +246,13 @@ end
 
 
 -- Climb
-local Climb = Component:extend{}
+local Climb = Component:extend{
+    slot = 'climb',
+}
 
-function Climb:init(speed)
-    self.speed = speed
+function Climb:init(actor, args)
+    Climb.__super.init(self, actor, args)
+    self.speed = args.speed or 0
 
     self.is_climbing = false
 end
@@ -262,7 +280,7 @@ function Climb:decide(direction)
     end
 end
 
-function Climb:after_collisions(actor, movement, collisions)
+function Climb:after_collisions(movement, collisions)
     -- Check for whether we're touching something climbable
     -- FIXME we might not still be colliding by the end of the movement!  this
     -- should use, now that that's only final hits -- though we need them to be
@@ -275,12 +293,12 @@ function Climb:after_collisions(actor, movement, collisions)
             -- FIXME these seem like they should specifically grab the highest and lowest in case of ties...
             -- FIXME aha, shouldn't this check if we're overlapping /now/?
             if collision.overlapped or collision:faces(Vector(0, -1)) then
-                actor.ptrs.climbable_down = obstacle
-                actor.on_climbable_down = collision
+                self.actor.ptrs.climbable_down = obstacle
+                self.actor.on_climbable_down = collision
             end
             if collision.overlapped or collision:faces(Vector(0, 1)) then
-                actor.ptrs.climbable_up = obstacle
-                actor.on_climbable_up = collision
+                self.actor.ptrs.climbable_up = obstacle
+                self.actor.on_climbable_up = collision
             end
         end
 
@@ -294,7 +312,9 @@ function Climb:after_collisions(actor, movement, collisions)
     end
 end
 
-function Climb:update(actor, dt)
+function Climb:update(dt)
+    local move = self:get('move')
+
     -- Immunity to gravity while climbing is handled via get_gravity_multiplier
     -- FIXME not any more it ain't
     -- FIXME down+jump to let go, but does that belong here or in input handling?  currently it's in both and both are awkward
@@ -304,13 +324,13 @@ function Climb:update(actor, dt)
             -- Trying to grab a ladder for the first time.  See if we're
             -- actually touching one!
             -- FIXME Note that we might already be on a ladder, but not moving.  unless we should prevent that case in decide_climb?
-            if self.decision < 0 and actor.ptrs.climbable_up then
-                actor.ptrs.climbing = actor.ptrs.climbable_up
+            if self.decision < 0 and self.actor.ptrs.climbable_up then
+                self.actor.ptrs.climbing = self.actor.ptrs.climbable_up
                 self.is_climbing = true
                 self.climbing = self.on_climbable_up
                 self.decision = -1
-            elseif self.decision > 0 and actor.ptrs.climbable_down then
-                actor.ptrs.climbing = actor.ptrs.climbable_down
+            elseif self.decision > 0 and self.actor.ptrs.climbable_down then
+                self.actor.ptrs.climbing = self.actor.ptrs.climbable_down
                 self.is_climbing = true
                 self.climbing = self.on_climbable_down
                 self.decision = 1
@@ -329,9 +349,12 @@ function Climb:update(actor, dt)
         if self.is_climbing then
             -- We have no actual velocity...  unless...  sigh
             if self.xxx_useless_climb then
-                actor.velocity = actor.velocity:projectOn(gravity)
+                move.velocity = move.velocity:projectOn(gravity)
             else
-                actor.velocity = Vector()
+                -- XXX should there be a thing to forcibly set velocity?  how
+                -- would that affect other components that later try to modify
+                -- it?
+                move.velocity = Vector()
             end
 
             -- Slide us gradually towards the center of a ladder
@@ -346,7 +369,7 @@ function Climb:update(actor, dt)
             -- OH FUCK I CAN JUST USE A DIFFERENT CLIMBING COMPONENT ? ??? ?
             if self.xxx_useless_climb then
                 -- Can try to climb, but is just affected by gravity as normal
-                actor:nudge(Vector(dx, 0))
+                move:nudge(Vector(dx, 0))
             elseif self.decision < 0 then
                 -- Climbing is done with a nudge, rather than velocity, to avoid
                 -- building momentum which would then launch you off the top
@@ -361,9 +384,9 @@ function Climb:update(actor, dt)
                         climb_distance = math.min(distance_to_top, climb_distance)
                     end
                 end
-                actor:nudge(Vector(dx, -climb_distance))
+                move:nudge(Vector(dx, -climb_distance))
             elseif self.decision > 0 then
-                actor:nudge(Vector(dx, self.speed * dt))
+                move:nudge(Vector(dx, self.speed * dt))
             end
 
             -- Never flip a climbing sprite, since they can only possibly face in
@@ -373,26 +396,28 @@ function Climb:update(actor, dt)
             -- We're not on the ground, but this still clears our jump count
             -- FIXME this seems like it wants to say, i'm /kinda/ on the ground.  i'm stable.
             -- FIXME regardless it probably shouldn't be here, there should be a "hit the ground" message
-            actor.jump_component.consecutive_jump_count = 0
+            self:get('jump').consecutive_jump_count = 0
         end
     end
 
     -- Clear these pointers so collision detection can repopulate them
-    actor.ptrs.climbable_up = nil
-    actor.ptrs.climbable_down = nil
-    actor.on_climbable_up = nil
-    actor.on_climbable_down = nil
+    self.actor.ptrs.climbable_up = nil
+    self.actor.ptrs.climbable_down = nil
+    self.actor.on_climbable_up = nil
+    self.actor.on_climbable_down = nil
 end
 
 
 -- Use an object
-local Interact = Component:extend{}
+local Interact = Component:extend{
+    slot = 'interact',
+}
 
 function Interact:decide()
     self.decision = true
 end
 
-function Interact:update(actor, dt)
+function Interact:update(dt)
     if not self.decision then
         return
     end
@@ -405,6 +430,7 @@ end
 
 local Think = Component:extend{
     slot = 'think',
+    priority = -100,
 }
 
 local PlayerThink = Think:extend{}
@@ -439,8 +465,9 @@ local function read_key_axis(a, b)
     end
 end
 
-function PlayerThink:update(actor, dt)
-    if actor.health_component and actor.health_component.is_dead then
+function PlayerThink:update(dt)
+    local ail = self:get('ail')
+    if ail and ail.is_dead then
         return
     end
 
@@ -450,24 +477,33 @@ function PlayerThink:update(actor, dt)
     -- is pressed.  The former check 'down'; the latter check 'pressed'.
     -- FIXME reconcile this with a joystick; baton can do that for me, but then
     -- it considers holding left+right to be no movement at all, which is bogus
-    local walk_x = read_key_axis('left', 'right')
-    local walk_y = read_key_axis('up', 'down')
-    actor.walk_component:decide(walk_x, walk_y)
+    local walk = self:get('walk')
+    if walk then
+        walk:decide(read_key_axis('left', 'right'), read_key_axis('up', 'down'))
+    end
 
-    local climb = read_key_axis('ascend', 'descend')
-    actor.climb_component:decide(climb)
+    local climb = self:get('climb')
+    if climb then
+        climb:decide(read_key_axis('ascend', 'descend'))
+    end
 
     -- Jumping is slightly more subtle.  The initial jump is an instant action,
     -- but /continuing/ to jump is a continuous action.
-    if game.input:pressed('jump') then
-        actor.jump_component:decide(true)
-    end
-    if not game.input:down('jump') then
-        actor.jump_component:decide(false)
+    local jump = self:get('jump')
+    if jump then
+        if game.input:pressed('jump') then
+            jump:decide(true)
+        end
+        if not game.input:down('jump') then
+            jump:decide(false)
+        end
     end
 
-    if game.input:pressed('use') then
-        actor.interactor_component:decide()
+    local interact = self:get('interact')
+    if interact then
+        if game.input:pressed('use') then
+            interact:decide()
+        end
     end
 end
 

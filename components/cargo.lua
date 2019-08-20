@@ -21,17 +21,18 @@ local Tote = Component:extend{
     cargo = nil,
 }
 
-function Tote:init()
-    Tote.__super.init()
+function Tote:init(actor, args)
+    Tote.__super.init(self, actor, args)
 
     -- FIXME explain how this works, somewhere, as an overview
     -- XXX this used to be in on_enter, which seems like a better idea tbh
     self.cargo = setmetatable({}, { __mode = 'k' })
 end
 
-function Tote:update(actor, dt)
-    local total_momentum = actor.velocity * actor.mass
-    local total_mass = actor.mass
+function Tote:update(dt)
+    local move = self:get('move')
+    local total_momentum = move.velocity * self.actor.mass
+    local total_mass = self.actor.mass
     local any_new = false
     for cargum, manifest in pairs(self.cargo) do
         local detach = false
@@ -55,7 +56,7 @@ function Tote:update(actor, dt)
             local cargo_mass = cargum:_get_total_mass(manifest.velocity)
             local friction_delta = cargo_friction_force / cargo_mass * dt
             local cargo_dot = (manifest.velocity + friction_delta) * manifest.normal
-            local system_dot = actor.velocity * manifest.normal
+            local system_dot = move.velocity * manifest.normal
             if system_dot > cargo_dot then
                 -- We're moving more slowly than the rest of the system; we
                 -- might be a sentient actor turning away, or just heavier or
@@ -89,7 +90,7 @@ function Tote:update(actor, dt)
                 end
             end
             -- Just in case we were carrying them, undo their cargo_of
-            if cargum.ptrs.cargo_of == actor then
+            if cargum.ptrs.cargo_of == self.actor then
                 cargum.ptrs.cargo_of = nil
             end
         else
@@ -105,13 +106,15 @@ function Tote:update(actor, dt)
                 end
                 seen[actor] = true
 
-                local momentum = actor.velocity * actor.mass
+                local actor_move = actor:get('move')
+                local momentum = actor_move.velocity * actor.mass
                 -- FIXME this should be transitive, but that's complicated with loops, sigh
                 -- FIXME should this only *collect* velocity in the push direction?
                 -- FIXME what if they're e.g. on a slope and keep accumulating more momentum?
                 -- FIXME how is this affected by something being pushed from both directions?
-                actor.velocity = actor.velocity - actor.velocity:projectOn(direction)
-                for other_actor, manifest in pairs(actor.cargo) do
+                -- XXX does this velocity mutation belong here in the first place?  feels like it'll be ignored?
+                actor_move.velocity = actor_move.velocity - actor_move.velocity:projectOn(direction)
+                for other_actor, manifest in pairs(actor:get('tote').cargo) do
                     if manifest.state == CARGO_PUSHING then
                         -- FIXME should this be direction, or other_manifest.normal?
                         -- FIXME should this also apply to pushable?
@@ -133,22 +136,22 @@ function Tote:update(actor, dt)
                     -- it's not part of this push anyway).  Fake that by
                     -- weighting the perpendicular part as though it belonged
                     -- to this cargo.
-                    local parallel = actor.velocity:projectOn(manifest.normal)
-                    local perpendicular = actor.velocity - parallel
+                    local parallel = move.velocity:projectOn(manifest.normal)
+                    local perpendicular = move.velocity - parallel
                     total_momentum = total_momentum + perpendicular * cargo_mass
                 else
                     -- This is an existing push; ignore its velocity and tack on our own
-                    total_momentum = total_momentum + actor.velocity * cargo_mass
+                    total_momentum = total_momentum + move.velocity * cargo_mass
                 end
             end
         end
     end
     if any_new and total_mass ~= 0 then
-        actor.velocity = total_momentum / total_mass
+        move.velocity = total_momentum / total_mass
     end
 end
 
-function Tote:late_update(actor, dt)
+function Tote:late_update(dt)
     -- XXX i hate that i have to iterate three times, but i need to stick the POST-conservation velocity in here
     -- Finally, mark all cargo as potentially expiring (if we haven't seen it
     -- again by next frame), and remember our push velocity so we know whether
@@ -165,7 +168,7 @@ function Tote:late_update(actor, dt)
 end
 
 -- Return the mass of ourselves, plus everything we're pushing or carrying
-function Tote:_get_total_mass(actor, direction, _seen)
+function Tote:_get_total_mass(direction, _seen)
     if not _seen then
         _seen = {}
     elseif _seen[self] then
@@ -173,10 +176,10 @@ function Tote:_get_total_mass(actor, direction, _seen)
     end
     _seen[self] = true
 
-    local total_mass = actor.mass
+    local total_mass = self.actor.mass
     for cargum, manifest in pairs(self.cargo) do
         if manifest.state == CARGO_CARRYING or manifest.normal * direction < 0 then
-            total_mass = total_mass + cargum.tote_component:_get_total_mass(cargum, direction, _seen)
+            total_mass = total_mass + cargum:get('tote'):_get_total_mass(cargum, direction, _seen)
         end
     end
     return total_mass

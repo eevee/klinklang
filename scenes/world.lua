@@ -38,10 +38,8 @@ function DebugLayer:draw()
 
     if game.debug_twiddles.show_shapes then
         for _, actor in ipairs(self.world.actors) do
-            if actor.shape then
-                love.graphics.setColor(1, 1, 0, 0.5)
-                actor.shape:draw('fill')
-            end
+            love.graphics.setColor(1, 1, 0, 0.5)
+            actor:draw_shape('fill')
             if actor.pos then
                 love.graphics.setColor(1, 0, 0)
                 love.graphics.circle('fill', actor.pos.x, actor.pos.y, 2)

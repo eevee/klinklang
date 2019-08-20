@@ -13,7 +13,9 @@ local whammo_shapes = require 'klinklang.whammo.shapes'
 -- necessary.  Naturally, it cannot have any state.  It's mainly useful for
 -- reading a standard set of properties and responding to collisions.
 local TiledMapTile = actors_base.BareActor:extend{
+    _type_name = 'TiledMapTile',
     name = 'map tile',
+
     permeable = nil,
     terrain = nil,
     fluid = nil,
@@ -24,6 +26,8 @@ local TiledMapTile = actors_base.BareActor:extend{
 }
 
 function TiledMapTile:init(tiled_tile)
+    TiledMapTile.__super.init(self)
+
     self.tiled_tile = tiled_tile
     self.permeable = tiled_tile:prop('permeable')
     self.terrain = tiled_tile:prop('terrain')
@@ -51,9 +55,13 @@ end
 -- A completely arbitrary collision shape drawn in Tiled
 -- FIXME this isn't actually in yet, but once it is, collision actor should
 -- always exist and be an actor!!  WAIT NO THERE'S STILL THE MAP EDGES FUCK
-local TiledMapCollision = actors_base.BareActor:extend{}
+local TiledMapCollision = actors_base.BareActor:extend{
+    _type_name = 'TiledMapCollision',
+}
 
 function TiledMapCollision:init(tiled_object)
+    TiledMapCollision.__super.init(self)
+
     self.tiled_object = tiled_object
     self.pos = Vector()  -- TODO hmm.
     self.shape = tiledmap.tiled_shape_to_whammo_shape(tiled_object)
@@ -61,12 +69,15 @@ end
 
 
 local TiledMapLayer = actors_base.BareActor:extend{
+    _type_name = 'TiledMapLayer',
+
     -- lazily created by _make_batches
     sprite_batches = nil,
-
 }
 
 function TiledMapLayer:init(layer, tiled_map, z)
+    TiledMapLayer.__super.init(self)
+
     self.layer = layer
     self.tiled_map = tiled_map
     self.z = z
@@ -276,6 +287,7 @@ function TiledMapLayer:on_enter(map)
     self:_make_shapes_and_actors()
 
     for shape, tile in pairs(self.shapes) do
+        print('adding', shape, tile)
         map.collider:add(shape, self.tile_actors[tile])
     end
 end
@@ -324,6 +336,12 @@ function TiledMapLayer:draw()
     end
 end
 
+function TiledMapLayer:draw_shape(mode)
+    for shape in pairs(self.shapes) do
+        shape:draw(mode)
+    end
+end
+
 
 -- FIXME parallax is kind of a mess, maybe rethink a bit
 local TiledMapImage = actors_base.BareActor:extend{
@@ -331,6 +349,8 @@ local TiledMapImage = actors_base.BareActor:extend{
 }
 
 function TiledMapImage:init(layer, z)
+    TiledMapImage.__super.init(self)
+
     self.image = layer.image
     -- FIXME this isn't used and also it's not super clear how it'd jive with parallax
     self.offset = Vector(layer.offsetx, layer.offsety)
