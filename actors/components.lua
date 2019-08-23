@@ -63,6 +63,27 @@ end
 local Walk = Component:extend{
     slot = 'walk',
 
+    -- Configuration --
+    -- Base acceleration while walking, which controls how long it takes to get
+    -- up to speed (and how long it takes to stop).  Note that this implicitly
+    -- controls how much an actor can push, since it has to overcome the extra
+    -- friction.  The maximum pushing mass (INCLUDING this actor's) is
+    -- Fall.friction_decel / Walk.base_acceleration.
+    base_acceleration = 2048,
+    -- Maximum speed from walking.  If the actor is moving this fast (or
+    -- faster) in the direction it's attempting to walk, walking has no effect
+    speed_cap = 256,
+    -- Multiplier for base_acceleration while grounded
+    ground_multiplier = 1,
+    -- Multiplier for base_acceleration while airborne (i.e., air control)
+    air_multiplier = 0.25,
+    -- Multiplier for base_acceleration while moving against the actor's
+    -- current velocity direction; stacks with the above two
+    stop_multiplier = 1,
+
+    -- State --
+    -- Normalized vector of the direction the actor is trying to move.  For a 1D actor (as determined by having a Fall rather than a Fall2D), this should be zero in the direction of gravity.
+    -- TODO boy that's hokey and also doesn't play nicely with PlayerThink
     decision = Vector.zero,
 }
 
@@ -70,10 +91,11 @@ local Walk = Component:extend{
 function Walk:init(actor, args)
     Walk.__super.init(self, actor)
 
-    self.ground_acceleration = args.ground_acceleration or 0
-    self.air_acceleration = args.air_acceleration or 0
-    self.deceleration_multiplier = args.deceleration_multiplier or 1
-    self.max_speed = args.max_speed or 0
+    self.base_acceleration = args.base_acceleration
+    self.ground_multiplier = args.ground_multiplier
+    self.air_multiplier = args.air_multiplier
+    self.stop_multiplier = args.stop_multiplier
+    self.speed_cap = args.speed_cap
 end
 
 function Walk:decide(dx, dy)
@@ -106,27 +128,26 @@ function Walk:update(dt)
             ground_axis = Vector(1, 0)
             in_air = true
         end
-        goal = ground_axis * self.decision.x * self.max_speed
+        goal = ground_axis * self.decision.x * self.speed_cap
         current = current:projectOn(ground_axis)
     else
         -- For 2D, just move in the input direction
-        goal = self.decision * self.max_speed
+        goal = self.decision * self.speed_cap
     end
 
     local delta = goal - current
     local delta_len = delta:len()
-    local accel
+    local accel_cap = self.base_acceleration * dt
+    -- Collect multipliers that affect our walk acceleration
+    local multiplier = 1
+    if delta_len > accel_cap then
+        multiplier = accel_cap / delta_len
+    end
     -- In the air (or on a steep slope), we're subject to air control
     if in_air then
-        accel = self.air_acceleration
+        multiplier = multiplier * self.air_multiplier
     else
-        accel = self.ground_acceleration
-    end
-    local accel_cap = accel * dt
-    -- Collect factors that affect our walk acceleration
-    local walk_accel_multiplier = 1
-    if delta_len > accel_cap then
-        walk_accel_multiplier = accel_cap / delta_len
+        multiplier = multiplier * self.ground_multiplier
     end
     -- If we're pushing something, then treat our movement as a force
     -- that's now being spread across greater mass
@@ -134,7 +155,7 @@ function Walk:update(dt)
     local tote = self:get('tote')
     if tote and goal ~= Vector.zero then
         local total_mass = tote:_get_total_mass(goal)
-        walk_accel_multiplier = walk_accel_multiplier * self.actor.mass / total_mass
+        multiplier = multiplier * self.actor.mass / total_mass
     end
 
     -- When inputting no movement at all, an actor is considered to be
@@ -147,10 +168,11 @@ function Walk:update(dt)
         -- If the dot product is nonzero, then both vectors must be
         skid_dot = skid_dot / current:len() / delta_len
     end
-    local skid = util.lerp((skid_dot + 1) / 2, self.deceleration_multiplier, 1)
+    local skid = util.lerp((skid_dot + 1) / 2, self.stop_multiplier, 1)
 
     -- Put it all together, and we're done
-    self:get('move'):push(delta * (skid * walk_accel_multiplier))
+    -- TODO would be really nice to express this as an acceleration, but i think that would require dividing by dt somewhere  :S
+    self:get('move'):push(delta * (skid * multiplier))
 end
 
 
@@ -158,15 +180,36 @@ end
 local Jump = Component:extend{
     slot = 'jump',
 
-    consecutive_jump_count = 0,
+    -- Configuration --
+    -- Upwards speed granted by a jump.  Note that upwards speed is SET to
+    -- this; it's not added!
+    -- TODO would be much simpler to accept height here, but as it stands this
+    -- default has to live in actors.base so it can see default gravity, sigh
+    speed = 0,
+    -- When abandoning a jump, the actor's vertical speed will be set to this
+    -- times speed
+    abort_multiplier = 0.25,
+    -- Sound effect to play when jumping
+    sound = nil,
+    -- Number of consecutive jumps that can be made before hitting the ground:
+    -- 1 for regular jumping, 2 for a double jump, Math.huge for flappy bird
+    max_jumps = 1,
+
+    -- State --
+    -- 2 when initially jumping, 1 when continuing a jump, 0 when abandoning a jump
+    -- TODO probably split out the "still jumping" state, which might even let us ditch was_launched
     decision = 0,
+    -- The number of jumps this actor has made so far without touching the
+    -- ground, including an initial fall
+    consecutive_jump_count = 0,
 }
 
 -- FIXME needs to accept max jumps
 function Jump:init(actor, args)
     Jump.__super.init(self, actor, args)
-    self.jump_speed = args.jump_speed or 0
-    self.abort_speed = args.abort_speed or 0
+
+    self.speed = args.speed or 0
+    self.abort_multiplier = args.abort_multiplier or 0
     self.sound = args.sound or nil
     if type(self.sound) == 'string' then
         self.sound = game.resource_manager:get(self.sound)
@@ -195,7 +238,7 @@ function Jump:update(dt)
     -- velocity to a threshold
     if self.decision == 2 then
         self.decision = 1
-        if move.velocity.y <= -self.jump_speed then
+        if move.velocity.y <= -self.speed then
             -- Already moving upwards at jump speed, so nothing to do
             return
         end
@@ -223,7 +266,7 @@ function Jump:update(dt)
         end
 
         -- Perform the actual jump
-        move.pending_velocity.y = -self.jump_speed
+        move.pending_velocity.y = -self.speed
         self.consecutive_jump_count = self.consecutive_jump_count + 1
 
         if self.sound then
@@ -243,7 +286,7 @@ function Jump:update(dt)
     elseif self.decision == 0 then
         -- We released jump at some point, so cut our upwards velocity
         if not fall.grounded and not self.actor.was_launched then
-            move.pending_velocity.y = math.max(move.pending_velocity.y, -self.abort_speed)
+            move.pending_velocity.y = math.max(move.pending_velocity.y, -self.speed * self.abort_multiplier)
         end
     end
 end
@@ -252,6 +295,13 @@ end
 -- Climb
 local Climb = Component:extend{
     slot = 'climb',
+
+    -- Configuration --
+    -- Speed of movement while climbing
+    speed = 128,
+
+    -- State --
+    is_climbing = false,
 }
 
 function Climb:init(actor, args)

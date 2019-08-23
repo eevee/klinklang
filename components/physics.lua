@@ -39,6 +39,12 @@ local Move = Component:extend{
     slot = 'move',
     priority = 100,
 
+    -- Note that all values are given in units of pixels and seconds.
+
+    -- Configuration --
+    -- Slowest and fastest speeds an object may move.  Objects moving slower
+    -- than min_speed will be stopped; objects moving faster than max_speed
+    -- will be capped.
     min_speed = 1,
     max_speed = 1536,
     -- If true, zero nudges are ignored, meaning that collision callbacks
@@ -50,6 +56,7 @@ local Move = Component:extend{
     -- TODO this used to be is_blockable = false, but i don't remember why i want it, and anyway i could just extend this component a bit?
     is_juggernaut = false,
 
+    -- State --
     velocity = nil,
     pending_velocity = nil,
     pending_force = nil,
@@ -452,12 +459,18 @@ end
 -- TODO dunno how much i've thought that through
 local Fall2D = Component:extend{
     slot = 'fall',
+
+    -- Configuration --
+    -- Base acceleration (not force) caused by friction.  Note that friction
+    -- only comes into play against the ground.
+    -- FIXME this seems very high, means a velocity < 8 effectively doesn't move at all.  it's a third of the default player accel damn
+    friction_decel = 256,
 }
 
 function Fall2D:init(actor, args)
     Fall2D.__super.init(self, actor, args)
 
-    self.friction_decel = args.friction_decel or 0
+    self.friction_decel = args.friction_decel
 end
 
 function Fall2D:get_friction(normalized_direction)
@@ -472,15 +485,25 @@ end
 local Fall = Fall2D:extend{
     slot = 'fall',
 
-    terminal_speed = 1536,
+    -- Configuration --
+    -- Multiplier applied to the normal acceleration due to gravity.
+    multiplier = 1,
+    -- Same, but only when moving downwards.  Note that this AND the above
+    -- multiplier both apply.
+    multiplier_down = 1,
+
+    -- State --
+    -- TODO list them here
+    -- Friction multiplier of the ground, or 1 if we're in midair, maybe?
+    ground_friction = 1,
 }
 
 function Fall:init(actor, args)
     Fall.__super.init(self, actor, args)
 
     -- FIXME are these actually used for anything interesting?  pooltoy i guess, but i think by far the most common use is just to disable gravity, which...  is...  much easier now...
-    self.multiplier = args.multiplier or 1
-    self.multiplier_down = args.multiplier or 1
+    self.multiplier = args.multiplier
+    self.multiplier_down = args.multiplier
 
     -- TODO should have a gravity prop that gets early_updated or something
 end
@@ -774,7 +797,17 @@ end
 
 
 -- Gravity for sentient actors; includes extra behavior for dealing with slopes
-local SentientFall = Fall:extend{}
+local SentientFall = Fall:extend{
+    -- Configuration --
+    -- Steepest slope that an actor can stand on.  If they stand on anything
+    -- steeper, 'grounded' will be false, and they'll be treated as though
+    -- they're in midair
+    max_slope = Vector(1, -1):normalized(),
+
+    -- State --
+    -- TODO with 'grounded', not sure if i need this
+    ground_shallow = false,
+}
 
 function SentientFall:init(actor, args)
     SentientFall.__super.init(self, actor, args)

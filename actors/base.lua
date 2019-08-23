@@ -45,13 +45,74 @@ function BareActor:init()
     end)
 end
 
-function BareActor:extend(...)
-    local class = BareActor.__super.extend(self, ...)
+local _COMPONENT_BACK_COMPAT_ARGS = {
+    -- Mobile
+    { 'min_speed',                  'move', 'min_speed' },
+    { 'friction_decel',             'fall', 'friction_decel' },
+    { 'gravity_multiplier',         'fall', 'multiplier' },
+    { 'gravity_multiplier_down',    'fall', 'multiplier' },
+    { 'is_blockable',               'move', 'is_juggernaut', function(value) return not value end },
+    { 'may_skip_nudge',             'move', 'skip_zero_nudge' },
+    -- TODO these don't exist yet, and i don't think any of the code that checks for them is actually in Tote
+    --{ 'can_push',                   'tote', 'can_push' },
+    --{ 'can_carry',                  'tote', 'can_carry' },
+    -- TODO not even sure where these ought to go
+    --{ 'is_pushable',                ??? },
+    --{ 'is_portable',                ??? },
+    -- TODO this should maybe be on something, but it isn't
+    --mass
+
+    -- Sentient
+    { 'max_slope',                  'fall', 'max_slope' },
+    { 'xaccel',                     'walk', 'base_acceleration' },
+    { 'deceleration',               'walk', 'stop_multiplier' },
+    { 'max_speed',                  'walk', 'speed_cap' },
+    { 'aircontrol',                 'walk', 'air_multiplier' },
+    { 'jumpvel',                    'jump', 'speed' },
+    { 'jumpcap',                    'jump', 'abort_multiplier' },
+    -- TODO max_slope_slowdown?  is this still used?
+    { 'max_jumps',                  'jump', 'max_jumps' },
+    { 'jump_sound',                 'jump', 'sound' },
+    { 'climb_speed',                'climb', 'speed' },
+}
+
+function BareActor:extend(body)
+    -- Backwards compatibility: convert class variables to component arguments
+    local any_back_compat
+    local subtype_components = body.COMPONENTS
+    if subtype_components == nil then
+        subtype_components = {}
+    end
+    for _, arg in ipairs(_COMPONENT_BACK_COMPAT_ARGS) do
+        local value = body[arg[1]]
+        if value ~= nil then
+            any_back_compat = true
+            print(("Actor '%s' is using deprecated class attribute '%s' which is now '%s.%s'"):format(
+                body.name or self.name, arg[1], arg[2], arg[3]))
+            -- XXX this won't work if they specify a component explicitly
+            local component_args = subtype_components[arg[2]]
+            if component_args == nil then
+                component_args = {}
+                subtype_components[arg[2]] = component_args
+            end
+            if arg[4] then
+                value = arg[4](value)
+            end
+            component_args[arg[3]] = value
+        end
+    end
+    if any_back_compat then
+        body.COMPONENTS = subtype_components
+    end
+
+    -- Create the class
+    local class = BareActor.__super.extend(self, body)
     if class.name ~= nil then
         self._ALL_ACTOR_TYPES[class.name] = class
     end
 
     -- Special behavior for COMPONENTS
+    -- TODO instantiate components here?  would separate config from state?
     if self.COMPONENTS ~= class.COMPONENTS then
         local theirs_by_slot = {}
         for component_type in pairs(class.COMPONENTS) do
@@ -339,27 +400,11 @@ local TILE_SIZE = 32
 -- TODO these are a property of the world and should go on the world object
 -- once one exists
 local gravity = Vector(0, 768)
-local terminal_velocity = 1536
 
 local MobileActor = Actor:extend{
     _type_name = 'MobileActor',
 
-    -- Passive physics parameters
-    -- Units are pixels and seconds!
-    min_speed = 1,
-    -- FIXME i feel like this is not done well.  floating should feel floatier
-    -- FIXME friction should probably be separate from deliberate deceleration?
-    friction_decel = 256,  -- FIXME this seems very high, means a velocity < 8 effectively doesn't move at all.  it's a third of the default player accel damn
     ground_friction = 1,  -- FIXME this is state, dumbass, not a twiddle
-    gravity_multiplier = 1,
-    gravity_multiplier_down = 1,
-    -- If this is false, then other objects will never stop this actor's
-    -- movement; however, it can still push and carry them
-    is_blockable = true,
-    -- If this is true and this actor wouldn't move this tic (i.e. has zero
-    -- velocity and no gravity), skip the nudge entirely.  Way faster, but
-    -- returns no hits and doesn't call on_collide_with.
-    may_skip_nudge = false,
     -- Pushing and platform behavior
     is_pushable = false,
     can_push = false,
@@ -368,16 +413,6 @@ local MobileActor = Actor:extend{
     is_portable = false,  -- Can this be carried?
     can_carry = false,  -- Can this carry?
     mass = 1,  -- Pushing a heavier object will slow you down
-
-    -- Physics state
-    -- FIXME there are others!
-    velocity = nil,
-    -- Constant forces that should be applied this frame.  Do NOT use for
-    -- instantaneous changes in velocity; there's push() for that.  This is
-    -- for, e.g., gravity.
-    pending_force = nil,
-    cargo = nil,  -- Set of currently-carried objects
-    total_mass = nil,
 
     COMPONENTS = {
         [components_physics.Fall] = {
@@ -426,32 +461,8 @@ end
 local SentientActor = MobileActor:extend{
     _type_name = 'SentientActor',
 
-    -- Active physics parameters
-    -- TODO these are a little goofy because friction works differently; may be
-    -- worth looking at that again.
-    -- How fast we accelerate when walking.  Note that this implicitly controls
-    -- how much stuff we can push, since it has to overcome the extra friction.
-    -- As you might expect, our maximum pushing mass (including our own!) is
-    -- friction_decel / xaccel.
-    xaccel = 2048,
-    deceleration = 1,
-    max_speed = 256,
-    climb_speed = 128,
-    -- Pick a jump velocity that gets us up 2 tiles, plus a margin of error
-    jumpvel = get_jump_velocity(TILE_SIZE * 2.25),
-    jumpcap = 0.25,
-    -- Multiplier for xaccel while airborne.  MUST be greater than the ratio of
-    -- friction to xaccel, or the player won't be able to move while floating!
-    aircontrol = 0.25,
-    -- Maximum slope that can be walked up or jumped off of.  MUST BE NORMALIZED
-    max_slope = Vector(1, -1):normalized(),
-    max_slope_slowdown = 0.7,
-
-    -- Other configuration
-    max_jumps = 1,  -- Set to 2 for double jump, etc
-    jump_sound = nil,  -- Path!
-
     -- State
+    -- TODO most of this shouldn't be here
     -- Flag indicating that we were deliberately pushed upwards since the last
     -- time we were on the ground; disables ground adherence and the jump
     -- velocity capping behavior
@@ -461,27 +472,13 @@ local SentientActor = MobileActor:extend{
     is_locked = false,
 
     COMPONENTS = {
-        [components.Walk] = {
-            ground_acceleration = 2048,
-            air_acceleration = 512,
-            deceleration = 2048,
-            max_speed = 256,
-        },
+        [components.Walk] = {},
         [components.Jump] = {
-            jump_speed = get_jump_velocity(TILE_SIZE * 2.25),
-            abort_speed = 0.25 * get_jump_velocity(TILE_SIZE * 2.25),
-            -- FIXME jump_sound
-            max_jumps = 1,
+            speed = get_jump_velocity(TILE_SIZE * 2.25),
         },
-        [components.Climb] = {
-            climb_speed = 128,
-        },
+        [components.Climb] = {},
         [components.Interact] = {},
-        [components.SentientFall] = {
-            max_slope = Vector(1, -1):normalized(),
-            -- FIXME should be able to subclass a parent's component and not repeat the args
-            friction_decel = 256,
-        },
+        [components.SentientFall] = {},
     },
 }
 
@@ -546,25 +543,11 @@ function SentientActor:update(dt)
         end
     end
 
-    --[[
-    -- Jumping
-    self.jump_component:update(self, dt)
-
-    -- Climbing
-    self.climb_component:update(self, dt)
-    ]]
-
     -- Apply physics
     local movement, hits = SentientActor.__super.update(self, dt)
 
     -- Update the pose
     self:update_pose()
-
-    --[[
-    -- Use whatever's now in front of us
-    -- TODO shouldn't this be earlier?
-    self.interactor_component:update(self, dt)
-    ]]
 
     return movement, hits
 end
