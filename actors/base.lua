@@ -55,7 +55,14 @@ function BareActor:extend(...)
     if self.COMPONENTS ~= class.COMPONENTS then
         local theirs_by_slot = {}
         for component_type in pairs(class.COMPONENTS) do
-            theirs_by_slot[component_type.slot] = component_type
+            -- TODO enforce only one of each slot
+            if type(component_type) == 'string' then
+                -- Subclasses may also give slot names to implicitly refer to a
+                -- superclass's existing component
+                theirs_by_slot[component_type] = component_type
+            else
+                theirs_by_slot[component_type.slot] = component_type
+            end
         end
 
         for component_type, args in pairs(self.COMPONENTS) do
@@ -63,18 +70,38 @@ function BareActor:extend(...)
             if theirs == nil then
                 -- They don't specify this slot at all, so copy ours in
                 class.COMPONENTS[component_type] = args
-            elseif theirs:isa(component_type) then
-                -- They use the same component type (or a subclass), so copy in
-                -- any old arguments
+            elseif type(theirs) == 'string' or theirs:isa(component_type) then
+                -- They use the same component type (or a subclass), or are
+                -- implicitly referring to ours by slot name.  Merge in any of
+                -- our arguments, but leave any of theirs alone.
                 local their_args = class.COMPONENTS[theirs]
-                for key, value in pairs(args) do
-                    if their_args[key] == nil then
-                        their_args[key] = value
+                if their_args == false then
+                    -- A value of false means to remove this component
+                    class.COMPONENTS[theirs] = nil
+                else
+                    for key, value in pairs(args) do
+                        if their_args[key] == nil then
+                            their_args[key] = value
+                        end
+                    end
+
+                    if type(theirs) == 'string' then
+                        -- Fix slot references to use a type
+                        class.COMPONENTS[theirs] = nil
+                        class.COMPONENTS[component_type] = their_args
                     end
                 end
             end
             -- Otherwise, they use a completely different component type, which
             -- should override ours
+        end
+
+        -- Finally, check for any attempts to reference a slot that doesn't
+        -- exist in the superclass
+        for component_type in pairs(class.COMPONENTS) do
+            if type(component_type) == 'string' then
+                error("Actor subtype references a slot that doesn't exist in the supertype: " .. component_type)
+            end
         end
     end
 
