@@ -54,6 +54,11 @@ function Game:init(args)
     self.debug_hits = {}
     self.debug_rays = {}
 
+    self.time_stack = {}
+    self.time_summary = {}
+    self.time_t0 = love.timer.getTime()
+    self.time_threshold = 4
+
     self.progress = {
         flags = {},
     }
@@ -95,6 +100,59 @@ function Game:transform_viewport()
     --love.graphics.setScissor(self.screen:xywh())
     love.graphics.translate(self.screen.x, self.screen.y)
     love.graphics.scale(self.scale, self.scale)
+end
+
+
+--------------------------------------------------------------------------------
+-- Time tracking
+-- XXX extremely something that should be in its own type
+
+function Game:time_push(category)
+    table.insert(self.time_stack, { category = category, t0 = love.timer.getTime(), exclude = 0 })
+end
+
+function Game:time_pop(category)
+    local slice = self.time_stack[#self.time_stack]
+    if slice == nil then
+        error("Can't pop an empty time stack!")
+    elseif slice.category ~= category then
+        error(("Tried to pop time category %s but the top is %s!"):format(category, slice.category))
+    end
+
+    local dt = love.timer.getTime() - slice.t0 - slice.exclude
+    self.time_stack[#self.time_stack] = nil
+    local summary = self.time_summary[category]
+    if summary == nil then
+        summary = { time = 0, count = 0 }
+        self.time_summary[category] = summary
+    end
+    summary.time = summary.time + dt
+    summary.count = summary.count + 1
+
+    for _, other_slice in ipairs(self.time_stack) do
+        other_slice.exclude = other_slice.exclude + dt
+    end
+end
+
+function Game:time_maybe_print_summary()
+    if #self.time_stack > 0 then
+        error("Can't summarize time within a frame")
+    end
+
+    local now = love.timer.getTime()
+    local elapsed = now - self.time_t0
+    if elapsed > self.time_threshold then
+        local parts = {}
+        local tracked = 0
+        for category, summary in pairs(self.time_summary) do
+            table.insert(parts, ("%s (%d): %5.2f%%"):format(category, summary.count, summary.time / elapsed * 100))
+            tracked = tracked + summary.time
+        end
+        table.insert(parts, ("%s: %5.2f%%"):format('total', tracked / elapsed * 100))
+        print(table.concat(parts, ' / '))
+        self.time_t0 = now
+        self.time_summary = {}
+    end
 end
 
 

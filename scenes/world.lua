@@ -178,6 +178,7 @@ function WorldScene:update(dt)
     -- collide
     game.debug_hits = {}
     game.debug_rays = {}
+    game:time_push('update')
 
     -- Update the music to match the player's current position
     -- FIXME shouldn't this happen /after/ the actor updates...??  but also
@@ -249,10 +250,14 @@ function WorldScene:update(dt)
             layer:update(dt)
         end
     end
+
+    game:time_pop('update')
+    game:time_maybe_print_summary()
 end
 
 
 function WorldScene:draw()
+    game:time_push('draw')
     local w, h = game:getDimensions()
     love.graphics.push('all')
     love.graphics.setCanvas{self.canvas, stencil=true}
@@ -294,6 +299,8 @@ function WorldScene:draw()
     if game.debug and game.debug_twiddles.show_blockmap then
         self:_draw_blockmap()
     end
+
+    game:time_pop('draw')
 end
 
 -- Note: pos is the center of the hint; sprites should have their anchors at

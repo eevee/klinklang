@@ -336,7 +336,7 @@ function Move:nudge(movement, pushers, xxx_no_slide)
         error(("Refusing to nudge actor %s by NaN vector %s"):format(self.actor, movement))
     end
 
-    local t0 = love.timer.getTime()
+    game:time_push('nudge')
 
     pushers = pushers or {}
     pushers[self.actor] = true
@@ -355,7 +355,9 @@ function Move:nudge(movement, pushers, xxx_no_slide)
     local stuck_counter = 0
     while true do
         local successful
+        game:time_push('sweep')
         successful, hits = self.actor.map.collider:sweep(self.actor.shape, movement, pass_callback)
+        game:time_pop('sweep')
         self.actor.shape:move(successful:unpack())
         self.actor.pos = self.actor.pos + successful
         total_movement = total_movement + successful
@@ -426,7 +428,7 @@ function Move:nudge(movement, pushers, xxx_no_slide)
         end
     end
 
-    _collision_detection_timer = (_collision_detection_timer or 0) + (love.timer.getTime() - t0)
+    game:time_pop('nudge')
 
     pushers[self.actor] = nil
     return total_movement, hits
