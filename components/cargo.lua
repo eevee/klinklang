@@ -14,8 +14,11 @@ local CARGO_BLOCKED = 'blocked'
 -- general idea is that some other attached object is subject to any of our own
 -- movement.
 -- TODO how do we indicate objects that /can be/ pushed or carried?  another component, or just flags on Move?
+-- TODO in general i would love for this to be more robust?  atm there are a lot of adhoc decisions about ordering and whatnot that just kinda, happened to work.  tests!!
 local Tote = Component:extend{
     slot = 'tote',
+    -- XXX i think this needs to happen right after movement, but primarily so that detach logic has the right velocity to work with?  but if i move more cargo code here i can see it happening more
+    priority = 101,
 
     push_momentum_multiplier = 1,
     cargo = nil,
@@ -30,8 +33,11 @@ function Tote:init(actor, args)
 end
 
 function Tote:update(dt)
+    -- XXX when is this supposed to run, and why?
     local move = self:get('move')
     local total_momentum = move.velocity * self.actor.mass
+    -- FIXME this used to be velocity /before/ gravity+friction but /after/ everything else, so it would have both sentient movement and leftover momentum, for detecting "tried to push something but it was too heavy"
+    local attempted_velocity = move.velocity
     local total_mass = self.actor.mass
     local any_new = false
     for cargum, manifest in pairs(self.cargo) do
@@ -52,8 +58,14 @@ function Tote:update(dt)
             -- our actual velocity (which is the velocity of the whole system)
             -- with the velocity of this cargo, remembering to account for the
             -- friction it *would've* experienced on its own this frame
-            local cargo_friction_force = cargum:_get_total_friction(-manifest.normal)
-            local cargo_mass = cargum:_get_total_mass(manifest.velocity)
+            local cargo_friction_force = cargum:get('fall'):_get_total_friction(-manifest.normal)
+            local tote = cargum:get('tote')
+            local cargo_mass
+            if tote then
+                cargo_mass = tote:_get_total_mass(manifest.velocity)
+            else
+                cargo_mass = cargum.mass
+            end
             local friction_delta = cargo_friction_force / cargo_mass * dt
             local cargo_dot = (manifest.velocity + friction_delta) * manifest.normal
             local system_dot = move.velocity * manifest.normal
@@ -74,15 +86,16 @@ function Tote:update(dt)
                 -- If we were pushing, impart it with our velocity (which
                 -- doesn't need any mass scaling, because our velocity was the
                 -- velocity of the whole system).
-                cargum.velocity = cargum.velocity + manifest.velocity:projectOn(manifest.normal) * self.push_momentum_multiplier
+                cargum:get('move'):push(manifest.velocity:projectOn(manifest.normal) * self.push_momentum_multiplier)
 
                 -- If the object was transitively pushing something else,
                 -- transfer our velocity memory too.  This isn't strictly
                 -- necessary, but it avoids waiting an extra frame for the
                 -- object to realize it's doing the pushing before deciding
                 -- whether to detach itself as well.
-                if cargum.cargo then
-                    for actor2, manifest2 in pairs(cargum.cargo) do
+                local tote = cargum:get('tote')
+                if tote then
+                    for actor2, manifest2 in pairs(tote.cargo) do
                         if manifest2.state == CARGO_PUSHING and not manifest2.velocity then
                             manifest2.velocity = manifest.velocity
                         end
@@ -114,17 +127,26 @@ function Tote:update(dt)
                 -- FIXME how is this affected by something being pushed from both directions?
                 -- XXX does this velocity mutation belong here in the first place?  feels like it'll be ignored?
                 actor_move.velocity = actor_move.velocity - actor_move.velocity:projectOn(direction)
-                for other_actor, manifest in pairs(actor:get('tote').cargo) do
-                    if manifest.state == CARGO_PUSHING then
-                        -- FIXME should this be direction, or other_manifest.normal?
-                        -- FIXME should this also apply to pushable?
-                        momentum = momentum + get_total_momentum(other_actor, direction)
+                local tote = actor:get('tote')
+                if tote then
+                    for other_actor, manifest in pairs(actor:get('tote').cargo) do
+                        if manifest.state == CARGO_PUSHING then
+                            -- FIXME should this be direction, or other_manifest.normal?
+                            -- FIXME should this also apply to pushable?
+                            momentum = momentum + get_total_momentum(other_actor, direction)
+                        end
                     end
                 end
                 return momentum
             end
             if manifest.state == CARGO_PUSHING or manifest.state == CARGO_CARRYING then
-                local cargo_mass = cargum:_get_total_mass(attempted_velocity)
+                local tote = cargum:get('tote')
+                local cargo_mass
+                if tote then
+                    cargo_mass = tote:_get_total_mass(attempted_velocity)
+                else
+                    cargo_mass = cargum.mass
+                end
                 total_mass = total_mass + cargo_mass
                 if manifest.expiring == nil then
                     -- This is a new push
@@ -147,11 +169,11 @@ function Tote:update(dt)
         end
     end
     if any_new and total_mass ~= 0 then
-        move.velocity = total_momentum / total_mass
+        move.pending_velocity = total_momentum / total_mass
     end
-end
 
-function Tote:late_update(dt)
+    -- XXX slide_along_normals used to go here.  what are the implications of having it happen before any of this
+
     -- XXX i hate that i have to iterate three times, but i need to stick the POST-conservation velocity in here
     -- Finally, mark all cargo as potentially expiring (if we haven't seen it
     -- again by next frame), and remember our push velocity so we know whether
@@ -160,7 +182,7 @@ function Tote:late_update(dt)
     for _, manifest in pairs(self.cargo) do
         manifest.expiring = true
         if manifest.state == CARGO_PUSHING then
-            manifest.velocity = self.velocity
+            manifest.velocity = move.pending_velocity
         else
             manifest.velocity = nil
         end
@@ -179,7 +201,13 @@ function Tote:_get_total_mass(direction, _seen)
     local total_mass = self.actor.mass
     for cargum, manifest in pairs(self.cargo) do
         if manifest.state == CARGO_CARRYING or manifest.normal * direction < 0 then
-            total_mass = total_mass + cargum:get('tote'):_get_total_mass(cargum, direction, _seen)
+            local tote = cargum:get('tote')
+            if tote then
+                total_mass = total_mass + tote:_get_total_mass(direction, _seen)
+            else
+                total_mass = total_mass + cargum.mass
+                _seen[cargum] = true
+            end
         end
     end
     return total_mass

@@ -58,6 +58,11 @@ local Move = Component:extend{
 function Move:init(actor, args)
     Move.__super.init(self, actor, args)
 
+    self.min_speed = args.min_speed
+    self.max_speed = args.max_speed
+    self.skip_zero_nudge = args.skip_zero_nudge
+    self.is_juggernaut = args.is_juggernaut
+
     -- Intrinsic velocity as of the last time we moved.  Please don't modify!
     self.velocity = Vector()
     -- TODO effective overall velocity?
@@ -86,6 +91,7 @@ function Move:update(dt)
     -- external forces.  This is (more or less) the /attempted/ movement for a
     -- sentient actor, and lingering momentum for any mobile actor, which is
     -- later used for figuring out which objects a pusher was 'trying' to push
+    -- FIXME this is used for cargo sigh
     local attempted_velocity = self.velocity
 
     -- XXX then gravity applies here
@@ -128,6 +134,7 @@ function Move:update(dt)
     -- Trim velocity as necessary, based on our last slide
     -- FIXME this is clearly wrong and we need to trim it as we go, right?
     if self.velocity ~= Vector.zero then
+        local v = self.velocity
         self.velocity = Collision:slide_along_normals(hits, self.velocity)
     end
 
@@ -154,13 +161,13 @@ function Move:on_collide_with(obstacle, collision)
     -- FIXME make this less about gravity and more about a direction
     -- FIXME why is this here and not in blocks()??  oh because blocks didn't always take collision, and still isn't documented as such
     if collision.shape._xxx_is_one_way_platform then
-        if collision.overlapped or not collision:faces(Vector(0, 1)) then
+        if collision.overlapped or not collision:faces(Vector(0, -1)) then
             return true
         end
     end
 
     -- Otherwise, fall back to trying blocks(), if the other thing is an actor
-    if obstacle and not obstacle:blocks(self, collision) then
+    if obstacle and not obstacle:blocks(self.actor, collision) then
         return true
     end
 
@@ -206,7 +213,8 @@ function Move:_collision_callback(collision, pushers, already_hit)
             return true
         elseif obstacle.is_portable and
             not passable and not collision.overlapped and
-            collision:faces(gravity) and
+            -- TODO gravity
+            collision:faces(Vector(0, 1)) and
             not pushers[obstacle]
         then
             -- If we rise into a portable obstacle, pick it up -- push it the rest
@@ -301,7 +309,7 @@ function Move:_collision_callback(collision, pushers, already_hit)
             -- /it's/ pushing, which will help us figure out how much to cut
             -- our velocity in our own update()
             print("about to nudge", obstacle, collision.attempted, nudge, obstacle.is_pushable, obstacle.is_portable)
-            local actual = obstacle:get('move'):nudge(obstacle, nudge, pushers)
+            local actual = obstacle:get('move'):nudge(nudge, pushers)
             -- If we successfully moved it, ask collision detection to
             -- re-evaluate this collision
             if not _is_vector_almost_zero(actual) then
@@ -341,6 +349,9 @@ function Move:nudge(movement, pushers, xxx_no_slide)
     pushers = pushers or {}
     pushers[self.actor] = true
 
+    local collider = self.actor.map.collider
+    local shape = self.actor.shape
+
     -- Set up the hit callback, which also tells other actors that we hit them
     local already_hit = {}
     local pass_callback = function(collision)
@@ -356,10 +367,9 @@ function Move:nudge(movement, pushers, xxx_no_slide)
     while true do
         local successful
         game:time_push('sweep')
-        successful, hits = self.actor.map.collider:sweep(self.actor.shape, movement, pass_callback)
+        successful, hits = collider:sweep(shape, movement, pass_callback)
         game:time_pop('sweep')
-        self.actor.shape:move(successful:unpack())
-        self.actor.pos = self.actor.pos + successful
+        shape:move(successful:unpack())
         total_movement = total_movement + successful
 
         if xxx_no_slide then
@@ -396,20 +406,18 @@ function Move:nudge(movement, pushers, xxx_no_slide)
         end
     end
 
+    self.actor.pos = self.actor.pos + total_movement
+
     -- If we pushed anything, then most likely we caught up with it and now it
     -- has a collision that looks like we hit it.  But we did manage to move
     -- it, so we don't want that to count when cutting our velocity!
     -- So we'll...  cheat a bit, and pretend it's passable for now.
     -- FIXME oh boy i don't like this, but i don't want to add a custom prop
     -- here that Collision has to know about either?
-    for obstacle, hit_type in pairs(already_hit) do
-        if hit_type == 'nudged' then
-            -- FIXME auughhhh
-            for _, hit in ipairs(hits) do
-                if self.actor.map.collider:get_owner(hit.our_shape) == obstacle then
-                    hit.passable = 'pushed'
-                end
-            end
+    for _, collision in ipairs(hits) do
+        if already_hit[collision.their_owner] == 'nudged' then
+            print('! found a nudge', collision.their_owner)
+            collision.passable = 'pushed'
         end
     end
 
@@ -526,11 +534,14 @@ function Fall:_get_total_friction(direction, _seen)
     end
     _seen[self] = true
 
-    local friction = self:get('fall'):get_friction(self, direction)
+    local friction = self:get('fall'):get_friction(direction)
 
-    for cargum, manifest in pairs(self.cargo) do
-        if manifest.state ~= CARGO_CARRYING and manifest.normal * direction < 0 then
-            friction = friction + cargum:_get_total_friction(direction, _seen)
+    local tote = self:get('tote')
+    if tote then
+        for cargum, manifest in pairs(tote.cargo) do
+            if manifest.state ~= CARGO_CARRYING and manifest.normal * direction < 0 then
+                friction = friction + cargum:get('fall'):_get_total_friction(direction, _seen)
+            end
         end
     end
     --print("- " .. tostring(self), friction:projectOn(direction), self:_get_total_mass(direction), friction:projectOn(direction) / self:_get_total_mass(direction), __v)
@@ -553,7 +564,7 @@ function Fall:_get_carried_mass(_seen)
     if tote then
         for cargum, manifest in pairs(tote.cargo) do
             if manifest.state == CARGO_CARRYING then
-                mass = mass + cargum:get('fall'):_get_carried_mass(cargum, _seen)
+                mass = mass + cargum:get('fall'):_get_carried_mass(_seen)
             end
         end
     end
@@ -602,7 +613,7 @@ function Fall:update(dt)
     if tote then
         for cargum, manifest in pairs(tote.cargo) do
             if (manifest.state == CARGO_PUSHING or manifest.state == CARGO_COULD_PUSH) and manifest.normal * attempted_velocity < -1e-8 then
-                local cargo_friction_force = cargum:_get_total_friction(-manifest.normal)
+                local cargo_friction_force = cargum:get('fall'):_get_total_friction(-manifest.normal)
                 friction_force = friction_force + cargo_friction_force -- FIXME * tote.push_resistance_multiplier
             end
         end
@@ -621,6 +632,9 @@ function Fall:update(dt)
         end
         local friction_delta = friction_force * (dt / total_mass)
         local friction_delta1 = friction_delta:normalized()
+        -- FIXME if you're trying to skid to a halt, you'll now be hit by BOTH Walk's decel AND friction.
+        -- (a) this is arguably wrong because walk decel is friction anyway
+        -- (b) this ultimately pushes you against your old velocity, so maybe this should trim to pending velocity?  but we don't really know what that is, either, since there's also pending force.  also we can't guarantee this happens last, but it /can't/ overshoot.  so what do i do?  causes an ugly jitter sometimes if something is oscillating across a pixel boundary
         move:push(friction_delta:trimmed(move.velocity * friction_delta1))
         --frame_velocity = frame_velocity + friction_delta:trimmed(frame_velocity * friction_delta1)
     end
@@ -731,24 +745,30 @@ function Fall:check_for_ground(hits)
     self.ground_friction = friction or 1
     self.ground_terrain = terrain
 
+    -- XXX this all super doesn't belong here, /surely/
+    -- XXX i'm not sure this is even necessary
+    -- XXX cargo_of is very suspicious also
     if self.actor.ptrs.cargo_of and self.actor.ptrs.cargo_of ~= carrier then
-        self.actor.ptrs.cargo_of.cargo[self.actor] = nil
+        self.actor.ptrs.cargo_of:get('tote').cargo[self.actor] = nil
         self.actor.ptrs.cargo_of = nil
     end
     -- TODO i still feel like there should be some method for determining whether we're being carried
     -- TODO still seems rude that we inject ourselves into their cargo also
     if carrier then
-        local manifest = carrier.cargo[self.actor]
-        if manifest then
-            manifest.expiring = false
-        else
-            manifest = {}
-            carrier.cargo[self.actor] = manifest
-        end
-        manifest.state = CARGO_CARRYING
-        manifest.normal = carrier_normal
+        local tote = carrier:get('tote')
+        if tote then
+            local manifest = tote.cargo[self.actor]
+            if manifest then
+                manifest.expiring = false
+            else
+                manifest = {}
+                tote.cargo[self.actor] = manifest
+            end
+            manifest.state = CARGO_CARRYING
+            manifest.normal = carrier_normal
 
-        self.actor.ptrs.cargo_of = carrier
+            self.actor.ptrs.cargo_of = carrier
+        end
     end
 end
 
@@ -781,7 +801,7 @@ function SentientFall:check_for_ground(...)
     -- non-sentient actors...?  should max_slope get hoisted just for this?
     if self.actor.ptrs.cargo_of then
         local carrier = self.actor.ptrs.cargo_of
-        local manifest = carrier.cargo[self.actor]
+        local manifest = carrier:get('tote').cargo[self.actor]
         if manifest and manifest.normal * gravity - max_slope_dot > 1e-8 then
             carrier.cargo[self] = nil
             self.actor.ptrs.cargo_of = nil
@@ -889,6 +909,7 @@ function SentientFall:after_collisions(movement, collisions)
                 -- Now we're on the ground, so flatten our velocity to indicate
                 -- we're walking along it.  Or equivalently, remove the part
                 -- that's trying to launch us upwards.
+                -- FIXME should this use push?
                 move.velocity = move.velocity - move.velocity:projectOn(self.ground_normal)
             end
         end

@@ -78,7 +78,9 @@ end
 
 function Walk:decide(dx, dy)
     self.decision = Vector(dx, dy)
-    self.decision:normalizeInplace()
+    if self.decision:len2() ~= 1 then
+        self.decision:normalizeInplace()
+    end
 end
 
 function Walk:update(dt)
@@ -108,8 +110,7 @@ function Walk:update(dt)
         current = current:projectOn(ground_axis)
     else
         -- For 2D, just move in the input direction
-        -- FIXME this shouldn't normalize the movement vector, but i can't do it in decide_move for reasons described there
-        goal = self.decision:normalized() * self.max_speed
+        goal = self.decision * self.max_speed
     end
 
     local delta = goal - current
@@ -167,6 +168,9 @@ function Jump:init(actor, args)
     self.jump_speed = args.jump_speed or 0
     self.abort_speed = args.abort_speed or 0
     self.sound = args.sound or nil
+    if type(self.sound) == 'string' then
+        self.sound = game.resource_manager:get(self.sound)
+    end
     self.max_jumps = args.max_jumps or 1
 end
 

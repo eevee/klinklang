@@ -175,7 +175,7 @@ end
 
 -- Determines whether this actor blocks another one.  By default, actors are
 -- non-blocking, and mobile actors are blocking
-function BareActor:blocks(actor, direction)
+function BareActor:blocks(actor, collision)
     return false
 end
 
@@ -388,7 +388,7 @@ local MobileActor = Actor:extend{
     },
 }
 
-function MobileActor:blocks(actor, d)
+function MobileActor:blocks(actor, collision)
     return true
 end
 
