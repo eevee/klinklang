@@ -48,7 +48,7 @@ function vector:unpack()
 end
 
 function vector:__tostring()
-	return ("(%.20g,%.20g)"):format(self.x, self.y)
+	return ("(%.3f, %.3f)"):format(self.x, self.y)
 	--return "("..tonumber(self.x)..","..tonumber(self.y)..")"
 end
 
