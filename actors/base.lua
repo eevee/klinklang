@@ -1,10 +1,8 @@
 local Vector = require 'klinklang.vendor.hump.vector'
 
 local Object = require 'klinklang.object'
-local components = require 'klinklang.actors.components'
-local components_cargo = require 'klinklang.components.cargo'
+local components_behavior = require 'klinklang.components.behavior'
 local components_physics = require 'klinklang.components.physics'
-local Collision = require 'klinklang.whammo.collision'
 
 
 -- ========================================================================== --
@@ -271,7 +269,6 @@ end
 -- drawing themselves.)
 local Actor = BareActor:extend{
     _type_name = 'Actor',
-    -- TODO consider splitting me into components
 
     -- Should be provided in the class
     -- TODO are these part of the sprite?
@@ -472,13 +469,13 @@ local SentientActor = MobileActor:extend{
     is_locked = false,
 
     COMPONENTS = {
-        [components.Walk] = {},
-        [components.Jump] = {
+        [components_behavior.Walk] = {},
+        [components_behavior.Jump] = {
             speed = get_jump_velocity(TILE_SIZE * 2.25),
         },
-        [components.Climb] = {},
-        [components.Interact] = {},
-        [components.SentientFall] = {},
+        [components_behavior.Climb] = {},
+        [components_behavior.Interact] = {},
+        [components_physics.SentientFall] = {},
     },
 }
 

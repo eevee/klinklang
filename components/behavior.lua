@@ -1,8 +1,8 @@
+-- Components for sentient actor behavior
 local Vector = require 'klinklang.vendor.hump.vector'
 
 local util = require 'klinklang.util'
 local Component = require 'klinklang.components.base'
-local components_physics = require 'klinklang.components.physics'
 
 
 -- TODO a sprite component
@@ -571,8 +571,4 @@ return {
     Climb = Climb,
     Think = Think,
     PlayerThink = PlayerThink,
-    -- XXX back compat, please remove
-    Fall = components_physics.Fall,
-    Fall2D = components_physics.Fall2D,
-    SentientFall = components_physics.SentientFall,
 }

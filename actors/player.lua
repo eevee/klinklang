@@ -1,10 +1,9 @@
 local Vector = require 'klinklang.vendor.hump.vector'
 
 local actors_base = require 'klinklang.actors.base'
-local components = require 'klinklang.actors.components'
+local components_behavior = require 'klinklang.components.behavior'
 local actors_misc = require 'klinklang.actors.misc'
 local Inventory = require 'klinklang.inventory'
-local Object = require 'klinklang.object'
 
 
 local Player = actors_base.SentientActor:extend{
@@ -20,7 +19,7 @@ local Player = actors_base.SentientActor:extend{
     jump_sound = nil,
 
     COMPONENTS = {
-        [components.PlayerThink] = {},
+        [components_behavior.PlayerThink] = {},
     },
 }
 
