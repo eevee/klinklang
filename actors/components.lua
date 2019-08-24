@@ -171,7 +171,7 @@ function Walk:update(dt)
     local skid = util.lerp((skid_dot + 1) / 2, self.stop_multiplier, 1)
 
     -- Put it all together, and we're done
-    -- TODO would be really nice to express this as an acceleration, but i think that would require dividing by dt somewhere  :S
+    -- TODO would be really nice to express this as an acceleration, but i think that would require dividing by dt somewhere  :S  plus it's a bit goofy to integrate something with a cap.
     self:get('move'):push(delta * (skid * multiplier))
 end
 

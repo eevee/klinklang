@@ -13,6 +13,12 @@ _G.love = {
         end,
     },
 }
+-- FIXME this either
+_G.game = {
+    -- FIXME deep in components
+    time_push = function() end,
+    time_pop = function() end,
+}
 
 local Vector = require 'klinklang.vendor.hump.vector'
 
@@ -44,7 +50,8 @@ describe("Sentient actors", function()
         -- FIXME i realize i am not actually sure how the player ends up in the map normally??
         map:add_actor(player)
 
-        map.collider:add(whammo_shapes.Polygon(0, 512, 512, 0, 512, 512))
+        local slope = whammo_shapes.Polygon(0, 512, 512, 0, 512, 512)
+        map.collider:add(slope)
 
         -- FIXME need to do one update because the player won't realize it's on the ground to start with
         -- FIXME fix that, seriously, christ
@@ -52,6 +59,7 @@ describe("Sentient actors", function()
 
         local original_pos = player.pos
         for _ = 1, 4 do
+            collectgarbage()
             map:update(DT)
             assert.are.equal(player.pos, original_pos)
         end

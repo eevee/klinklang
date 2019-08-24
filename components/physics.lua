@@ -82,6 +82,7 @@ function Move:init(actor, args)
     -- and will be integrated appropriately.  ONLY use this for continuous
     -- acceleration (like gravity); DO NOT use it for instantaneous velocity
     -- changes!
+    -- FIXME not a force, please rename
     self.pending_force = Vector()
 end
 
@@ -91,6 +92,10 @@ end
 -- XXX wait that's not true any more lol whoops
 function Move:push(dv)
     self.pending_velocity = self.pending_velocity + dv
+end
+
+function Move:accelerate(da)
+    self.pending_force = self.pending_force + da
 end
 
 function Move:update(dt)
@@ -110,8 +115,8 @@ function Move:update(dt)
     -- called, but it's similar to Verlet integration and the midpoint method.
     local dv = self.pending_force * dt
     local frame_velocity = self.pending_velocity + 0.5 * dv
-    self.pending_force = Vector()
     self.velocity = self.pending_velocity + dv
+    self.pending_force = Vector()
 
     local speed = self.velocity:len()
     if speed < self.min_speed then
@@ -141,7 +146,6 @@ function Move:update(dt)
     -- Trim velocity as necessary, based on our last slide
     -- FIXME this is clearly wrong and we need to trim it as we go, right?
     if self.velocity ~= Vector.zero then
-        local v = self.velocity
         self.velocity = Collision:slide_along_normals(hits, self.velocity)
     end
 
@@ -484,6 +488,7 @@ end
 -- Gravity for the sidescroller case.  Rather more complicated.
 local Fall = Fall2D:extend{
     slot = 'fall',
+    priority = 99,
 
     -- Configuration --
     -- Multiplier applied to the normal acceleration due to gravity.
@@ -606,7 +611,7 @@ function Fall:update(dt)
         multiplier = multiplier * self.multiplier_down
     end
 
-    move.pending_force = move.pending_force + self:get_base_gravity() * multiplier
+    move:accelerate(self:get_base_gravity() * multiplier)
 
     -- FIXME this was a good idea but components break it, so, now what?  is it
     -- ok if this doesn't include deliberate movement?
@@ -625,7 +630,9 @@ function Fall:update(dt)
     -- velocity (like a moving platform) or something immobile
     -- XXX there's cargo stuff in here
     -- XXX frame_velocity and attempted_velocity don't exist yet, figure that out
-    local friction_force = self:get_friction(move.velocity)
+    -- XXX i think this might need to happen just before Move, so that friction can be capped appropriately?
+    local pending_velocity = move.pending_velocity + move.pending_force * dt
+    local friction_force = self:get_friction(pending_velocity)
     -- Add up all the friction of everything we're pushing (recursively, since
     -- those things may also be pushing/carrying things)
     -- FIXME each cargo is done independently, so there's a risk of counting
@@ -658,7 +665,7 @@ function Fall:update(dt)
         -- FIXME if you're trying to skid to a halt, you'll now be hit by BOTH Walk's decel AND friction.
         -- (a) this is arguably wrong because walk decel is friction anyway
         -- (b) this ultimately pushes you against your old velocity, so maybe this should trim to pending velocity?  but we don't really know what that is, either, since there's also pending force.  also we can't guarantee this happens last, but it /can't/ overshoot.  so what do i do?  causes an ugly jitter sometimes if something is oscillating across a pixel boundary
-        move:push(friction_delta:trimmed(move.velocity * friction_delta1))
+        move:push(friction_delta:trimmed(pending_velocity * friction_delta1))
         --frame_velocity = frame_velocity + friction_delta:trimmed(frame_velocity * friction_delta1)
     end
 end
@@ -843,10 +850,9 @@ function SentientFall:check_for_ground(...)
 end
 
 function SentientFall:update(dt)
-    SentientFall.__super.update(self, dt)
-
     -- Slope resistance: a sentient actor will resist sliding down a slope
     if not self.grounded then
+        SentientFall.__super.update(self, dt)
         return
     end
 
@@ -859,13 +865,17 @@ function SentientFall:update(dt)
     -- FIXME this doesn't take into account the gravity multiplier /or/
     -- fluid resistance, and in general i don't love that it can get out of
     -- sync like that  :S
+    -- FIXME one wonders if this is really a part of walking and should be included in there, though it'll complicate things since it reacts to the velocity from the previous frame...  if you fall onto a slope you'll never stop under your own power, gravity comes next...
     local slope = self.ground_normal:perpendicular()
     if slope * gravity > 0 then
         slope = -slope
     end
     local slope_resistance = -(gravity * slope)
     local move = self.actor:get('move')
-    move.pending_force = move.pending_force + slope_resistance * slope
+    move:accelerate(slope_resistance * slope)
+
+    -- Do this BEFORE the super call, so that friction can take it into account
+    SentientFall.__super.update(self, dt)
 end
 
 function SentientFall:after_collisions(movement, collisions)

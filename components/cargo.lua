@@ -20,7 +20,11 @@ local Tote = Component:extend{
     -- XXX i think this needs to happen right after movement, but primarily so that detach logic has the right velocity to work with?  but if i move more cargo code here i can see it happening more
     priority = 101,
 
+    -- TODO figure these out
+    --push_resistance_multiplier = 1,
     push_momentum_multiplier = 1,
+    -- Map of everything this actor is currently pushing/carrying.  Keys are
+    -- the other actors; values are a manifest.  TODO document manifest
     cargo = nil,
 }
 
