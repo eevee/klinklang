@@ -2,7 +2,6 @@
 Read a map in Tiled's JSON format.
 ]]
 
-local anim8 = require 'klinklang.vendor.anim8'
 local Vector = require 'klinklang.vendor.hump.vector'
 
 local Object = require 'klinklang.object'
@@ -670,24 +669,6 @@ function TiledMap:add_to_collider(collider, submap_name)
     -- were loaded a second time
     if not self.shapes then
         self.shapes = {}
-    end
-
-    -- Add borders around the map itself, so nothing can leave it
-    if not self.shapes.border then
-        local margin = 16
-        self.shapes.border = {
-            -- Top
-            whammo_shapes.Box(0, -margin, self.width, margin),
-            -- Bottom
-            whammo_shapes.Box(0, self.height, self.width, margin),
-            -- Left
-            whammo_shapes.Box(-margin, 0, margin, self.height),
-            -- Right
-            whammo_shapes.Box(self.width, 0, margin, self.height),
-        }
-    end
-    for _, border in ipairs(self.shapes.border) do
-        collider:add(border)
     end
 
     for _, layer in ipairs(self.layers) do

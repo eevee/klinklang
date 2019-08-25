@@ -54,6 +54,7 @@ local Move = Component:extend{
     -- If true, this object is unstoppable and cannot be blocked by anything
     -- for any reason.
     -- TODO this used to be is_blockable = false, but i don't remember why i want it, and anyway i could just extend this component a bit?
+    -- TODO this means they won't be blocked by the map edges, either...  is that a problem
     is_juggernaut = false,
 
     -- State --
@@ -178,7 +179,7 @@ function Move:on_collide_with(collision)
     end
 
     -- Otherwise, fall back to trying blocks()
-    return not collision.their_owner:blocks(self.actor)
+    return not collision.their_owner:blocks(self.actor, collision)
 end
 
 function Move:_collision_callback(collision, pushers, already_hit)

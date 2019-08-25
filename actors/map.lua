@@ -400,7 +400,23 @@ function TiledMapImage:draw()
 end
 
 
+local MapEdge = actors_base.BareActor:extend{
+    name = 'map edge',
+}
+
+function MapEdge:init(shape)
+    MapEdge.__super.init(self)
+
+    self.shape = shape
+end
+
+function MapEdge:blocks()
+    return true
+end
+
+
 return {
     TiledMapLayer = TiledMapLayer,
     TiledMapImage = TiledMapImage,
+    MapEdge = MapEdge,
 }

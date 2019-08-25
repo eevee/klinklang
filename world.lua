@@ -7,6 +7,7 @@ local actors_base = require 'klinklang.actors.base'
 local actors_map = require 'klinklang.actors.map'
 local Object = require 'klinklang.object'
 local whammo = require 'klinklang.whammo'
+local whammo_shapes = require 'klinklang.whammo.shapes'
 
 
 local Camera = Object:extend{
@@ -124,6 +125,8 @@ function Map:init(world, tiled_map, submap)
     -- TODO would be nice to not be so reliant on particular details of
     -- TiledMap, i guess, abstractly, but also who cares that much
     self.tiled_map = tiled_map
+    self.width = tiled_map.width
+    self.height = tiled_map.height
 
     -- FIXME if i put these here, then anything the PLAYER (or any other moved
     -- object) tries to do when changing maps will be suspended, and will
@@ -379,6 +382,21 @@ function Map:draw_actors(sorted_actors)
 end
 
 function Map:_create_actors()
+    -- Add borders around the map itself, so nothing can leave it
+    local margin = 64
+    for _, shape in ipairs{
+        -- Top
+        whammo_shapes.Box(-margin, -margin, self.width + margin * 2, margin),
+        -- Bottom
+        whammo_shapes.Box(-margin, self.height, self.width + margin * 2, margin),
+        -- Left
+        whammo_shapes.Box(-margin, -margin, margin, self.height + margin * 2),
+        -- Right
+        whammo_shapes.Box(self.width, -margin, margin, self.height + margin * 2),
+    } do
+        self:add_actor(actors_map.MapEdge(shape))
+    end
+
     -- TODO this seems /slightly/ invasive but i'm not sure where else it would
     -- go.  i guess if the "map" parts of the world got split off it would be
     -- more appropriate.  i DO like that it starts to move "submap" out of the
