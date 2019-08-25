@@ -350,9 +350,11 @@ function Map:draw(aabb)
     table.sort(sorted_actors, function(actor1, actor2)
         -- FIXME this is only for top-down mode, which is currently per-actor, yikes!!
         -- FIXME i think this makes the sort non-transitive, whhhoooopps
+        --[[
         if actor1.pos and actor2.pos and actor1.pos.y ~= actor2.pos.y then
             return actor1.pos.y < actor2.pos.y
         end
+        ]]
 
         local z1 = actor1.z or 0
         local z2 = actor2.z or 0

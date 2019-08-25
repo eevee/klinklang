@@ -293,6 +293,7 @@ end
 
 
 -- Climb
+-- TODO this should disable gravity, but that's currently done in Fall, which seems...  extreeeemely hokey to me.  honestly this seems like it completely changes the physics "mode", but that's not a concept i really have anywhere yet
 local Climb = Component:extend{
     slot = 'climb',
 
@@ -334,29 +335,38 @@ function Climb:decide(direction)
     end
 end
 
+function Climb:on_collide_with(collision)
+    -- Ignore collision with one-way platforms when climbing ladders, since
+    -- they tend to cross (or themselves be) one-way platforms
+    if collision.their_shape._xxx_is_one_way_platform and self.is_climbing then
+        return true
+    end
+end
+
 function Climb:after_collisions(movement, collisions)
     -- Check for whether we're touching something climbable
-    -- FIXME we might not still be colliding by the end of the movement!  this
-    -- should use, now that that's only final hits -- though we need them to be
-    -- in order so we can use the last thing touched.  same for mechanisms!
     for _, collision in ipairs(collisions) do
         local obstacle = collision.their_owner
+        -- TODO i wonder if climbability should be a component, the way interactability is
         if obstacle and obstacle.is_climbable then
             -- The reason for the up/down distinction is that if you're standing at
             -- the top of a ladder, you should be able to climb down, but not up
             -- FIXME these seem like they should specifically grab the highest and lowest in case of ties...
             -- FIXME aha, shouldn't this check if we're overlapping /now/?
+            -- FIXME this is super not gonna work for "climbing" sideways
             if collision.overlapped or collision:faces(Vector(0, -1)) then
                 self.actor.ptrs.climbable_down = obstacle
-                self.actor.on_climbable_down = collision
+                self.on_climbable_down = collision
             end
             if collision.overlapped or collision:faces(Vector(0, 1)) then
                 self.actor.ptrs.climbable_up = obstacle
-                self.actor.on_climbable_up = collision
+                self.on_climbable_up = collision
             end
         end
 
         -- If we're climbing downwards and hit something (i.e., the ground), let go
+        -- FIXME more generally, we should stop climbing if we're not touching a climbable actor any more?
+        -- FIXME gravity hardcoded
         if self.is_climbing and self.decision > 0 and not collision.passable and collision:faces(Vector(0, -1)) then
             self.is_climbing = false
             self.climbing = nil
@@ -392,31 +402,27 @@ function Climb:update(dt)
                 -- There's nothing to climb!
                 self.is_climbing = false
             end
-            if self.is_climbing then
-                -- If we just grabbed a ladder, snap us instantly to its center
-                local x0, _y0, x1, _y1 = self.climbing.shape:bbox()
-                local ladder_center = (x0 + x1) / 2
-                --self:nudge(Vector(ladder_center - self.pos.x, 0), nil, true)
-            end
         end
         -- FIXME handle all yon cases, including the "is it possible" block above
         if self.is_climbing then
             -- We have no actual velocity...  unless...  sigh
+            -- TODO part of the point of this is to undo movement from Walk, which (a) makes it a /separate/ hack from disabling gravity, ugh, and (b) doesn't make sense if we're on something we can climb widely
             if self.xxx_useless_climb then
-                move.velocity = move.velocity:projectOn(gravity)
+                move.pending_velocity = move.pending_velocity:projectOn(gravity)
             else
                 -- XXX should there be a thing to forcibly set velocity?  how
                 -- would that affect other components that later try to modify
                 -- it?
-                move.velocity = Vector()
+                move.pending_velocity = Vector()
             end
 
             -- Slide us gradually towards the center of a ladder
             -- FIXME gravity dependant...?  how do ladders work in other directions?
             local x0, _y0, x1, _y1 = self.climbing.shape:bbox()
             local ladder_center = (x0 + x1) / 2
-            local dx = ladder_center - self.pos.x
-            local max_dx = self.climb_speed * dt
+            -- FIXME uhh, is this the point that should even be snapped...?
+            local dx = ladder_center - self.actor.pos.x
+            local max_dx = self.speed * dt
             dx = util.sign(dx) * math.min(math.abs(dx), max_dx)
 
             -- FIXME oh i super hate this var lol, it exists only for fox flux's slime lexy
@@ -427,7 +433,7 @@ function Climb:update(dt)
             elseif self.decision < 0 then
                 -- Climbing is done with a nudge, rather than velocity, to avoid
                 -- building momentum which would then launch you off the top
-                local climb_distance = self.climb_speed * dt
+                local climb_distance = self.speed * dt
 
                 -- Figure out how far we are from the top of the ladder
                 local ladder = self.on_climbable_up

@@ -159,7 +159,7 @@ end
 -- Lower-level function passed to the collider to determine whether another
 -- object blocks us
 -- FIXME now that they're next to each other, these two methods look positively silly!  and have a bit of a symmetry problem: the other object can override via the simple blocks(), but we have this weird thing
-function Move:on_collide_with(obstacle, collision)
+function Move:on_collide_with(collision)
     -- Moving away is always fine
     if collision.contact_type < 0 then
         return true
@@ -177,13 +177,8 @@ function Move:on_collide_with(obstacle, collision)
         end
     end
 
-    -- Otherwise, fall back to trying blocks(), if the other thing is an actor
-    if obstacle and not obstacle:blocks(self.actor, collision) then
-        return true
-    end
-
-    -- Otherwise, it's solid, and we're blocked!
-    return false
+    -- Otherwise, fall back to trying blocks()
+    return not collision.their_owner:blocks(self.actor)
 end
 
 function Move:_collision_callback(collision, pushers, already_hit)
@@ -208,7 +203,7 @@ function Move:_collision_callback(collision, pushers, already_hit)
 
     -- FIXME again, i would love a better way to expose a normal here.
     -- also maybe the direction of movement is useful?
-    local passable = self:on_collide_with(obstacle, collision)
+    local passable = self.actor:collect('on_collide_with', collision)
 
     -- Check for carrying
     local tote = self:get('tote')
@@ -602,6 +597,7 @@ end
 function Fall:update(dt)
     Fall.__super.update(self, dt)
 
+    -- Apply gravity
     -- TODO factor the ground_friction constant into this, and also into slope
     -- resistance
     local move = self:get('move')
@@ -611,7 +607,11 @@ function Fall:update(dt)
         multiplier = multiplier * self.multiplier_down
     end
 
-    move:accelerate(self:get_base_gravity() * multiplier)
+    -- TODO this feels like it does not belong here, but i don't know how to untangle them better
+    local climb = self:get('climb')
+    if not (climb and climb.is_climbing) then
+        move:accelerate(self:get_base_gravity() * multiplier)
+    end
 
     -- FIXME this was a good idea but components break it, so, now what?  is it
     -- ok if this doesn't include deliberate movement?

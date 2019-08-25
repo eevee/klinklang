@@ -200,6 +200,30 @@ function BareActor:each(method, ...)
     end
 end
 
+-- TODO this is a bit harebrained, used for on_collide_with atm
+function BareActor:collect(method, ...)
+    if not self.components then
+        return
+    end
+
+    if self[method] then
+        local ret = self[method](self, ...)
+        if ret ~= nil then
+            return ret
+        end
+    end
+
+    for _, component in ipairs(self.component_order) do
+        local f = component[method]
+        if f then
+            local ret = component[method](component, ...)
+            if ret ~= nil then
+                return ret
+            end
+        end
+    end
+end
+
 
 -- Main update and draw loops
 function BareActor:update(dt)
@@ -492,18 +516,6 @@ function SentientActor:push(dv)
     if dv * self:get('fall'):get_gravity() < 0 then
         self.was_launched = true
     end
-end
-
-function SentientActor:on_collide_with(actor, collision)
-    -- Ignore collision with one-way platforms when climbing ladders, since
-    -- they tend to cross (or themselves be) one-way platforms
-    if collision.shape._xxx_is_one_way_platform and self.is_climbing then
-        return true
-    end
-
-    local passable = SentientActor.__super.on_collide_with(self, actor, collision)
-
-    return passable
 end
 
 function SentientActor:update(dt)

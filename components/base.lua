@@ -31,6 +31,9 @@ end
 function Component:update(actor, dt)
 end
 
+function Component:on_collide_with(collision)
+end
+
 function Component:after_collisions(actor, movement, collisions)
 end
 
