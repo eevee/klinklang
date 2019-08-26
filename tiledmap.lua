@@ -659,34 +659,6 @@ function TiledMap:prop(key, default)
     return value
 end
 
-function TiledMap:add_to_collider(collider, submap_name)
-    -- TODO injecting like this seems...  wrong?  also keeping references to
-    -- the collision shapes /here/?  this object should be a dumb wrapper and
-    -- not have any state i think.  maybe return a structure of shapes?
-    -- or, alternatively, create shapes on the fly from the blockmap...?
-    -- FIXME ok so also we have to do a lot of stupid garbage here to avoid
-    -- keep duplicate copies of the entire collision around just because we
-    -- were loaded a second time
-    if not self.shapes then
-        self.shapes = {}
-    end
-
-    for _, layer in ipairs(self.layers) do
-        -- Tile layers are already handled by a layer actor
-        if layer.type == 'objectgroup' and layer.submap == submap_name then
-            for _, obj in ipairs(layer.objects) do
-                if self.shapes[obj] then
-                    collider:add(self.shapes[obj])
-                elseif obj.type == 'collision' then
-                    local shape = tiled_shape_to_whammo_shape(obj)
-                    self.shapes[obj] = shape
-                    collider:add(shape)
-                end
-            end
-        end
-    end
-end
-
 -- Draw the whole map
 function TiledMap:draw(layer_name, submap_name, origin, width, height)
     -- TODO origin unused.  is it in tiles or pixels?

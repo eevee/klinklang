@@ -400,6 +400,7 @@ function TiledMapImage:draw()
 end
 
 
+-- Thin wrapper for the boxes at the edges of the map that prevent leaving it
 local MapEdge = actors_base.BareActor:extend{
     name = 'map edge',
 }
@@ -415,8 +416,25 @@ function MapEdge:blocks()
 end
 
 
+-- Thin wrapper for a collision shape drawn directly on the map
+local MapCollider = actors_base.BareActor:extend{
+    name = 'map collider',
+}
+
+function MapCollider:init(shape)
+    MapCollider.__super.init(self)
+
+    self.shape = shape
+end
+
+function MapCollider:blocks()
+    return true
+end
+
+
 return {
     TiledMapLayer = TiledMapLayer,
     TiledMapImage = TiledMapImage,
     MapEdge = MapEdge,
+    MapCollider = MapCollider,
 }

@@ -6,6 +6,7 @@ local AABB = require 'klinklang.aabb'
 local actors_base = require 'klinklang.actors.base'
 local actors_map = require 'klinklang.actors.map'
 local Object = require 'klinklang.object'
+local tiledmap = require 'klinklang.tiledmap'
 local whammo = require 'klinklang.whammo'
 local whammo_shapes = require 'klinklang.whammo.shapes'
 
@@ -117,16 +118,39 @@ end
 local Map = Object:extend{}
 
 function Map:init(world, tiled_map, submap)
+    -- TODO? this could be added by a method that activates the map...
     self.world = world
-    -- TODO i would prefer if, somehow, this class were blissfully unaware of
-    -- the entire 'submap' concept, but we need it to get stuff out of tiled
-    self.submap = submap
 
-    -- TODO would be nice to not be so reliant on particular details of
-    -- TiledMap, i guess, abstractly, but also who cares that much
-    self.tiled_map = tiled_map
-    self.width = tiled_map.width
-    self.height = tiled_map.height
+    local blockmap_size
+    -- FIXME better argspec please
+    if type(tiled_map) == 'number' then
+        self.width = tiled_map
+        self.height = submap
+        self.tiled_map = nil
+        self.submap = nil
+
+        blockmap_size = 64
+
+        self.camera_bounds = AABB(0, 0, self.width, self.height)
+    else
+        -- TODO i would prefer if, somehow, this class were blissfully unaware of
+        -- the entire 'submap' concept, but we need it to get stuff out of tiled
+        self.submap = submap
+        -- TODO would be nice to not be so reliant on particular details of
+        -- TiledMap, so i could write some freakin' tests
+        self.tiled_map = tiled_map
+
+        self.width = tiled_map.width
+        self.height = tiled_map.height
+
+        blockmap_size = tiled_map.tilewidth * 4
+
+        self.camera_bounds = AABB:from_bounds(
+            0 + tiled_map.camera_margin_left,
+            0 + tiled_map.camera_margin_top,
+            self.width - tiled_map.camera_margin_right,
+            self.height - tiled_map.camera_margin_bottom)
+    end
 
     -- FIXME if i put these here, then anything the PLAYER (or any other moved
     -- object) tries to do when changing maps will be suspended, and will
@@ -140,13 +164,11 @@ function Map:init(world, tiled_map, submap)
 
     self.actors = {}
     self.actors_to_remove = {}
-    self.collider = whammo.Collider(4 * tiled_map.tilewidth)
-
-    tiled_map:add_to_collider(self.collider, submap)
+    self.collider = whammo.Collider(blockmap_size)
 
     -- TODO this seems more a candidate for an 'enter' or map-switch event?
     -- maybe?  maybe not?
-    self:_create_actors()
+    self:_create_initial_actors()
 end
 
 function Map:__tostring()
@@ -332,8 +354,8 @@ function Map:draw(aabb)
         -- In the interest of preserving the argument-less draw(), default to
         -- drawing the entire map, with a wide margin around it.
         aabb = AABB(
-            -self.tiled_map.width / 2, -self.tiled_map.height / 2,
-            self.tiled_map.width * 2, self.tiled_map.height * 2)
+            -self.width / 2, -self.height / 2,
+            self.width * 2, self.height * 2)
     end
 
     -- TODO could reduce allocation and probably speed up the sort below if we
@@ -381,7 +403,7 @@ function Map:draw_actors(sorted_actors)
     end
 end
 
-function Map:_create_actors()
+function Map:_create_initial_actors()
     -- Add borders around the map itself, so nothing can leave it
     local margin = 64
     for _, shape in ipairs{
@@ -397,6 +419,11 @@ function Map:_create_actors()
         self:add_actor(actors_map.MapEdge(shape))
     end
 
+    -- TODO slightly hokey
+    if not self.tiled_map then
+        return
+    end
+
     -- TODO this seems /slightly/ invasive but i'm not sure where else it would
     -- go.  i guess if the "map" parts of the world got split off it would be
     -- more appropriate.  i DO like that it starts to move "submap" out of the
@@ -404,7 +431,9 @@ function Map:_create_actors()
     -- TODO imo the collision should be attached to the tile layers too
     local parallax_z = -20000
     for _, layer in ipairs(self.tiled_map.layers) do
-        if layer.type == 'tilelayer' and layer.submap == self.submap then
+        if layer.submap ~= self.submap then
+            -- Not relevant to us; skip it
+        elseif layer.type == 'tilelayer' then
             local z
             -- FIXME better!  but i still don't like hardcoded layer names
             if layer.name == 'background' then
@@ -424,7 +453,7 @@ function Map:_create_actors()
             if z ~= nil then
                 self:add_actor(actors_map.TiledMapLayer(layer, self.tiled_map, z))
             end
-        elseif layer.type == 'imagelayer' and layer.submap == self.submap then
+        elseif layer.type == 'imagelayer' then
             -- FIXME well this is stupid.  the main problem with automatic
             -- z-numbering of tiled layers is that it's not obvious at a glance
             -- where the object layer is...
@@ -438,6 +467,17 @@ function Map:_create_actors()
                 parallax_z = parallax_z + 1
             end
             self:add_actor(actors_map.TiledMapImage(layer, z))
+        elseif layer.type == 'objectgroup' then
+            for _, obj in ipairs(layer.objects) do
+                if obj.type == 'collision' then
+                    -- TODO i wonder if the map should create these
+                    -- automatically on load so i don't need to call this
+                    local shape = tiledmap.tiled_shape_to_whammo_shape(obj)
+                    -- TODO oughta allow the map to specify some properties on
+                    -- the shape too
+                    self:add_actor(actors_map.MapCollider(shape))
+                end
+            end
         end
     end
 
@@ -520,11 +560,7 @@ function World:_set_active(map)
     self.active_map = map
 
     if map then
-        self.camera:set_bounds(
-            map.tiled_map.camera_margin_left,
-            map.tiled_map.camera_margin_top,
-            map.tiled_map.width - map.tiled_map.camera_margin_right,
-            map.tiled_map.height - map.tiled_map.camera_margin_bottom)
+        self.camera:set_bounds(map.camera_bounds:bounds())
     end
 
     -- XXX this looks copy/pasted from update at the moment, but there's a
