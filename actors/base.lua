@@ -257,7 +257,7 @@ function BareActor:on_collide(actor, movement, collision)
 end
 
 -- Determines whether this actor blocks another one.  By default, actors are
--- non-blocking, and mobile actors are blocking
+-- non-blocking, and mobile actors are blocking.
 function BareActor:blocks(actor, collision)
     return false
 end
@@ -308,6 +308,11 @@ local Actor = BareActor:extend{
     -- disable gravity any more
     is_floating = false,
 
+    -- An optional vector, specifying the direction that this object blocks in;
+    -- used for one-way platforms
+    -- TODO maybe shouldn't be here, or, i'm not sure
+    one_way_direction = nil,
+
     -- Completely general-purpose timer
     timer = 0,
 
@@ -341,8 +346,8 @@ function Actor:init(position)
         -- FIXME progress!  but this should update when the sprite changes, argh!
         if self.sprite.shape then
             -- FIXME hang on, the sprite is our own instance, why do we need to clone it at all--  oh, because Sprite doesn't actually clone it, whoops
+            -- FIXME should there be movable proxies of shapes, since clones contain all the same normals etc?
             self.shape = self.sprite.shape:clone()
-            self.shape._xxx_is_one_way_platform = self.sprite.shape._xxx_is_one_way_platform
             self.shape:move_to(position:unpack())
             -- XXX how do i get this in here when it comes from Tiled?
             -- XXX for that matter, how do i get arbitrary tiled arguments in here?  i guess that oughta be a, thing

@@ -338,7 +338,7 @@ end
 function Climb:on_collide_with(collision)
     -- Ignore collision with one-way platforms when climbing ladders, since
     -- they tend to cross (or themselves be) one-way platforms
-    if collision.their_shape._xxx_is_one_way_platform and self.is_climbing then
+    if collision.their_owner.one_way_direction and self.is_climbing then
         return true
     end
 end

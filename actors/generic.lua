@@ -38,11 +38,7 @@ function GenericSlidingDoor:on_enter(...)
     local test_shape = whammo_shapes.Box(-12, 0, 24, 1)
     test_shape:move(self.pos:unpack())
     local movement = self.map.collider:sweep(test_shape, Vector(0, 256), function(collision)
-        local actor = self.map.collider:get_owner(collision.shape)
-        if actor and actor:blocks(self) then
-            return false
-        end
-        return true
+        return not collision.their_owner:blocks(self, collision)
     end)
     -- Add a pixel to make up for the height of the test shape
     -- TODO technically this isn't right if there's a gap of 1px...
@@ -149,7 +145,7 @@ function GenericSlidingDoorShutter:on_enter(...)
     self.map:add_actor(door)
 end
 
-function GenericSlidingDoorShutter:blocks(actor, dir)
+function GenericSlidingDoorShutter:blocks()
     return true
 end
 
@@ -170,8 +166,9 @@ local LadderZone = actors_base.BareActor:extend{
     is_climbable = true,
 }
 
-function LadderZone:init(pos, props, shape)
-    self.shape = shape
+function LadderZone:init(pos, props, shapes)
+    -- FIXME?
+    self.shape = shapes[1]
     LadderZone.__super.init(self, pos)
 end
 

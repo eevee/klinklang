@@ -183,10 +183,6 @@ function Map:add_actor(actor)
     table.insert(self.actors, actor)
 
     actor:on_enter(self)
-    -- XXX temporary
-    if not actor.map then
-        print("ACTOR WITH A BROKEN ON_ENTER PROBABLY:", actor)
-    end
 
     return actor  -- for ease of chaining
 end
@@ -275,12 +271,7 @@ function Map:is_blocked(shape, predicate)
     local blocked = false
     -- FIXME i wish i could cancel the slide partway through?
     self.collider:sweep(shape, Vector.zero, function(collision)
-        -- FIXME i hate how many dumb ass hacks are required here; the one-way
-        -- thing could go away entirely if it were moved into blocks()?
         if collision.contact_type <= 0 then
-            return
-        end
-        if collision.shape._xxx_is_one_way_platform then
             return
         end
         if predicate(collision.their_owner, collision) then
@@ -472,10 +463,14 @@ function Map:_create_initial_actors()
                 if obj.type == 'collision' then
                     -- TODO i wonder if the map should create these
                     -- automatically on load so i don't need to call this
-                    local shape = tiledmap.tiled_shape_to_whammo_shape(obj)
-                    -- TODO oughta allow the map to specify some properties on
-                    -- the shape too
-                    self:add_actor(actors_map.MapCollider(shape))
+                    local shapes = tiledmap.tiled_shape_to_whammo_shapes(obj)
+                    if shapes then
+                        for _, shape in ipairs(shapes) do
+                            -- TODO oughta allow the map to specify some properties on
+                            -- the shape too
+                            self:add_actor(actors_map.MapCollider(shape))
+                        end
+                    end
                 end
             end
         end
@@ -485,9 +480,10 @@ function Map:_create_initial_actors()
         if (template.submap or '') == self.submap then
             local class = actors_base.Actor:get_named_type(template.name)
             local position = template.position:clone()
-            -- FIXME i am unsure about template.shape here; atm it's only used for trigger zone
+            -- FIXME i am unsure about template.shape here; atm it's only used for trigger zone, water, and ladder?
+            -- FIXME maybe "actor properties" should be a more consistent and well-defined thing in tiled and should include shapes and other special things, whether it comes from a sprite or a tile object or a shape object
             -- FIXME oh hey maybe this should use a different kind of constructor entirely, so the main one doesn't have a goofy-ass signature?
-            local actor = class(position, template.properties, template.shape)
+            local actor = class(position, template.properties, template.shapes)
             -- FIXME this feels...  hokey...
             -- FIXME this also ends up requiring that a lot of init stuff has
             -- to go in on_enter because the position is bogus.  but maybe it

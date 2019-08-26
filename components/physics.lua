@@ -161,19 +161,23 @@ end
 -- object blocks us
 -- FIXME now that they're next to each other, these two methods look positively silly!  and have a bit of a symmetry problem: the other object can override via the simple blocks(), but we have this weird thing
 function Move:on_collide_with(collision)
+    -- FIXME i would LOVE to move this into Actor:blocks(), but there's some
+    -- universal logic here that would get clobbered by objects trying to be
+    -- solid by having their blocks() just always return true.  maybe i want an
+    -- is_blocking prop, or even just collision layers
+    -- FIXME if i do that, i should see if it's feasible to also move a lot of
+    -- on_collide_with stuff into the obstacle's blocks()
+
     -- Moving away is always fine
     if collision.contact_type < 0 then
         return true
     end
 
+    -- One-way platforms only block when the collision hits a surface
+    -- facing the specified direction
     -- FIXME doubtless need to fix overlap collision with a pushable
-    -- One-way platforms only block us when we collide with an
-    -- upwards-facing surface.  Expressing that correctly is hard.
-    -- FIXME un-xxx this and get it off the shape
-    -- FIXME make this less about gravity and more about a direction
-    -- FIXME why is this here and not in blocks()??  oh because blocks didn't always take collision, and still isn't documented as such
-    if collision.shape._xxx_is_one_way_platform then
-        if collision.overlapped or not collision:faces(Vector(0, -1)) then
+    if collision.their_owner.one_way_direction then
+        if collision.overlapped or not collision:faces(collision.their_owner.one_way_direction) then
             return true
         end
     end

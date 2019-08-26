@@ -248,9 +248,6 @@ function Shape:sweep_towards(other, movement)
     -- by an absolute distance of 2, versus 4 for the horizontal axis.
     -- Got all that?  Great, let's go!
 
-    -- MultiShape is a nightmare and should be handled by Collider:sweep()!
-    assert(not other.subshapes)
-
     -- Collect the axes (i.e., normals) from both shapes.  As an optimization
     -- for the very common case of boxes hitting boxes, horizontal and vertical
     -- normals are specifically checked for, so they're only tried once.
@@ -896,119 +893,6 @@ function Box:project_onto_axis(axis)
 end
 
 
--- Hack for concave polygons: split them into multiple parts
-local MultiShape = Shape:extend()
-
-function MultiShape:init(...)
-    MultiShape.__super.init(self)
-
-    self.subshapes = {}
-    for _, subshape in ipairs{...} do
-        self:add_subshape(subshape)
-    end
-end
-
-function MultiShape:__tostring()
-    return "<MultiShape>"
-end
-
-function MultiShape:add_subshape(subshape)
-    -- TODO what if subshape has an offset already?
-    table.insert(self.subshapes, subshape)
-    self:update_blockmaps()
-end
-
-function MultiShape:clone()
-    local subclones = {}
-    for i, subshape in pairs(self.subshapes) do
-        subclones[i] = subshape:clone()
-    end
-    return MultiShape(unpack(subclones))
-end
-
-function MultiShape:bbox()
-    local x0, x1 = math.huge, -math.huge
-    local y0, y1 = math.huge, -math.huge
-    for _, subshape in ipairs(self.subshapes) do
-        local subx0, suby0, subx1, suby1 = subshape:bbox()
-        x0 = math.min(x0, subx0)
-        y0 = math.min(y0, suby0)
-        x1 = math.max(x1, subx1)
-        y1 = math.max(y1, suby1)
-    end
-    return x0, y0, x1, y1
-end
-
-function MultiShape:flipx(axis)
-    local flipped = {}
-    for i, subshape in ipairs(self.subshapes) do
-        flipped[i] = subshape:flipx(axis)
-    end
-    return MultiShape(unpack(flipped))
-end
-
-function MultiShape:move(dx, dy)
-    self.xoff = self.xoff + dx
-    self.yoff = self.yoff + dy
-    for _, subshape in ipairs(self.subshapes) do
-        subshape:move(dx, dy)
-    end
-    self:update_blockmaps()
-end
-
-function MultiShape:draw(...)
-    for _, subshape in ipairs(self.subshapes) do
-        subshape:draw(...)
-    end
-end
-
-function MultiShape:normals()
-    local normals = {}
-    -- TODO maybe want to compute this only once
-    for _, subshape in ipairs(self.subshapes) do
-        for k, v in pairs(subshape:normals()) do
-            normals[k] = v
-        end
-    end
-    return normals
-end
-
-function MultiShape:project_onto_axis(...)
-    local min, max, minpt, maxpt
-    for i, subshape in ipairs(self.subshapes) do
-        if i == 1 then
-            min, max, minpt, maxpt = subshape:project_onto_axis(...)
-        else
-            local min2, max2, minpt2, maxpt2 = subshape:project_onto_axis(...)
-            if min2 < min then
-                min = min2
-                minpt = minpt2
-            end
-            if max2 > max then
-                max = max2
-                maxpt = maxpt2
-            end
-        end
-    end
-    return min, max, minpt, maxpt
-end
-
-function MultiShape:intersection_with_ray(...)
-    local minpt, mindot
-    for i, subshape in ipairs(self.subshapes) do
-        if i == 1 then
-            minpt, mindot = subshape:intersection_with_ray(...)
-        else
-            local minpt2, mindot2 = subshape:intersection_with_ray(...)
-            if mindot2 < mindot then
-                minpt, mindot = minpt2, mindot2
-            end
-        end
-    end
-    return minpt, mindot
-end
-
-
 -- A circle.  NOT an ellipse; those are vastly more complicated!
 -- FIXME arrange these impls in the right order, also implement intersection_with_ray and circle/circle collision
 local Circle = Shape:extend()
@@ -1122,7 +1006,6 @@ end
 
 return {
     Box = Box,
-    MultiShape = MultiShape,
     Polygon = Polygon,
     Circle = Circle,
 }

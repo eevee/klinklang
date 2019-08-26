@@ -12,10 +12,10 @@ local TriggerZone = actors_base.BareActor:extend{
     name = 'trigger',
 }
 
--- FIXME why don't i just take a shape?
-function TriggerZone:init(pos, props, shape)
+function TriggerZone:init(pos, props, shapes)
     self.pos = pos
-    self.shape = shape
+    -- FIXME?  could just split this up into multiple zones
+    self.shape = shapes[1]
 
     self.props = props or {}
     if props then
@@ -45,7 +45,7 @@ function TriggerZone:on_enter(...)
     end
 end
 
-function TriggerZone:blocks(other, direction)
+function TriggerZone:blocks()
     return false
 end
 

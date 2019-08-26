@@ -25,14 +25,6 @@ local function relative_path(a, b)
 end
 
 
--- FIXME get this outta here lol
-local function _xxx_oneway_aware_shape_clone(shape)
-    local cloned = shape:clone()
-    cloned._xxx_is_one_way_platform = shape._xxx_is_one_way_platform
-    return cloned
-end
-
-
 -- Given a Tiled /thing/ (map, layer, object...), extract its properties as a
 -- regular table.  Works with both the "old" and "new" formats.  If there are
 -- no properties, returns an empty table.
@@ -81,8 +73,7 @@ function TiledTile:prop(key, default)
     return props[key]
 end
 
-local function tiled_shape_to_whammo_shape(object)
-    local shape
+local function tiled_shape_to_whammo_shapes(object)
     if object.polygon then
         local points = {}
         for i, pt in ipairs(object.polygon) do
@@ -100,36 +91,24 @@ local function tiled_shape_to_whammo_shape(object)
                 table.insert(points, pt.y + object.y)
             end
         end
-        -- FIXME really this should be in Polygon, somehow?
-        -- FIXME also MultiShape should avoid nesting.  but MultiShape should do a lot of things
         if love.math.isConvex(points) then
-            shape = whammo_shapes.Polygon(unpack(points))
+            return {whammo_shapes.Polygon(unpack(points))}
         else
-            shape = whammo_shapes.MultiShape()
+            local shapes = {}
             for _, triangle in ipairs(love.math.triangulate(points)) do
-                shape:add_subshape(whammo_shapes.Polygon(unpack(triangle)))
+                table.insert(shapes, whammo_shapes.Polygon(unpack(triangle)))
             end
+            return shapes
         end
     elseif object.ellipse then
         -- Tiled stores these by their bounding boxes, which is super weird.
         -- Also, only circles are supported.
         local radius = math.min(object.width, object.height) / 2
-        shape = whammo_shapes.Circle(object.x + radius, object.y + radius, radius)
+        return {whammo_shapes.Circle(object.x + radius, object.y + radius, radius)}
     else
         -- TODO do the others, once whammo supports them
-        shape = whammo_shapes.Box(
-            object.x, object.y, object.width, object.height)
+        return {whammo_shapes.Box(object.x, object.y, object.width, object.height)}
     end
-
-    -- FIXME this is pretty bad, right?  the collision system shouldn't
-    -- need to know about this?  unless it should??  (a problem atm is
-    -- that it gets ignored on a subshape)
-    local props = extract_properties(object)
-    if props['one-way platform'] then
-        shape._xxx_is_one_way_platform = true
-    end
-
-    return shape
 end
 
 function TiledTile:has_solid_collision()
@@ -142,35 +121,32 @@ function TiledTile:has_solid_collision()
 
     -- TODO? could hypothetically check without parsing the collision, but i'm
     -- not sure that saves anything
-    local collision = self:get_collision()
+    local shapes = self:get_collision_shapes()
 
     return (
-        collision:isa(whammo_shapes.Box) and
-        collision.x0 == 0 and
-        collision.y0 == 0 and
-        collision.x1 == tw and
-        collision.y1 == th
+        #shapes == 1 and
+        shapes[1]:isa(whammo_shapes.Box) and
+        shapes[1].x0 == 0 and
+        shapes[1].y0 == 0 and
+        shapes[1].x1 == tw and
+        shapes[1].y1 == th
     )
 end
 
--- Returns the collision shape.  Does NOT take the anchor into account; that's
--- the caller's problem.  Note also that this returns the same shape object on
+-- Returns the collision shapes.  Does NOT take the anchor into account; that's
+-- the caller's problem.  Note also that this returns the same shape objects on
 -- every call, so you should clone it if you plan to modify it.
-function TiledTile:get_collision()
+function TiledTile:get_collision_shapes()
     if self._parsed_collision then
-        return self._collision
+        return self._collision_shapes
     end
     self._parsed_collision = true
 
     -- Shortcut for a totally solid tile
     if self:prop('solid') then
-        self._collision = whammo_shapes.Box(
-            0, 0, self.tileset.tilewidth, self.tileset.tileheight)
-        -- FIXME this is slightly inconsistent with the way it works with shapes?
-        if self:prop('one-way platform') then
-            self._collision._xxx_is_one_way_platform = true
-        end
-        return self._collision
+        self._collision_shapes = {whammo_shapes.Box(
+            0, 0, self.tileset.tilewidth, self.tileset.tileheight)}
+        return self._collision_shapes
     end
 
     local objects
@@ -182,21 +158,19 @@ function TiledTile:get_collision()
         return
     end
 
-    local shape
+    local shapes
     for _, obj in ipairs(objects) do
         if obj.type == "anchor" then
             -- known but not relevant here
         elseif obj.type == "" or obj.type == "collision" then
             -- collision shape
-            local new_shape = tiled_shape_to_whammo_shape(obj)
-
-            if shape then
-                if not shape:isa(whammo_shapes.MultiShape) then
-                    shape = whammo_shapes.MultiShape(shape)
-                end
-                shape:add_subshape(new_shape)
+            local new_shapes = tiled_shape_to_whammo_shapes(obj)
+            if shapes == nil then
+                shapes = new_shapes
             else
-                shape = new_shape
+                for _, shape in ipairs(new_shapes) do
+                    table.insert(shapes, shape)
+                end
             end
         else
             -- FIXME maybe need to return a table somehow, because i want to keep this for wire points?
@@ -206,8 +180,8 @@ function TiledTile:get_collision()
         end
     end
 
-    self._collision = shape
-    return shape
+    self._collision_shapes = shapes
+    return shapes
 end
 
 -- Finds the anchor for a tile, as given by an 'anchor' object.  Returns nil,
@@ -215,7 +189,7 @@ end
 -- distinguish between a missing anchor and an explicit origin anchor and
 -- substitute another default if desired.
 function TiledTile:get_anchor()
-    -- TODO this is ugly and duplicated from get_collision
+    -- TODO this is ugly and duplicated from get_collision_shapes
     local objects
     local tiledata = self.tileset.rawtiledata[self.id]
     if tiledata and tiledata.objectgroup then
@@ -365,7 +339,7 @@ function TiledTileset:init(path, data, resource_manager)
             end
             args.facing = facing
 
-            local shape = self.tiles[id]:get_collision()
+            local shapes = self.tiles[id]:get_collision_shapes()
             local anchor = self.tiles[id]:get_anchor()
 
             -- Add the above args as a pose for the sprite name (or names,
@@ -383,11 +357,16 @@ function TiledTileset:init(path, data, resource_manager)
                 end
 
                 args.name = pose_name
-                if shape then
-                    args.shape = _xxx_oneway_aware_shape_clone(shape)
+                -- FIXME this is less a sprite property and more an actor property
+                if shapes and #shapes > 0 then
+                    if #shapes > 1 then
+                        -- FIXME
+                        print("WARNING: multiple or convex shapes on a sprite aren't yet supported")
+                    end
+                    args.shape = shapes[1]:clone()
                 end
                 if anchor then
-                    if shape then
+                    if args.shape then
                         args.shape:move(-anchor.x, -anchor.y)
                     end
                     if not default_anchors[sprite_name][facing] then
@@ -626,7 +605,7 @@ function TiledMap:add_layer(layer)
                     submap = layer.submap,
                     position = Vector(object.x, object.y),
                     properties = extract_properties(object),
-                    shape = tiled_shape_to_whammo_shape(object),
+                    shapes = tiled_shape_to_whammo_shapes(object),
                 })
             elseif object.type == 'player start' then
                 self.player_start = Vector(object.x, object.y)
@@ -637,8 +616,11 @@ function TiledMap:add_layer(layer)
                     self.player_start = point
                 end
             elseif object.type == 'music zone' then
-                local shape = tiled_shape_to_whammo_shape(object)
-                self.music_zones[shape] = resource_manager:load(object.properties.music)
+                local shapes = tiled_shape_to_whammo_shapes(object)
+                for _, shape in ipairs(shapes) do
+                    -- FIXME this is broken, resource_manager isn't down here
+                    self.music_zones[shape] = resource_manager:load(object.properties.music)
+                end
             elseif object.type == 'track' then
                 local points = {}
                 for _, rawpoint in ipairs(object.polyline) do
@@ -678,6 +660,5 @@ return {
     TiledMapLayer = TiledMapLayer,
     TiledTileset = TiledTileset,
     TiledTile = TiledTile,
-    tiled_shape_to_whammo_shape = tiled_shape_to_whammo_shape,
-    _xxx_oneway_aware_shape_clone = _xxx_oneway_aware_shape_clone,
+    tiled_shape_to_whammo_shapes = tiled_shape_to_whammo_shapes,
 }

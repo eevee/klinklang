@@ -19,10 +19,11 @@ local TiledMapTile = actors_base.BareActor:extend{
     permeable = nil,
     terrain = nil,
     fluid = nil,
+    one_way_direction = nil,
 
     -- Properties that must be the same between neighboring tiles in order to
     -- merge their collision boxes
-    MERGABILITY_PROPS = {'permeable', 'terrain', 'fluid'},
+    MERGABILITY_PROPS = {'permeable', 'terrain', 'fluid', 'one-way platform'},
 }
 
 function TiledMapTile:init(tiled_tile)
@@ -32,6 +33,10 @@ function TiledMapTile:init(tiled_tile)
     self.permeable = tiled_tile:prop('permeable')
     self.terrain = tiled_tile:prop('terrain')
     self.fluid = tiled_tile:prop('fluid')
+
+    if tiled_tile:prop('one-way platform') then
+        self.one_way_direction = Vector(0, -1)
+    end
 
     -- Compatibility with some physics properties
     -- TODO consolidate with above
@@ -49,22 +54,6 @@ function TiledMapTile:blocks()
 end
 
 function TiledMapTile:on_collide(actor)
-end
-
-
--- A completely arbitrary collision shape drawn in Tiled
--- FIXME this isn't actually in yet, but once it is, collision actor should
--- always exist and be an actor!!  WAIT NO THERE'S STILL THE MAP EDGES FUCK
-local TiledMapCollision = actors_base.BareActor:extend{
-    _type_name = 'TiledMapCollision',
-}
-
-function TiledMapCollision:init(tiled_object)
-    TiledMapCollision.__super.init(self)
-
-    self.tiled_object = tiled_object
-    self.pos = Vector()  -- TODO hmm.
-    self.shape = tiledmap.tiled_shape_to_whammo_shape(tiled_object)
 end
 
 
@@ -96,13 +85,6 @@ local function _are_tiles_merge_compatible(a, b)
         end
     end
 
-    -- FIXME i really need a better way to track one-way collision
-    if a:get_collision()._xxx_is_one_way_platform ~=
-        a:get_collision()._xxx_is_one_way_platform
-    then
-        return false
-    end
-
     return true
 end
 
@@ -132,11 +114,6 @@ function TiledMapLayer:_make_shapes_and_actors()
         if merged_aabb then
             local merged_shape = whammo_shapes.Box(0, 0, merged_aabb.width, merged_aabb.height)
 
-            -- FIXME i really, really need a better way to track one-way collision
-            if merged_tile:get_collision()._xxx_is_one_way_platform then
-                merged_shape._xxx_is_one_way_platform = true
-            end
-
             merged_shape:move(merged_aabb.x, merged_aabb.y)
             self.shapes[merged_shape] = merged_tile
             merged_aabb = nil
@@ -158,8 +135,8 @@ function TiledMapLayer:_make_shapes_and_actors()
 
             -- FIXME would be nice to have an arbitrary number of shapes per tile!
             -- then they could be part oneway, part not, or whatever.
-            local shape = tile:get_collision()
-            if not shape then
+            local shapes = tile:get_collision_shapes()
+            if not shapes or #shapes == 0 then
                 reify_merged_shape()
                 goto continue
             end
@@ -192,9 +169,11 @@ function TiledMapLayer:_make_shapes_and_actors()
             else
                 reify_merged_shape()
 
-                shape = tiledmap._xxx_oneway_aware_shape_clone(shape)
-                shape:move(x, y)
-                self.shapes[shape] = tile
+                for _, shape in ipairs(shapes) do
+                    shape = shape:clone()
+                    shape:move(x, y)
+                    self.shapes[shape] = tile
+                end
             end
 
             ::continue::
@@ -204,7 +183,7 @@ function TiledMapLayer:_make_shapes_and_actors()
         reify_merged_shape()
     elseif self.layer.type == 'objectgroup' then
         -- FIXME this won't actually happen yet because we don't make a Layer
-        -- actor out of object layers yet, oof
+        -- actor out of object layers yet, oof.  currently this happens in Map instead
         for _, obj in ipairs(self.layer.objects) do
             -- TODO could maybe generalize this to do other stuff?  actually i
             -- guess we could even spawn actors from here??  ehh, hm
