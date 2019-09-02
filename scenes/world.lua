@@ -103,6 +103,15 @@ function DebugLayer:draw()
             end
         end
     end
+
+    if true then
+        for _, actor in ipairs(worldscene.world.active_map.actors) do
+            if actor.pos then
+                love.graphics.print(tostring(actor:get('move').velocity), actor.pos.x, actor.pos.y + 8)
+                love.graphics.line(actor.pos.x, actor.pos.y + 8, actor.pos.x + actor:get('move').velocity.x, actor.pos.y + 8 + actor:get('move').velocity.y)
+            end
+        end
+    end
 end
 
 --------------------------------------------------------------------------------

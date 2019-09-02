@@ -41,6 +41,7 @@ function TiledMapTile:init(tiled_tile)
     -- Compatibility with some physics properties
     -- TODO consolidate with above
     self.friction_multiplier = tiled_tile:prop('friction')
+    self.grip_multiplier = tiled_tile:prop('grip')
     self.terrain_type = tiled_tile:prop('terrain')
     self.is_climbable = tiled_tile:prop('climbable')
 end

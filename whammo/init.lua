@@ -128,6 +128,7 @@ function Collider:sweep(shape, attempted, pass_callback)
         end
         -- Special case, important for slide_along_normals and other cases: if
         -- the object is solid but this is a slide, it's still passable
+        -- FIXME i think this should be split into two properties
         if not passable and collision.contact_type == 0 then
             passable = 'slide'
         end
@@ -186,6 +187,153 @@ function Collider:sweep(shape, attempted, pass_callback)
     end
 
     return successful, hits
+end
+
+-- FIXME i'd looove to consolidate this with sweep (which would also allow actors with complex collision to move!), but i want to time it first
+function Collider:multisweep(shape_attempts, pass_callback, xxx_main_movement)
+    if not pass_callback then
+        pass_callback = function() return true end
+    end
+
+    local collisions = {}
+    local shape_ratios = {}
+    for shape, attempted in pairs(shape_attempts) do
+        shape_ratios[shape] = attempted * xxx_main_movement / xxx_main_movement:len2()
+        local neighbors = self.blockmap:neighbors(shape, attempted:unpack())
+        for neighbor in pairs(neighbors) do
+            local collision = shape:sweep_towards(neighbor, attempted)
+            if collision then
+                collision.contact_start = collision.contact_start / shape_ratios[shape]
+                table.insert(collisions, collision)
+            end
+        end
+    end
+
+local function _collision_sort2(a, b)
+    local a_contact_start = a.contact_start * shape_ratios[a.our_shape]
+    local b_contact_start = b.contact_start * shape_ratios[b.our_shape]
+    if a_contact_start == b_contact_start then
+        -- In the case of a tie, prefer overlaps first, since we're "more"
+        -- touching them
+        return a.overlapped and not b.overlapped
+    end
+    return a_contact_start < b_contact_start
+end
+
+    -- Look through the objects we'll hit, in the order we'll /touch/ them, and
+    -- stop at the first that blocks us
+    table.sort(collisions, _collision_sort)
+    local allowed_fraction
+    local seen = {}
+    local hits = {}
+    for i, collision in ipairs(collisions) do
+        -- Put owners on the collision, so they're available to the callback
+        collision.our_owner = self:get_owner(collision.our_shape)
+        collision.their_owner = self:get_owner(collision.their_shape)
+        print(collision.our_owner, collision.their_owner)
+        collision:print()
+
+        -- If we've already hit something, and this collision is further away,
+        -- stop here.  (This means we call the callback for ALL of a set of
+        -- shapes the same distance away, even if the first one blocks us.)
+        if allowed_fraction ~= nil and allowed_fraction < collision.contact_start then
+            break
+        end
+
+        -- Check if the other shape actually blocks us
+        local passable = pass_callback(collision)
+        -- FIXME do i still need this?
+        if passable == 'retry' then
+            -- Special case: the other object just moved, so keep moving
+            -- and re-evaluate when we hit it again.  Useful for pushing.
+            if i > 1 and collisions[i - 1].their_shape == collision.their_shape then
+                -- To avoid loops, don't retry a shape twice in a row
+                passable = false
+            else
+                local new_collision = collision.our_shape:sweep_towards(collision.their_shape, attempted)
+                if new_collision then
+                    for j = i + 1, #collisions + 1 do
+                        if j > #collisions or not _collision_sort(collisions[j], new_collision) then
+                            table.insert(collisions, j, new_collision)
+                            break
+                        end
+                    end
+                end
+            end
+        end
+        -- Special case, important for slide_along_normals and other cases: if
+        -- the object is solid but this is a slide, it's still passable
+        -- FIXME i think this should be split into two properties
+        if not passable and collision.contact_type == 0 then
+            passable = 'slide'
+        end
+        -- Collision with something else in the system can't block us
+        -- FIXME a third prop??
+        -- FIXME this adds rather a lot of spurious collisions, but without them we don't know that the parts are still touching during a push?  i think??
+        if shape_attempts[collision.their_shape] then
+            collision.passable = 'system'
+        end
+        collision.passable = passable
+
+        -- If we're hitting the object and it's not passable, mark this as the
+        -- furthest we can go, and we'll stop when we see something further
+        if not passable then
+            -- Overlaps report a negative start, but we're already at zero, so
+            allowed_fraction = math.max(0, collision.contact_start)
+        end
+
+        -- Log contacts in the order we encounter them
+        -- FIXME should this use owner instead?  should we just return collisions instead of building a new list?
+        if seen[collision.their_shape] == nil then
+            seen[collision.their_shape] = true
+            table.insert(hits, collision)
+        end
+    end
+
+    if allowed_fraction == nil or allowed_fraction >= 1 then
+        -- Nothing stands in our way, so allow the full movement
+        allowed_fraction = 1
+    end
+
+    local shape_successful = {}
+    local shape_collisions = {}
+    for shape in pairs(shape_attempts) do
+        shape_collisions[shape] = {}
+        -- Nothing stands in our way, so allow the full movement
+        shape_successful[shape] = allowed_fraction
+    end
+
+    -- Tell all the collisions about the movement results
+    -- TODO maybe this belongs on a "set of collisions" type?
+    for _, collision in ipairs(hits) do
+        collision.successful = shape_attempts[collision.our_shape] * allowed_fraction
+        collision.success_fraction = allowed_fraction
+
+        -- Mark whether we're still touching the thing
+        if math.abs(allowed_fraction - collision.contact_start) < PRECISION or
+            math.abs(allowed_fraction - collision.contact_end) < PRECISION
+        then
+            -- Exactly at contact_start/end means we should be touching
+            collision.success_state = 0
+        elseif allowed_fraction < collision.contact_start or
+            allowed_fraction > collision.contact_end
+        then
+            -- Outside the contact range, we're not touching any more
+            collision.success_state = 1
+        else
+            -- Otherwise, we're in the middle, which means we're overlapping...
+            -- unless this is a slide
+            if not collision.overlapped and collision.contact_type == 0 then
+                collision.success_state = 0
+            else
+                collision.success_state = -1
+            end
+        end
+
+        table.insert(shape_collisions[collision.our_shape], collision)
+    end
+
+    return shape_successful, shape_collisions
 end
 
 function Collider:slide(...)

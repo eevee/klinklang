@@ -227,7 +227,13 @@ end
 
 -- Main update and draw loops
 function BareActor:update(dt)
-    self:each('update', dt)
+    print('-- UPDATE --', self, self:get('fall') and self:get('fall').ground_normal or 'airborne')
+    --self:each('update', dt)
+    for _, component in ipairs(self.component_order) do
+        if component.slot ~= 'move' then
+            component:update(dt)
+        end
+    end
 end
 
 function BareActor:draw()
@@ -531,29 +537,23 @@ function SentientActor:update(dt)
         return SentientActor.__super.update(self, dt)
     end
 
-    --[[
-    if self.think_component then
-        self.think_component:update(self, dt)
-    end
-
-    self.walk_component:update(self, dt)
-    ]]
-
     -- Update facing -- based on the input, not the velocity!
     -- FIXME should this have memory the same way conflicting direction keys do?
     -- FIXME where does this live?  on Walk?  on Think?
     local walk = self:get('walk')
-    if math.abs(walk.decision.x) > math.abs(walk.decision.y) then
-        if walk.decision.x < 0 then
-            self.facing = 'left'
-        elseif walk.decision.x > 0 then
-            self.facing = 'right'
-        end
-    else
-        if walk.decision.y < 0 then
-            self.facing = 'up'
-        elseif walk.decision.y > 0 then
-            self.facing = 'down'
+    if walk then
+        if math.abs(walk.decision.x) > math.abs(walk.decision.y) then
+            if walk.decision.x < 0 then
+                self.facing = 'left'
+            elseif walk.decision.x > 0 then
+                self.facing = 'right'
+            end
+        else
+            if walk.decision.y < 0 then
+                self.facing = 'up'
+            elseif walk.decision.y > 0 then
+                self.facing = 'down'
+            end
         end
     end
 

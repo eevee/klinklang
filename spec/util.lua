@@ -17,10 +17,11 @@ local function dump_map_to_svg(map, filename)
     table.insert(parts, '<!DOCTYPE svg PUBLIC "-//W3C//DTD SVG 1.1//EN" "http://www.w3.org/Graphics/SVG/1.1/DTD/svg11.dtd">')
 --<svg xmlns:xlink="http://www.w3.org/1999/xlink" version="1.1" viewBox="-800 -400 1600 800" width="100%" height="100%">
     table.insert(parts, ('<svg xmlns="http://www.w3.org/2000/svg" viewBox="%d %d %d %d">'):format(-64, -64, map.width + 128, map.height + 128))
-    table.insert(parts, '<style>path, rect { fill: #f444; }</style>')
     for shape in pairs(map.collider.shapes) do
+        local tagname, props
         if shape:isa(whammo_shapes.Box) then
-            table.insert(parts, tag('rect', {x = shape.x0, y = shape.y0, width = shape.width, height = shape.height}))
+            tagname = 'rect'
+            props = {x = shape.x0, y = shape.y0, width = shape.width, height = shape.height}
         elseif shape:isa(whammo_shapes.Polygon) then
             local d = {}
             for i, point in ipairs(shape.points) do
@@ -33,7 +34,22 @@ local function dump_map_to_svg(map, filename)
                 table.insert(d, tostring(point.y))
             end
             table.insert(d, 'z')
-            table.insert(parts, tag('path', {d = table.concat(d, ' ')}))
+            tagname = 'path'
+            props = {d = table.concat(d, ' ')}
+        end
+
+        if tagname then
+            local actor = map.collider:get_owner(shape)
+            if actor then
+                if actor.svg_color then
+                    props['fill'] = actor.svg_color .. '4'
+                    props['stroke'] = actor.svg_color
+                else
+                    props['fill'] = '#f994'
+                    props['stroke'] = '#f99'
+                end
+            end
+            table.insert(parts, tag(tagname, props))
         end
     end
     table.insert(parts, tag('rect', {x1 = 0, y1 = 0, width = map.width, height = map.height, fill = 'none', stroke = '#999'}))

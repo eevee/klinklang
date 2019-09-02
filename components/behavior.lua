@@ -110,16 +110,46 @@ function Walk:update(dt)
     -- player's input (even zero) as a desired velocity, and try to accelerate
     -- towards it, capping if necessary.
 
+    local speed_cap = self.speed_cap
+    local fall = self:get('fall')
+    local tote = self:get('tote')
+    if tote then
+        -- Slow our walk when pushing something.
+        -- This is a little hokey, but modelling walking as accelerating to a
+        -- max speed is already a huge handwave, so this is kind of an adapter
+        -- to that.  The idea is, if walking accelerates us by A to a max speed
+        -- S, then when pushing against a frictional force that accelerates us
+        -- backwards at A/4, our max speed should be reduced by S/4.
+        -- This feels better than any other model I've tried; your walk speed
+        -- slows linearly with how much stuff you're pushing.
+        local total_friction_force = fall:_get_total_friction(self.decision)
+        local total_friction_accel_len = total_friction_force:len() / self.actor.mass
+        speed_cap = speed_cap * (1 - total_friction_accel_len / self.base_acceleration)
+    end
+    local grip = 1
+    if fall and fall.grounded then
+        grip = fall.ground_grip * fall.grip
+        -- For muddy surfaces (grip > 1), slow our max speed here, AND slow our
+        -- acceleration below
+        if grip > 1 then
+            speed_cap = speed_cap / grip
+        end
+    end
+
     -- First figure out our target velocity
     local goal
     local current = self:get('move').velocity
     local in_air = false
-    local fall = self:get('fall')
     -- XXX genericize this, somehow
     -- XXX also this is wrong anyway, there's a Fall2D component
     if fall then
         -- For 1D, find the direction of the ground, so walking on a slope
-        -- will attempt to walk *along* the slope, not into it
+        -- will attempt to walk *along* the slope, not into it.
+        -- This sounds wrong at a glance -- surely, someone can't walk as fast
+        -- uphill as they can on flat ground -- but it feels good to play, and
+        -- it's balanced out by the fact that moving 100px along a slope still
+        -- makes less horizontal progress than moving 100px along flat ground!
+        -- Plus, that would slow the actor down when going downhill, too!
         local ground_axis
         if fall.grounded then
             ground_axis = fall.ground_normal:perpendicular()
@@ -128,11 +158,11 @@ function Walk:update(dt)
             ground_axis = Vector(1, 0)
             in_air = true
         end
-        goal = ground_axis * self.decision.x * self.speed_cap
+        goal = ground_axis * self.decision.x * speed_cap
         current = current:projectOn(ground_axis)
     else
         -- For 2D, just move in the input direction
-        goal = self.decision * self.speed_cap
+        goal = self.decision * speed_cap
     end
 
     local delta = goal - current
@@ -149,13 +179,12 @@ function Walk:update(dt)
     else
         multiplier = multiplier * self.ground_multiplier
     end
-    -- If we're pushing something, then treat our movement as a force
-    -- that's now being spread across greater mass
-    -- XXX should this check can_push, can_carry?  can we get rid of total_mass i don't like it??
-    local tote = self:get('tote')
-    if tote and goal ~= Vector.zero then
-        local total_mass = tote:_get_total_mass(goal)
-        multiplier = multiplier * self.actor.mass / total_mass
+    if grip > 1 then
+        -- Muddy: slow our acceleration
+        multiplier = multiplier / grip
+    elseif grip < 1 then
+        -- Icy: also slow our acceleration
+        multiplier = multiplier * grip
     end
 
     -- When inputting no movement at all, an actor is considered to be
@@ -172,7 +201,9 @@ function Walk:update(dt)
 
     -- Put it all together, and we're done
     -- TODO would be really nice to express this as an acceleration, but i think that would require dividing by dt somewhere  :S  plus it's a bit goofy to integrate something with a cap.
-    self:get('move'):push(delta * (skid * multiplier))
+    print('WALK:', delta * (skid * multiplier) / dt, 'from', goal, current, delta, skid, multiplier, dt, 'and btw speed cap', speed_cap, 'current', current)
+    --self:get('move'):add_velocity(delta * (skid * multiplier))
+    self:get('move'):add_accel(delta * (skid * multiplier) / dt)
 end
 
 
@@ -307,9 +338,8 @@ local Climb = Component:extend{
 
 function Climb:init(actor, args)
     Climb.__super.init(self, actor, args)
-    self.speed = args.speed or 0
 
-    self.is_climbing = false
+    self.speed = args.speed
 end
 
 -- Decide to climb.  Negative for up, positive for down, zero to stay in place,

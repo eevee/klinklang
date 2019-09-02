@@ -327,7 +327,23 @@ end
 -- FIXME this is only here so anise can override it, which, seems very silly to
 -- me?  but also i don't see a great way around it short of some separate
 -- mechanism for deciding whether to update each actor.  well.  actually.  hmm
+-- FIXME and now it is definitely not appropriate for anise
 function Map:_update_actors(dt)
+    print()
+    local fmt = "%50s %20s %20s %20s %20s"
+    print(fmt:format("Actor move summary:", "velocity", "p velocity", "p accel", "friction"))
+    for _, actor in ipairs(self.actors) do
+        local move = actor:get('move')
+        if move then
+            print(fmt:format(tostring(actor), tostring(move.velocity), tostring(move.pending_velocity), tostring(move.pending_accel), tostring(move.pending_friction)))
+        end
+    end
+    for _, actor in ipairs(self.actors) do
+        local move = actor:get('move')
+        if move then
+            move:update(dt)
+        end
+    end
     for _, actor in ipairs(self.actors) do
         actor:update(dt)
     end
