@@ -124,7 +124,9 @@ function Walk:update(dt)
         -- slows linearly with how much stuff you're pushing.
         local total_friction_force = fall:_get_total_friction(self.decision)
         local total_friction_accel_len = total_friction_force:len() / self.actor.mass
+        -- TODO hm there's also a reduction of 11.5, 20.5 (mass 2, mass 4) from somewhere else
         speed_cap = speed_cap * (1 - total_friction_accel_len / self.base_acceleration)
+        print('speed cap reduction', 1 - total_friction_accel_len / self.base_acceleration, speed_cap)
     end
     local grip = 1
     if fall and fall.grounded then
@@ -187,13 +189,19 @@ function Walk:update(dt)
         multiplier = multiplier * grip
     end
 
+    -- XXX trying to reduce accel from pushing again...
+    local move = self:get('move')
+    if move and move._last_pushed_mass and move._last_pushed_mass ~= 0 then
+        --multiplier = multiplier * self.actor.mass / move._last_pushed_mass
+    end
+
     -- When inputting no movement at all, an actor is considered to be
     -- /de/celerating, since they clearly want to stop.  Deceleration can
     -- have its own multiplier, and this "skid" factor interpolates between
     -- full decel and full accel using the dot product.
     -- Slightly tricky to normalize them, since they could be zero.
     local skid_dot = delta * current
-    if skid_dot ~= 0 then
+    if math.abs(skid_dot) > 1e-8 then
         -- If the dot product is nonzero, then both vectors must be
         skid_dot = skid_dot / current:len() / delta_len
     end

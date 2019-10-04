@@ -112,9 +112,6 @@ function Collision.slide_along_normals(class, collisions, direction)
     -- Of course, if there are a zillion collisions that all have only left
     -- normals, that's also fine, and we'll slide along the most oppressive of
     -- those, too.
-    -- FIXME this is not the case for MultiShape of course, which needs fixing
-    -- so that each of its sub-parts is a separate collision...  unless the
-    -- collision table gets a flag indicating it was a corner collision or not?
     -- FIXME wait, are these dot products even correct for an arbitrary vector
     -- like this?  should i be taking new ones?
     -- FIXME the "two different collisions" case is wrong; if you run smack into something, you'll get the same normal on both sides.  the trouble is that this is used to slide velocity, which is not necessarily pointing in the same direction as the movement was to get these normals.  this SHOULD still be enough information, i just need to use it a bit better
@@ -123,7 +120,7 @@ function Collision.slide_along_normals(class, collisions, direction)
         -- FIXME probably only consider "slide" when the given vector is not in fact perpendicular?
         -- FIXME hey hey also, should we be using success_state here?
         if not collision.passable or collision.passable == 'slide' then
-            --print('slide', collision, collision.touchtype, collision.blocks, collision.shape, collision.left_normal, collision.right_normal)
+            --print('))) slide', collision, collision.touchtype, collision.blocks, collision.shape, collision.left_normal, collision.right_normal)
             -- TODO comment stuff in shapes.lua
             -- TODO explain why i used <= below (oh no i don't remember, but i think it was related to how this is done against the last slide only)
             -- FIXME i'm now using normals compared against our /last slide/ on our /velocity/ and it's unclear what ramifications that could have (especially since it already had enough ramifications to need the <=) -- think about this i guess lol
@@ -158,7 +155,8 @@ function Collision.slide_along_normals(class, collisions, direction)
         if minleftdot == 0 and minrightdot == 0 then
             return direction, true
         end
-        return Vector(), false
+        -- XXX removed this because it cuts our velocity to zero from sitting on the ground in a perverse push case
+        --return Vector(), false
     end
 
     -- Otherwise, we can probably slide
@@ -178,13 +176,19 @@ function Collision.slide_along_normals(class, collisions, direction)
         elseif minleftdot > minrightdot then
             axis = minleftnorm
         else
-            return Vector(), false
+            -- They're equal, so we ran smack into a wall.  This will probably
+            -- slide the /movement/ to zero, but velocity may be moving in a
+            -- different direction
+            -- XXX why does this look different from the other corner cases...?
+            axis = minleftnorm
+            --return Vector(), false
         end
     else
         axis = minleftnorm or minrightnorm
     end
 
     if axis then
+        --print(')))  slide_along_normals is sliding on axis', axis, 'direction', direction, 'projection', direction:projectOn(axis), 'normals', minleftnorm, minleftdot, minrightnorm, minrightdot)
         return direction - direction:projectOn(axis), true
     else
         return direction, true

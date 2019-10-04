@@ -227,8 +227,8 @@ end
 
 -- Main update and draw loops
 function BareActor:update(dt)
-    print('-- UPDATE --', self, self:get('fall') and self:get('fall').ground_normal or 'airborne')
     --self:each('update', dt)
+    -- FIXME this sucks; moves are handled at the map level
     for _, component in ipairs(self.component_order) do
         if component.slot ~= 'move' then
             component:update(dt)

@@ -240,7 +240,7 @@ describe("A Tote actor", function()
             assert.are.equal(Vector(120, 100), crate.pos)
         end)
     end)
-    it("push objects on a flat plane", function()
+    it("pushes objects on a flat plane", function()
         -- FIXME might be nice to get data from a test map, or otherwise
         -- describe maps in a more readable way
         local player = Player(Vector(50, 100))
@@ -266,6 +266,7 @@ describe("A Tote actor", function()
             -- Try to push the box 20px, by moving 40px right
             print() print()
             player:get('walk'):decide(1, 0)
+            --crate:get('fall').friction_decel = 0  -- FIXME once this is all sorted out
             p_move.velocity = Vector(160, 0)
             p_move.pending_velocity = Vector(160, 0)
             map:update(DT)
@@ -274,14 +275,16 @@ describe("A Tote actor", function()
             assert.are.equal(Vector(120, 100), crate.pos)
             assert.are.equal(crate.pos.x - 30, player.pos.x)
             assert.are.equal(100, player.pos.y)
+            -- Hitting the crate (mass 1) halved our speed
+            assert.are.equal(Vector(80, 0), p_move.velocity)
 
             -- Push it for one more frame
             map:update(DT)
-            -- Hitting the crate (mass 1) halved our speed
             local player_speed = WALK_SPEED / 2
             local max_speed = WALK_SPEED * (1 - FRICTION / WALK_ACCEL)
             -- TODO blah blah.
-            assert.are.equal(Vector(145, 100), crate.pos)
+            -- TODO 150 is a bit weird but is because the player is trying to speed back up again
+            assert.are.equal(Vector(150, 100), crate.pos)
             assert.are.equal(crate.pos.x - 30, player.pos.x)
             assert.are.equal(100, player.pos.y)
 
@@ -540,16 +543,13 @@ describe("A Tote actor", function()
 
         -- Sync update
         -- FIXME?
+            player:get('walk'):decide(1, 0)
         map:update(DT)
 
         specutil.dump_svg_on_error(map, function()
-            error()
-            print() print() print()
-            player:get('walk'):decide(1, 0)
             map:update(DT)
             assert.are.equal(crate.pos.x, 120)
             assert.are_not.equal(player.pos.x, 90)
-            error()
         end)
     end)
     it("push objects as a system", function()
@@ -590,7 +590,7 @@ describe("A Tote actor", function()
             assert.are.equal(crate.pos, Vector(140, 180))
         end)
     end)
-    it("push objects onto a slope", function()
+    it("pushes objects onto a slope", function()
         --[[
             PPCCCC   #
             PPCCCC  ##
@@ -598,15 +598,20 @@ describe("A Tote actor", function()
             PPCCCC####
         ]]
         local player = Player(Vector(90, 200))
+        player.is_pushable = true
         -- Player has to be tall or it'll slip under the crate!
-        player:set_shape(whammo_shapes.Box(-10, -40, 20, 40))
+        player:set_shape(whammo_shapes.Box(-10, -80, 20, 80))
         local crate = Crate(Vector(120, 200))
+        -- Crate currently has the hardcoded gravity of 768, which is more than
+        -- the player's walk acceleration, so it /cannot/ push up a slope.
+        -- Adjust that here, but TODO would be nice to unhardcode of course.
+        crate:get('fall').multiplier = 200/768
 
         local world = world_mod.World(nil)
         local map = world_mod.Map(world, 400, 200)
         map:add_actor(player)
         map:add_actor(crate)
-        map:add_actor(actors_map.MapCollider(whammo_shapes.Polygon(150, 200, 200, 150, 200, 200)))
+        map:add_actor(actors_map.MapCollider(whammo_shapes.Polygon(150, 200, 350, 0, 350, 200)))
 
         -- Sync update
         -- FIXME?
@@ -625,12 +630,16 @@ describe("A Tote actor", function()
             map:update(DT)
             print() print() print() print('===', player.pos, crate.pos) print() print() print()
             -- FIXME actually test something here
-            error()
             map:update(DT)
             print() print() print() print('===', player.pos, crate.pos) print() print() print()
+            map:update(DT)
+            map:update(DT)
+            map:update(DT)
+            error()
         end)
     end)
-    it("push objects uphill", function()
+
+    it("pushes objects uphill", function()
         --[[
               CCCC
               CCCC  #
@@ -655,6 +664,7 @@ describe("A Tote actor", function()
 
         -- Sync update
         -- FIXME?  even more annoying now that this is on a slope
+        player:get('walk'):decide(1, 0)
         map:update(DT)
         -- FIXME now that we know we're on the ground, reset our velocity to
         -- zero.  otherwise, Walk will try to move uphill AND slope resistance
@@ -664,7 +674,6 @@ describe("A Tote actor", function()
         player:get('move').velocity = Vector()
 
         specutil.dump_svg_on_error(map, function()
-            player:get('walk'):decide(1, 0)
             local _ds = {}
             -- Pushing the crate should, of course, move it uphill.  Push for a
             -- couple frames to get up to max speed
@@ -708,6 +717,11 @@ describe("A Tote actor", function()
             local lone_speed = player:get('move').velocity:len()
             print() print() for _, d in ipairs(_ds) do print(d) end
 
+            print()
+            print()
+            print("normal push speed", normal_push_speed)
+            print("frictionless push speed", frictionless_push_speed)
+            print("lone walk speed", lone_speed)
             assert(frictionless_push_speed > normal_push_speed)
             -- FIXME FIXME FIXME!  gah, the /movement/ is greater, but the speed is the same!  i suspect the push is being projected on the normal, which becomes a nudge on the crate, which is projected on the slope, which loses some power.  but really it should be like
             --          alone           crate, no friction          crate
@@ -716,28 +730,111 @@ describe("A Tote actor", function()
             assert(lone_speed > frictionless_push_speed)
         end)
     end)
+
     it("pushes transitively", function()
         --[[
                 11  22
             P   11  22
+
+            Second crate is slippier
         ]] 
         local player = Player(Vector(30, 200))
-        local crate1 = Crate(Vector(80, 200))
-        local crate2 = Crate(Vector(120, 200))
+        local crate1 = Crate(Vector(60, 200))
+        local crate2 = Crate(Vector(100, 200))
+        crate2:get('fall').friction_decel = FRICTION / 4
 
         local world = world_mod.World(player)
-        local map = world_mod.Map(world, 200, 200)
-        map:add_actor(player)
+        local map = world_mod.Map(world, 400, 200)
+        -- Add the player last so the update order doesn't match the push order
         map:add_actor(crate1)
         map:add_actor(crate2)
+        map:add_actor(player)
 
         specutil.dump_svg_on_error(map, function()
             player:get('walk'):decide(1, 0)
+            -- Update once to set the player's velocity
             map:update(DT)
+
+            local crate1x = crate1.pos.x
+            -- As the player walks, the crates should move in lockstep
+            for _ = 1, 4 do
+                map:update(DT)
+                assert_are_equalish(player.pos.x + 30, crate1.pos.x)
+                assert_are_equalish(crate1.pos.x + 40, crate2.pos.x)
+                assert(crate1.pos.x > crate1x)
+                crate1x = crate1.pos.x
+            end
+
+            -- Removing the player should cause the lower-friction second crate
+            -- to slide ahead faster
+            map:remove_actor(player)
+            -- Allow one update for the crates to realize they're no longer
+            -- being pushed
             map:update(DT)
-            map:update(DT)
-            map:update(DT)
-            error()
+
+            local crate2x = crate2.pos.x
+            for _ = 1, 4 do
+                print(_)
+                map:update(DT)
+                assert(crate1.pos.x > crate1x)
+                assert(crate2.pos.x > crate2x)
+                -- Second crate should have moved further
+                assert(crate2.pos.x - crate1.pos.x > crate2x - crate1x)
+                crate1x = crate1.pos.x
+                crate2x = crate2.pos.x
+            end
+        end)
+    end)
+
+    it("doesn't send transitive cargo flying", function()
+        -- This test checks for a particular circumstance:
+        -- 1. The player runs into a crate, picking it up at max speed
+        -- 2. The player + crate run into an ice block, picking it up
+        -- 3. The ice block flies off ahead of both of them (!)
+        -- The cause was the use of current velocity for calculating how much
+        -- momentum to spread around, when it should've been pending velocity.
+        -- Because of that, the player added some velocity to the (stationary)
+        -- ice block, then the crate added MORE velocity to what it thought was
+        -- STILL a stationary ice block, before the ice block had updated!
+        local player = Player(Vector(10, 200))
+        local crate1 = Crate(Vector(100, 200))
+        local crate2 = Crate(Vector(200, 200))
+        crate2:get('fall').friction_decel = FRICTION / 4
+
+        local world = world_mod.World(nil)
+        local map = world_mod.Map(world, 400, 200)
+        map:add_actor(crate1)
+        map:add_actor(crate2)
+        -- XXX if player goes first, crate1 gets ahead of ti...
+        map:add_actor(player)
+
+        -- Sync update
+        -- FIXME?
+        player:get('walk'):decide(1, 0)
+        map:update(DT)
+
+        specutil.dump_svg_on_error(map, function()
+            -- Loop until the first frame that picks up the ice block
+            local crate2_x0 = crate2.pos.x
+            for i = 1, 20 do
+                map:update(DT)
+                if crate2.pos.x > crate2_x0 then
+                    break
+                elseif i == 20 then
+                    error("Ice block seems stuck!")
+                end
+            end
+
+            -- Then update once more; this left the ice block with excessive velocity
+            -- (Note that this problem only appears at reasonable framerates;
+            -- at our test framerate of 4, the player and crate immediately
+            -- catch up before the block can really get away from them)
+            map:update(1/64)
+            -- And one final update allows the ice block to get away
+            map:update(1/64)
+
+            -- So assert that that didn't happen
+            assert_are_equalish(crate1.pos.x, crate2.pos.x - 40)
         end)
     end)
 end)

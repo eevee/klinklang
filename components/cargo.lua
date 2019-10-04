@@ -68,7 +68,7 @@ function Tote:init(actor, args)
     self.cargo = setmetatable({}, { __mode = 'k' })
 end
 
-function Tote:on_collide_with(collision)
+function Tote:x_on_collide_with(collision)
     local obstacle = collision.their_owner
     local fall = obstacle:get('fall')
     do return end
@@ -110,6 +110,7 @@ end
 function Tote:after_collisions(movement, collisions)
     -- TODO ALRIGHT SO, what Tote really does is collect movement and share it
     -- movement can be "sticky", in which case it applies regardless of direction vs normal (a moving platform, but NOT a crate)
+    do return end
     local pushable_contact_start = 1
     for _, collision in ipairs(collisions) do
         -- Check for pushing
@@ -176,6 +177,7 @@ function Tote:after_collisions(movement, collisions)
             end
         end
         if obstacle and
+            false and
             -- It has to be pushable, of course
             self.actor.can_push and obstacle.is_pushable and
             -- It has to be in our way (including slides, to track pushable)
@@ -290,6 +292,7 @@ end
 function Tote:update(dt)
     -- XXX when is this supposed to run, and why?
     local move = self:get('move')
+    do return end
     -- FIXME uhh, really not clear how this oughta work.  move is only really used for push, which is a "non-sticky" behavior.  but i also want to use cargo for e.g. conveyor belts.  does it make sense to have push logic for something that doesn't move?
     -- FIXME should there be two kinds of toting, push and carry?  or, i guess, sticky and non-sticky?  hm
     -- FIXME this is all very confusing
@@ -336,15 +339,15 @@ function Tote:update(dt)
             end
             local friction_delta = cargo_friction_force / cargo_mass * dt
             local cargo_dot = (manifest.velocity + friction_delta) * manifest.normal
-            print('projected cargo velocity:', manifest.velocity, '+', friction_delta, '=', manifest.velocity + friction_delta)
+            --print('projected cargo velocity:', manifest.velocity, '+', friction_delta, '=', manifest.velocity + friction_delta)
             local system_dot = move.velocity * manifest.normal
-            print('current system velocity:', move.velocity)
+            --print('current system velocity:', move.velocity)
             if system_dot - cargo_dot > 1e-8 then
                 -- We're moving more slowly than the rest of the system; we
                 -- might be a sentient actor turning away, or just heavier or
                 -- more frictional than whatever we're pushing.  Detach.
-                print('v too slow', system_dot, cargo_dot)
-                detach = true
+                --print('v too slow', system_dot, cargo_dot)
+                --detach = true
             end
         end
 
@@ -412,7 +415,7 @@ function Tote:update(dt)
                 end
                 return momentum
             end
-            if move and (manifest.state == CARGO_PUSHING --[[or manifest.state == CARGO_CARRYING]]) then
+            if false and move and (manifest.state == CARGO_PUSHING --[[or manifest.state == CARGO_CARRYING]]) then
                 local tote = cargum:get('tote')
                 local cargo_mass
                 if tote then
