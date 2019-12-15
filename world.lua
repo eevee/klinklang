@@ -271,7 +271,9 @@ function Map:is_blocked(shape, predicate)
     local blocked = false
     -- FIXME i wish i could cancel the slide partway through?
     self.collider:sweep(shape, Vector.zero, function(collision)
-        if collision.contact_type <= 0 then
+        if not collision.overlapped then
+            -- Anything we're only touching, not overlapping, isn't going to
+            -- block us
             return
         end
         if predicate(collision.their_owner, collision) then
