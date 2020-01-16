@@ -44,6 +44,8 @@ function TiledMapTile:init(tiled_tile)
     self.grip_multiplier = tiled_tile:prop('grip')
     self.terrain_type = tiled_tile:prop('terrain')
     self.is_climbable = tiled_tile:prop('climbable')
+    -- This is fox flux only but whatever??
+    self.hardness = tiled_tile:prop('hardness')
 end
 
 function TiledMapTile:__tostring()
