@@ -191,12 +191,18 @@ function BareActor:get(slot)
 end
 
 function BareActor:each(method, ...)
+    if self[method] then
+        self[method](self, ...)
+    end
+
     if not self.components then
         return
     end
 
     for _, component in ipairs(self.component_order) do
-        component[method](component, ...)
+        if component[method] then
+            component[method](component, ...)
+        end
     end
 end
 
