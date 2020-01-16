@@ -126,7 +126,7 @@ function Walk:update(dt)
         local total_friction_accel_len = total_friction_force:len() / self.actor.mass
         -- TODO hm there's also a reduction of 11.5, 20.5 (mass 2, mass 4) from somewhere else
         speed_cap = speed_cap * (1 - total_friction_accel_len / self.base_acceleration)
-        print('speed cap reduction', 1 - total_friction_accel_len / self.base_acceleration, speed_cap)
+        --print('speed cap reduction', 1 - total_friction_accel_len / self.base_acceleration, speed_cap)
     end
     local grip = 1
     if fall and fall.grounded then
@@ -139,7 +139,7 @@ function Walk:update(dt)
     end
 
     -- First figure out our target velocity
-    local goal
+    local goal_direction
     local current = self:get('move').velocity
     local in_air = false
     -- XXX genericize this, somehow
@@ -160,21 +160,50 @@ function Walk:update(dt)
             ground_axis = Vector(1, 0)
             in_air = true
         end
-        goal = ground_axis * self.decision.x * speed_cap
+        goal_direction = ground_axis * self.decision.x
         current = current:projectOn(ground_axis)
     else
         -- For 2D, just move in the input direction
-        goal = self.decision * speed_cap
+        goal_direction = self.decision
     end
 
+    -- Figure out slowdown due to pushing
+    -- TODO probably replace with friction or whatever
+    local function get_total_pushed_mass(actor, _seen)
+        _seen = _seen or {}
+        if _seen[actor] then
+            return 0
+        end
+        _seen[actor] = true
+
+        local total_pushed_mass = 0
+        local move = actor:get('move')
+        for contact, info in pairs(move.pushable_contacts) do
+            if info.normal * goal_direction < 0 then
+                -- TODO recurse
+                total_pushed_mass = total_pushed_mass + info.mass + get_total_pushed_mass(contact, _seen)
+            end
+        end
+
+        return total_pushed_mass
+    end
+    local total_pushed_mass = get_total_pushed_mass(self.actor)
+    local MAX_CAPACITY = 9
+    local push_multiplier = math.max(0, 1 - total_pushed_mass / (MAX_CAPACITY - self.actor.mass))
+    --print('** total pushed mass', total_pushed_mass, "push multiplier", push_multiplier)
+    speed_cap = speed_cap * push_multiplier
+
+    local goal = goal_direction * speed_cap
     local delta = goal - current
     local delta_len = delta:len()
     local accel_cap = self.base_acceleration * dt
+    -- Normally, pushing more stuff decreases your acceleration, but in the limiting case of pushing /too much/, push_multiplier is zero and you'll never decelerate to a standstill!
+    -- TODO wait, you should be stopped when you run into the two things already?
+    if push_multiplier > 0 then
+        accel_cap = accel_cap * push_multiplier
+    end
     -- Collect multipliers that affect our walk acceleration
     local multiplier = 1
-    if delta_len > accel_cap then
-        multiplier = accel_cap / delta_len
-    end
     -- In the air (or on a steep slope), we're subject to air control
     if in_air then
         multiplier = multiplier * self.air_multiplier
@@ -206,12 +235,16 @@ function Walk:update(dt)
         skid_dot = skid_dot / current:len() / delta_len
     end
     local skid = util.lerp((skid_dot + 1) / 2, self.stop_multiplier, 1)
+    multiplier = multiplier * skid
+
+    -- Cap it
+    multiplier = math.min(multiplier, accel_cap / delta_len)
 
     -- Put it all together, and we're done
     -- TODO would be really nice to express this as an acceleration, but i think that would require dividing by dt somewhere  :S  plus it's a bit goofy to integrate something with a cap.
-    print('WALK:', delta * (skid * multiplier) / dt, 'from', goal, current, delta, skid, multiplier, dt, 'and btw speed cap', speed_cap, 'current', current)
+    --print('WALK:', delta * (multiplier / dt), 'from', goal, current, delta, skid, multiplier, dt, 'and btw speed cap', speed_cap, 'current', current)
     --self:get('move'):add_velocity(delta * (skid * multiplier))
-    self:get('move'):add_accel(delta * (skid * multiplier) / dt)
+    self:get('move'):add_accel(delta * (multiplier / dt))
 end
 
 
@@ -324,7 +357,7 @@ function Jump:update(dt)
         return true
     elseif self.decision == 0 then
         -- We released jump at some point, so cut our upwards velocity
-        if not fall.grounded and not self.actor.was_launched then
+        if not fall.grounded and not fall.was_launched then
             move.pending_velocity.y = math.max(move.pending_velocity.y, -self.speed * self.abort_multiplier)
         end
     end

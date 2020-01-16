@@ -155,8 +155,8 @@ function Collision.slide_along_normals(class, collisions, direction)
         if minleftdot == 0 and minrightdot == 0 then
             return direction, true
         end
-        -- XXX removed this because it cuts our velocity to zero from sitting on the ground in a perverse push case
-        --return Vector(), false
+        -- XXX originally removed this because it cuts our velocity to zero from sitting on the ground in a perverse push case, but without it i get stuck when dropping between a boulder and crate!  what was the perverse push case and why didn't i write it down?
+        return Vector(), false
     end
 
     -- Otherwise, we can probably slide
