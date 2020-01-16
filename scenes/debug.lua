@@ -39,7 +39,11 @@ function DebugScene:init(font)
         })
     end
 
-    self.forms = {'rubber', 'slime', 'glass', 'stone'}
+    self.forms = {
+        'rubber', 'slime', 'glass', 'stone', 'ice',
+        'moo', 'snek', 'robo', 'mini', 'pooltoy',
+        'dragon', 'hologram', 'balloon', 'bodyless',
+    }
 end
 
 local function _suit_scrollable_area(layout, width, height, scrollbar_state, callback)
@@ -136,9 +140,22 @@ function DebugScene:do_world_menu(inner_width)
 
     suit.layout:push(suit.layout:row())
     local padx, pady = suit.layout:padding()
-    local bw = math.floor((inner_width - (#self.forms - 1) * padx) / #self.forms)
-    for _, form in ipairs(self.forms) do
-        if suit.Button(form, suit.layout:col(bw, self.unit)).hit then
+    local form_columns = 5
+    local bw = math.floor((inner_width - (form_columns - 1) * padx) / form_columns)
+    for n, form in ipairs(self.forms) do
+        if n > 1 and (n - 1) % form_columns == 0 then
+            suit.layout:pop()
+            suit.layout:push(suit.layout:row())
+        end
+        local opt = {}
+        if form == worldscene.player.form then
+            opt.color = {
+                normal = suit.theme.color.hovered,
+                hovered = suit.theme.color.hovered,
+                active = suit.theme.color.hovered,
+            }
+        end
+        if suit.Button(form, opt, suit.layout:col(bw, self.unit)).hit then
             worldscene.player:transform(form)
         end
     end
