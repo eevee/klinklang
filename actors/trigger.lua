@@ -13,6 +13,8 @@ local TriggerZone = actors_base.BareActor:extend{
 }
 
 function TriggerZone:init(pos, props, shapes)
+    TriggerZone.__super.init(self)
+
     self.pos = pos
     -- FIXME?  could just split this up into multiple zones
     self.shape = shapes[1]
