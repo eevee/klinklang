@@ -182,7 +182,7 @@ end
 function Map:add_actor(actor)
     table.insert(self.actors, actor)
 
-    actor:on_enter(self)
+    actor:each('on_enter', self)
 
     return actor  -- for ease of chaining
 end
@@ -199,7 +199,7 @@ end
 
 function Map:remove_actor(actor)
     -- TODO what if the actor is the player...?  should we unset self.player?
-    actor:on_leave()
+    actor:each('on_leave')
 
     -- TODO maybe an index would be useful
     for i, an_actor in ipairs(self.actors) do

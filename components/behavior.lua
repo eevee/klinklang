@@ -539,13 +539,19 @@ function Climb:update(dt)
 end
 
 
--- Use an object
+-- Use an object, whatever that may mean.
+-- This component does nothing on its own; you need to use or write a subclass
+-- that implements get_mechanism() and returns the object to interact with.
 local Interact = Component:extend{
     slot = 'interact',
 }
 
 function Interact:decide()
     self.decision = true
+end
+
+function Interact:get_mechanism()
+    -- Implement me!  Should return an actor with a React component, or nil.
 end
 
 function Interact:update(dt)
@@ -555,7 +561,62 @@ function Interact:update(dt)
 
     self.decision = false
 
-    -- FIXME ah, default behavior.
+    local mechanism = self:get_mechanism()
+    if mechanism then
+        local react = mechanism:get('react')
+        if react then
+            react:on_interact(self.actor)
+        end
+    end
+end
+
+
+-- Use an object that we overlap.  Intended for side-view platformers.
+local TouchInteract = Interact:extend{
+    -- TODO this should be a weak pointer!
+    touched_mechanism = nil,
+}
+
+function TouchInteract:after_collisions(movement, collisions)
+    -- Persistently track the mechanism we're touching, if any.  This avoids
+    -- consulting collision on interaction (which isn't a big deal), but more
+    -- importantly, if we're touching two things simultaneously, we can
+    -- remember and stick with the one we touched first.
+
+    -- The first mechanism we touched, and how far away it was
+    local mechanism = nil
+    local mechanism_contact = math.huge
+
+    for _, collision in pairs(collisions) do
+        local actor = collision.their_owner
+        if collision.success_state <= 0 and actor:get('react') then
+            if actor == self.touched_mechanism then
+                -- We're still touching the same mechanism, so don't let
+                -- anything else replace it!
+                return
+            end
+
+            -- Pick the mechanism we hit first
+            -- TODO perhaps this should handle ties, and zero 'attempted', with a tiebreaker!
+            if collision.contact_start < mechanism_contact then
+                mechanism = actor
+                mechanism_contact = collision.contact_start
+            end
+        end
+    end
+
+    self.touched_mechanism = mechanism
+end
+
+function TouchInteract:get_mechanism()
+    if not self.touched_mechanism then
+        return nil
+    elseif not self.touched_mechanism.map then
+        -- If it's not part of the map any more, we can't use it!
+        return nil
+    else
+        return self.touched_mechanism
+    end
 end
 
 
@@ -642,6 +703,7 @@ end
 return {
     Ail = Ail,
     Interact = Interact,
+    TouchInteract = TouchInteract,
     React = React,
     Walk = Walk,
     Jump = Jump,
