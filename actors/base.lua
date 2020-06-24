@@ -190,6 +190,25 @@ function BareActor:get(slot)
     return self.components[slot]
 end
 
+function BareActor:remove_component(slot_or_component)
+    local slot, component
+    if type(slot_or_component) == 'string' then
+        slot = slot_or_component
+        component = self.components[slot]
+    else
+        slot = slot_or_component.slot
+        component = slot_or_component
+    end
+
+    self.components[slot] = nil
+    for i, c in ipairs(self.component_order) do
+        if c == component then
+            table.remove(self.component_order, i)
+            break
+        end
+    end
+end
+
 function BareActor:each(method, ...)
     if self[method] then
         self[method](self, ...)
