@@ -368,6 +368,7 @@ end
 -- TODO this should disable gravity, but that's currently done in Fall, which seems...  extreeeemely hokey to me.  honestly this seems like it completely changes the physics "mode", but that's not a concept i really have anywhere yet
 local Climb = Component:extend{
     slot = 'climb',
+    priority = -1001,  -- needed before basic physics to override one-way collision
 
     -- Configuration --
     -- Speed of movement while climbing
