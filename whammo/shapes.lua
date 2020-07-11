@@ -950,9 +950,9 @@ function Circle:normals(other, movement)
         -- extra ones of interest are those caused by one of its vertices
         -- colliding with us.  Unfortunately that means we have to just loop
         -- through all of their points and do a ray/circle intersection.
+        local center = Vector(self.x, self.y)
+        local r = self.radius
         for _, point in ipairs(other.points) do
-            local center = Vector(self.x, self.y)
-            local r = self.radius
             local offset = point - center
 
             -- These are the coefficients of a quadratic for a parameter t, the
@@ -976,6 +976,39 @@ function Circle:normals(other, movement)
                     local norm = offset + movement * t
                     table.insert(ret, norm)
                 end
+            end
+        end
+    elseif other:isa(Circle) then
+        -- Call our center and radius P and r, their center Q and s, and the
+        -- movement vector D.  Then we will collide at time t, where:
+        --   ||P + Dt - Q|| = r + s
+        -- That is, the distance between the centers is exactly the sum of the
+        -- radii, which means the circles are touching.  The normal will then
+        -- be P + Dt - Q.
+        -- If we let O = P - Q, we have:
+        -- (Ox + Dx t)² + (Oy + Dy t)² = (r + s)²
+        -- Ox² + 2 Ox Dx t + Dx² t² + Oy² + 2 Oy Dy t + Dy² t² = (r + s)²
+        -- (Dx² + Dy²) t² + 2(Ox Dx + Oy Dy)t + (Ox² + Oy²) - (r + s)² = 0
+        -- (D⋅D) t² + 2(O⋅D)t + (O⋅O) - (r + s)² = 0
+        -- Note that this ends up looking an awful lot like the code above for
+        -- dealing with points, if the other circle's radius were zero.
+        local offset = Vector(other.x - self.x, other.y - self.y)
+        local total_radius = self.radius + other.radius
+        local a = movement:len2()
+        local b = 2 * (offset * movement)
+        local c = offset:len2() - total_radius * total_radius
+
+        local discriminant = b * b - 4 * a * c
+        if discriminant >= 0 then
+            -- TODO do we want both solutions, so we know when we'd exit too?
+            local t = zero_trim((-b - math.sqrt(discriminant)) / (2 * a))
+            -- If t is negative, the circles already overlap, so the overlap
+            -- normal is the minimum distance between them, which is along
+            -- their current centers
+            if t < 0 then
+                table.insert(ret, offset)
+            else
+                table.insert(ret, offset + movement * t)
             end
         end
     end
