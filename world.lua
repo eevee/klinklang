@@ -341,12 +341,6 @@ function Map:_update_actors(dt)
         end
     end
     for _, actor in ipairs(self.actors) do
-        local move = actor:get('move')
-        if move then
-            move:update(dt)
-        end
-    end
-    for _, actor in ipairs(self.actors) do
         actor:update(dt)
     end
 end

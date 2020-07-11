@@ -219,7 +219,7 @@ function BareActor:each(method, ...)
     end
 
     for _, component in ipairs(self.component_order) do
-        if component[method] then
+        if component[method] and not component.disabled then
             component[method](component, ...)
         end
     end
@@ -240,7 +240,7 @@ function BareActor:collect(method, ...)
 
     for _, component in ipairs(self.component_order) do
         local f = component[method]
-        if f then
+        if f and not component.disabled then
             local ret = component[method](component, ...)
             if ret ~= nil then
                 return ret
@@ -252,10 +252,8 @@ end
 
 -- Main update and draw loops
 function BareActor:update(dt)
-    --self:each('update', dt)
-    -- FIXME this sucks; moves are handled at the map level
     for _, component in ipairs(self.component_order) do
-        if component.slot ~= 'move' then
+        if not component.disabled then
             component:update(dt)
         end
     end
