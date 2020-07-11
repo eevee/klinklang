@@ -419,7 +419,7 @@ function Shape:sweep_towards(other, movement)
         end
         -- If we're moving towards them but won't reach them (note these are
         -- both dot products with movement, so same units), stop here.
-        if dot < 0 and inner_dist > -dot then
+        if dot < 0 and zero_trim(inner_dist + dot) > 0 then
             return
         end
 
