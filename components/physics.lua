@@ -947,7 +947,7 @@ function Fall:check_for_ground(hits)
 
     self.grounded = not not normal
     self.ground_normal = normal
-    -- FIXME do i want this...?  actor.ptrs.ground = actor
+    self.actor.ptrs.ground = obstacle
     self.ground_friction = friction or 1
     self.ground_grip = grip or 1
     self.ground_terrain = terrain
