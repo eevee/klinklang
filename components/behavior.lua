@@ -274,6 +274,8 @@ local Jump = Component:extend{
     -- The number of jumps this actor has made so far without touching the
     -- ground, including an initial fall
     consecutive_jump_count = 0,
+    -- Whether we think we're currently in the air due to jumping
+    is_jumping = false,
 }
 
 -- FIXME needs to accept max jumps
@@ -302,6 +304,7 @@ function Jump:update(dt)
     local fall = self:get('fall')
     if fall.grounded then
         self.consecutive_jump_count = 0
+        self.is_jumping = false
     end
 
     -- Jumping
@@ -340,6 +343,7 @@ function Jump:update(dt)
         -- Perform the actual jump
         move.pending_velocity.y = -self.speed
         self.consecutive_jump_count = self.consecutive_jump_count + 1
+        self.is_jumping = true
 
         if self.sound then
             -- FIXME oh boy, this is gonna be a thing that i have to care about in a lot of places huh
@@ -351,13 +355,14 @@ function Jump:update(dt)
         end
 
         -- If we were climbing, we shouldn't be now
+        -- FIXME this is a "state"...  is it possible to get this out of here?  make this a more general thing??
         climb.is_climbing = false
         climb.climbing = nil
         climb.decision = 0
         return true
     elseif self.decision == 0 then
         -- We released jump at some point, so cut our upwards velocity
-        if not fall.grounded and not fall.was_launched then
+        if not fall.grounded and self.is_jumping then
             move.pending_velocity.y = math.max(move.pending_velocity.y, -self.speed * self.abort_multiplier)
         end
     end

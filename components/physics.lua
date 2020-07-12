@@ -857,6 +857,19 @@ function Fall:check_for_ground(hits)
     local carrier
     local carrier_normal
     for _, collision in ipairs(hits) do
+        -- Super special case: if we're standing on a platform that moves
+        -- upwards, it'll move us upwards /afterwards/, and we'll no longer be
+        -- colliding with anything downwards and will become detached from it.
+        -- If we see this case, abort immediately, which will leave all the
+        -- ground twiddles as they were.
+        if collision.their_owner and
+            collision.their_owner == self.actor.ptrs.cargo_of and
+            collision.overlapped and
+            collision.contact_end == 1
+        then
+            return
+        end
+
         -- This is a little tricky, but to be standing on something, (a) it
         -- must have blocked us OR we slid along it, and (b) we must not have
         -- moved past it
@@ -1000,8 +1013,8 @@ function SentientFall:init(actor, args)
     self.max_slope = args.max_slope
 end
 
-function SentientFall:check_for_ground(...)
-    SentientFall.__super.check_for_ground(self, ...)
+function SentientFall:check_for_ground(collisions)
+    SentientFall.__super.check_for_ground(self, collisions)
 
     local gravity = self:get_base_gravity()
     local max_slope_dot = self.max_slope * gravity
@@ -1010,8 +1023,29 @@ function SentientFall:check_for_ground(...)
     -- able to jump, they won't have slope resistance, and they'll pretty much
     -- act like they're falling
     self.ground_shallow = self.ground_normal and not (self.ground_normal * gravity - max_slope_dot > 1e-8)
-    if not self.ground_shallow then
-        self.grounded = false
+    if self.grounded and not self.ground_shallow then
+        -- For generic purposes, we're not standing on the ground any more...
+        -- with one exception: if we're blocked on both sides, then we're
+        -- wedged between two steep slopes, so we can't fall any more, which is
+        -- a pretty solid definition of being grounded!
+        -- TODO i wonder if in that case we should even consider the "normal"
+        -- to be straight up?
+        local blocked_left, blocked_right
+        for _, collision in ipairs(collisions) do
+            if collision.passable ~= true then
+                if collision.left_normal then
+                    blocked_left = true
+                end
+                if collision.right_normal then
+                    blocked_right = true
+                end
+            end
+        end
+        if blocked_left and blocked_right then
+            self.ground_shallow = false
+        else
+            self.grounded = false
+        end
     end
 
     -- Also they don't count as cargo if the contact normal is too steep
@@ -1057,46 +1091,38 @@ function SentientFall:update(dt)
 end
 
 function SentientFall:after_collisions(movement, collisions)
-    local was_on_ground = self.grounded
+    local prev_ground_normal = self.ground_normal
 
     SentientFall.__super.after_collisions(self, movement, collisions)
+
+    local gravity = self:get_base_gravity()
 
     -- Ground adherence
     -- If we walk up off the top of a hill, our momentum will carry us into the
     -- air, which looks very silly; a sentient actor would simply step down
     -- onto the downslope.  So if we're only a very short distance above the
-    -- ground, AND we were on the ground before moving, AND we're not trying to
-    -- jump, then stick us to the floor.
+    -- ground, AND we were on the ground before moving, AND our movement was
+    -- exactly along the ground (i.e. perpendicular to the previous ground
+    -- normal), then stick us to the floor.
+    -- TODO this will activate even if we're artificially launched horizontally
     -- TODO i suspect this could be avoided with the same (not yet written)
     -- logic that would keep critters from walking off of ledges?  or if
     -- the loop were taken out of collider.slide and put in here, so i could
     -- just explicitly slide in a custom direction
-    if was_on_ground and not self.ground_normal and
-        not self.was_launched and
-        (not self:get('jump') or self:get('jump').decision == 0) and
+    -- FIXME we seem to do rapid drops when walking atop a circle now...  sigh
+    -- FIXME the real logic here is: if i'm //walking// (i.e. this is a normal move update) and nothing else had pushed me away from the ground since last frame, then stick to the ground.  it would be lovely to actually implement that
+    if prev_ground_normal and not self.ground_normal and
+        math.abs(prev_ground_normal * movement) < 1e-6 and
+        -- TODO there should definitely be a cleaner way to deal with this...  but then, when climbing, gravity doesn't exist, right?
         (not self:get('climb') or not self:get('climb').is_climbing) and
         self.multiplier > 0 and self.multiplier_down > 0
     then
-        local gravity = self:get_base_gravity()
-        -- How far should we drop?  I'm so glad you asked!
-        -- There are two components: the slope we just launched off of ("top"),
-        -- and the one we're trying to drop onto ("bottom").
-        -- The top part is easy; it's the vertical component of however far we
-        -- just moved.  (This might point UP, if we're walking downhill!)
-        local top_drop = -movement:projectOn(gravity)
-        -- The bottom part, we don't know.  But we know the steepest slope we
-        -- can stand on, so we can just use that.
-        -- Please trust this grody vector math, I spent ages coming up with it.
-        local bottom_drop = - ((movement + top_drop) * self.max_slope) / (gravity * self.max_slope) * gravity
-        -- The bottom part might end up pointing the wrong way, because
-        -- max_slope is a normal and can arbitrarily point either left or right
-        -- FIXME wait max slope is gravity-dependant, rrgh!
-        local drop
-        if bottom_drop * gravity < 0 then
-            drop = top_drop - bottom_drop
-        else
-            drop = top_drop + bottom_drop
-        end
+        -- How far to try dropping is pretty fuzzy, but a decent assumption is
+        -- that we can't make more than a quarter-turn in one step, so
+        -- effectively: rotate our movement by 90 degrees and take the
+        -- downwards part
+        -- FIXME gravity direction dependent
+        local drop = Vector(0, math.abs(movement.x))
 
         -- Try dropping our shape, just to see if we /would/ hit anything, but
         -- without firing any collision triggers or whatever.  Try moving a
@@ -1121,8 +1147,7 @@ function SentientFall:after_collisions(movement, collisions)
         if prelim_movement:len2() <= drop:len2() then
             local move = self.actor:get('move')
             -- We hit the ground!  Do that again, but for real this time.
-            local drop_movement, all_hits = move:nudge(drop, nil, true)
-            movement = movement + drop_movement
+            local _, all_hits = move:nudge(drop, nil, true)
             self:check_for_ground(all_hits[#all_hits])
             -- FIXME update outer movement + hits??
 
@@ -1130,17 +1155,15 @@ function SentientFall:after_collisions(movement, collisions)
                 -- Now we're on the ground, so flatten our velocity to indicate
                 -- we're walking along it.  Or equivalently, remove the part
                 -- that's trying to launch us upwards.
-                -- FIXME should this use push?
-                move.velocity = move.velocity - move.velocity:projectOn(self.ground_normal)
+                -- This is a LITTLE tricky, because if we're being called from
+                -- Move:update, then our actual movement was down into the old
+                -- ground (due to gravity), and that will be slid away before
+                -- our velocity change here is applied.  So we need to take
+                -- that into account first.
+                -- XXX if we AREN'T being called from Move:update, then...?
+                move:add_velocity(-move.velocity:projectOn(prev_ground_normal:perpendicular()):projectOn(self.ground_normal))
             end
         end
-    end
-
-    if self.grounded then
-        -- FIXME you can't set this from after_collisions in another component
-        -- when launching the actor off the ground, because we'll immediately
-        -- reset it here...
-        self.was_launched = false
     end
 end
 
