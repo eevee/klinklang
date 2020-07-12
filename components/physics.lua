@@ -166,8 +166,6 @@ function Move:update(dt)
     local frame_velocity = self.pending_velocity - self.pending_extrinsic_velocity + 0.5 * dv
     --print('. initial frame velocity', frame_velocity)
     self.velocity = self.pending_velocity + dv
-    -- FIXME this is used to figure out how much push velocity to claim as extrinsic, but it should really only be in the push direction?  maybe?
-    local intrinsic_fraction = (self.velocity - self.pending_extrinsic_velocity):len() / self.velocity:len()
     if self.pending_friction ~= Vector.zero and dt ~= 0 then
         local friction_decel = self.pending_friction * dt
         local friction_direction = friction_decel:trimmed(1)
@@ -295,7 +293,7 @@ function Move:on_collide_with(collision)
     return not collision.their_owner:blocks(self.actor, collision)
 end
 
-function Move:_collision_callback(collision, pushers, already_hit, fraction)
+function Move:_collision_callback(collision, pushers, already_hit)
     local obstacle = collision.their_owner
 
     -- Only announce a hit once per frame
@@ -319,8 +317,6 @@ function Move:_collision_callback(collision, pushers, already_hit, fraction)
     -- FIXME again, i would love a better way to expose a normal here.
     -- also maybe the direction of movement is useful?
     local passable = self.actor:collect('on_collide_with', collision)
-
-
 
     local their_fall = obstacle:get('fall')
     if obstacle and
@@ -362,10 +358,8 @@ function Move:_collision_callback(collision, pushers, already_hit, fraction)
         -- Avoid a push loop, which could happen in pathological cases
         not pushers[obstacle]
     then
-        print('PUSHING:', self.actor, 'pushing', obstacle)
         -- Try to push them along the rest of our movement, which is everything
         -- left after we first touched
-        local this_fraction = fraction and fraction * (1 - math.max(0, collision.contact_start))
         local nudge = collision.attempted * (1 - math.max(0, collision.contact_start))
         -- You can only push along the ground, so remove any component along
         -- the ground normal
@@ -412,7 +406,6 @@ function Move:_collision_callback(collision, pushers, already_hit, fraction)
             -- We didn't hit this last frame, so don't actually push it yet!
         else
             pushers[obstacle] = {
-                fraction = this_fraction,
                 contact_normal = axis,
             }
             -- Actually push the object!
@@ -420,8 +413,8 @@ function Move:_collision_callback(collision, pushers, already_hit, fraction)
             -- /it's/ pushing, which will help us figure out how much to cut
             -- our velocity in our own update()
             print(". nudging pushable", obstacle, collision.attempted, nudge, obstacle.is_pushable, obstacle.is_portable)
-            local can_slide = obstacle.name == 'big boulder'
-            local actual, _, _, _, direction = obstacle:get('move'):nudge(nudge, pushers, not can_slide, this_fraction)
+            local can_slide = obstacle.name == 'big boulder' or obstacle.name == 'round boulder'
+            local actual, _, _, direction = obstacle:get('move'):nudge(nudge, pushers, not can_slide)
             -- XXX i think this should be done...  afterwards?  we should re-nudge the whole system
             -- If we successfully moved it, ask collision detection to
             -- re-evaluate this collision
@@ -446,8 +439,6 @@ function Move:_collision_callback(collision, pushers, already_hit, fraction)
         }
     end
 
-
-
     if self.is_juggernaut and not passable then
         return true
     else
@@ -461,7 +452,7 @@ end
 -- - player briefly falls when standing on a crate moving downwards -- one frame?
 -- - what's the difference between carry and push, if a carrier can push?
 -- FIXME i do feel like more of this should be back in whammo; i don't think the below loop is especially necessary to have here, for example
-function Move:nudge(movement, pushers, xxx_no_slide, fraction)
+function Move:nudge(movement, pushers, xxx_no_slide)
     if self.actor.shape == nil then
         error(("Can't nudge actor %s without a collision shape"):format(self.actor))
     end
@@ -475,9 +466,6 @@ function Move:nudge(movement, pushers, xxx_no_slide, fraction)
 
     pushers = pushers or {}
     pushers[self.actor] = pushers[self.actor] or {}
-    if fraction then
-        pushers[self.actor].fraction = fraction
-    end
 
     local collider = self.actor.map.collider
     local shape = self.actor.shape
@@ -485,7 +473,7 @@ function Move:nudge(movement, pushers, xxx_no_slide, fraction)
     -- Set up the hit callback, which also tells other actors that we hit them
     local already_hit = {}
     local pass_callback = function(collision)
-        return self:_collision_callback(collision, pushers, already_hit, fraction)
+        return self:_collision_callback(collision, pushers, already_hit)
     end
 
     -- Main movement loop!  Try to slide in the direction of movement; if that
@@ -584,7 +572,7 @@ function Move:nudge(movement, pushers, xxx_no_slide, fraction)
 
     -- FIXME possibly ridiculous
     -- FIXME last_attempted isn't a GREAT way to communicate this but it's so pushers know the rough direction the pushee ends up moving
-    return total_movement, all_hits, pushers, fraction, last_attempted
+    return total_movement, all_hits, pushers, last_attempted
 end
 
 
