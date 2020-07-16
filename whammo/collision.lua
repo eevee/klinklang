@@ -87,10 +87,30 @@ local Collision = Object:extend{
 -- just about computing axes from a set of collisions.  should a set of
 -- collisions be a first-class thing?
 function Collision.slide_along_normals(class, collisions, direction)
-    local minleftdot = 0
-    local minleftnorm
-    local minrightdot = 0
-    local minrightnorm
+    local axis = class:get_slide_axis(collisions, direction)
+    if axis then
+        if axis:cross(direction) == 0 then
+            -- Totally blocked, no slide
+            return Vector(), false
+        else
+            return direction - direction:projectOn(axis), true
+        end
+    else
+        return direction, true
+    end
+end
+
+-- Given a set of collisions and a direction of movement (or velocity), find
+-- the axis that allows the most freedom of movement.
+-- Returns
+--   axis, left_collision, right_collision
+-- where 'axis' is either the most oppressive normal or nil if nothing is
+-- blocking movement, and the two collisions are the ones slid along.
+function Collision.get_slide_axis(_, collisions, direction)
+    local min_left_dot = 0
+    local min_left_collision
+    local min_right_dot = 0
+    local min_right_collision
     local blocked_left = false
     local blocked_right = false
 
@@ -119,16 +139,18 @@ function Collision.slide_along_normals(class, collisions, direction)
     for _, collision in ipairs(collisions) do
         -- FIXME probably only consider "slide" when the given vector is not in fact perpendicular?
         -- FIXME hey hey also, should we be using success_state here?
-        if not collision.passable or collision.passable == 'slide' then
+        if (not collision.passable or collision.passable == 'slide') and
+            not collision.no_slide
+        then
             --print('))) slide', collision, collision.touchtype, collision.blocks, collision.shape, collision.left_normal, collision.right_normal)
             -- TODO comment stuff in shapes.lua
             -- TODO explain why i used <= below (oh no i don't remember, but i think it was related to how this is done against the last slide only)
             -- FIXME i'm now using normals compared against our /last slide/ on our /velocity/ and it's unclear what ramifications that could have (especially since it already had enough ramifications to need the <=) -- think about this i guess lol
 
             if collision.left_normal then
-                if collision.left_normal_dot <= minleftdot then
-                    minleftdot = collision.left_normal_dot
-                    minleftnorm = collision.left_normal
+                if collision.left_normal_dot <= min_left_dot then
+                    min_left_dot = collision.left_normal_dot
+                    min_left_collision = collision
                 end
                 -- If we have a left normal but NOT a right normal, then we're
                 -- blocked on the left side
@@ -137,9 +159,9 @@ function Collision.slide_along_normals(class, collisions, direction)
                 end
             end
             if collision.right_normal then
-                if collision.right_normal_dot <= minrightdot then
-                    minrightdot = collision.right_normal_dot
-                    minrightnorm = collision.right_normal
+                if collision.right_normal_dot <= min_right_dot then
+                    min_right_dot = collision.right_normal_dot
+                    min_right_collision = collision
                 end
                 if not collision.left_normal then
                     blocked_right = true
@@ -152,49 +174,44 @@ function Collision.slide_along_normals(class, collisions, direction)
     if blocked_left and blocked_right then
         -- ...UNLESS we're blocked by walls parallel to us (i.e. dot of 0), in
         -- which case we can perfectly slide between them!
-        if minleftdot == 0 and minrightdot == 0 then
-            return direction, true
+        if min_left_dot == 0 and min_right_dot == 0 then
+            return nil, min_left_collision, min_right_collision
         end
-        -- XXX originally removed this because it cuts our velocity to zero from sitting on the ground in a perverse push case, but without it i get stuck when dropping between a boulder and crate!  what was the perverse push case and why didn't i write it down?
-        return Vector(), false
+        return -direction, min_left_collision, min_right_collision
     end
 
     -- Otherwise, we can probably slide
     local axis
-    if minleftnorm and minrightnorm then
+    if min_left_collision and min_right_collision then
         -- We hit a corner somewhere!  If we also hit a wall, then we have to
         -- slide in that direction.  Otherwise, we pick the normal with the
         -- BIGGEST dot, which is furthest away from the direction and thus the
         -- least disruptive.  In the case of a tie, this was a perfect corner
         -- collision, so we give up and stop.
         if blocked_left then
-            axis = minleftnorm
+            axis = min_left_collision.left_normal
         elseif blocked_right then
-            axis = minrightnorm
-        elseif minrightdot > minleftdot then
-            axis = minrightnorm
-        elseif minleftdot > minrightdot then
-            axis = minleftnorm
+            axis = min_right_collision.right_normal
+        elseif min_right_dot > min_left_dot then
+            axis = min_right_collision.right_normal
+        elseif min_left_dot > min_right_dot then
+            axis = min_left_collision.left_normal
         else
-            -- They're equal, so we ran smack into a wall.  This will probably
-            -- slide the /movement/ to zero, but velocity may be moving in a
-            -- different direction
+            -- They're equal, so we ran smack into a corner.  This will
+            -- probably slide the /movement/ to zero, but velocity may be
+            -- moving in a different direction
             -- XXX why does this look different from the other corner cases...?
-            axis = minleftnorm
+            axis = min_left_collision.left_normal
             --return Vector(), false
         end
-    else
-        axis = minleftnorm or minrightnorm
+    elseif min_left_collision then
+        axis = min_left_collision.left_normal
+    elseif min_right_collision then
+        axis = min_right_collision.right_normal
     end
 
-    if axis then
-        --print(')))  slide_along_normals is sliding on axis', axis, 'direction', direction, 'projection', direction:projectOn(axis), 'normals', minleftnorm, minleftdot, minrightnorm, minrightdot)
-        return direction - direction:projectOn(axis), true
-    else
-        return direction, true
-    end
+    return axis, min_left_collision, min_right_collision
 end
-
 
 function Collision:init()
     error("Collision has no constructor, sorry")
