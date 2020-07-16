@@ -112,22 +112,6 @@ function Walk:update(dt)
 
     local speed_cap = self.speed_cap
     local fall = self:get('fall')
-    local tote = self:get('tote')
-    if tote then
-        -- Slow our walk when pushing something.
-        -- This is a little hokey, but modelling walking as accelerating to a
-        -- max speed is already a huge handwave, so this is kind of an adapter
-        -- to that.  The idea is, if walking accelerates us by A to a max speed
-        -- S, then when pushing against a frictional force that accelerates us
-        -- backwards at A/4, our max speed should be reduced by S/4.
-        -- This feels better than any other model I've tried; your walk speed
-        -- slows linearly with how much stuff you're pushing.
-        local total_friction_force = fall:_get_total_friction(self.decision)
-        local total_friction_accel_len = total_friction_force:len() / self.actor.mass
-        -- TODO hm there's also a reduction of 11.5, 20.5 (mass 2, mass 4) from somewhere else
-        speed_cap = speed_cap * (1 - total_friction_accel_len / self.base_acceleration)
-        --print('speed cap reduction', 1 - total_friction_accel_len / self.base_acceleration, speed_cap)
-    end
     local grip = 1
     if fall and fall.grounded then
         grip = fall.ground_grip * fall.grip
@@ -167,41 +151,10 @@ function Walk:update(dt)
         goal_direction = self.decision
     end
 
-    -- Figure out slowdown due to pushing
-    -- TODO probably replace with friction or whatever
-    local function get_total_pushed_mass(actor, _seen)
-        _seen = _seen or {}
-        if _seen[actor] then
-            return 0
-        end
-        _seen[actor] = true
-
-        local total_pushed_mass = 0
-        local move = actor:get('move')
-        for contact, info in pairs(move.pushable_contacts) do
-            if info.normal * goal_direction < 0 then
-                -- TODO recurse
-                total_pushed_mass = total_pushed_mass + info.mass + get_total_pushed_mass(contact, _seen)
-            end
-        end
-
-        return total_pushed_mass
-    end
-    local total_pushed_mass = get_total_pushed_mass(self.actor)
-    local MAX_CAPACITY = 9
-    local push_multiplier = math.max(0, 1 - total_pushed_mass / (MAX_CAPACITY - self.actor.mass))
-    --print('** total pushed mass', total_pushed_mass, "push multiplier", push_multiplier)
-    speed_cap = speed_cap * push_multiplier
-
     local goal = goal_direction * speed_cap
     local delta = goal - current
     local delta_len = delta:len()
     local accel_cap = self.base_acceleration * dt
-    -- Normally, pushing more stuff decreases your acceleration, but in the limiting case of pushing /too much/, push_multiplier is zero and you'll never decelerate to a standstill!
-    -- TODO wait, you should be stopped when you run into the two things already?
-    if push_multiplier > 0 then
-        accel_cap = accel_cap * push_multiplier
-    end
     -- Collect multipliers that affect our walk acceleration
     local multiplier = 1
     -- In the air (or on a steep slope), we're subject to air control
@@ -216,12 +169,6 @@ function Walk:update(dt)
     elseif grip < 1 then
         -- Icy: also slow our acceleration
         multiplier = multiplier * grip
-    end
-
-    -- XXX trying to reduce accel from pushing again...
-    local move = self:get('move')
-    if move and move._last_pushed_mass and move._last_pushed_mass ~= 0 then
-        --multiplier = multiplier * self.actor.mass / move._last_pushed_mass
     end
 
     -- When inputting no movement at all, an actor is considered to be

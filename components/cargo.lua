@@ -66,6 +66,9 @@ function Tote:init(actor, args)
     -- FIXME explain how this works, somewhere, as an overview
     -- XXX this used to be in on_enter, which seems like a better idea tbh
     self.cargo = setmetatable({}, { __mode = 'k' })
+
+    -- TODO merge with cargo
+    self.pushable_contacts = {}
 end
 
 function Tote:x_on_collide_with(collision)
@@ -107,7 +110,166 @@ function Tote:x_on_collide_with(collision)
     end
 end
 
+function Tote:on_collide_with_2(passable, collision, pushers)
+    local obstacle = collision.their_owner
+    -- If we already pushed this thing once, then don't try to push it again in
+    -- the same nudge, but mark the collision as no-slide to preserve velocity
+    if pushers[obstacle] then
+        collision.no_slide = true
+        return passable
+    end
+    local their_fall = obstacle:get('fall')
+    if obstacle and
+        -- It has to be pushable, of course
+        self.actor.can_push and obstacle.is_pushable and
+        -- It has to be in our way (including slides, to track pushable)
+        passable ~= true and not collision.overlapped and
+        -- We must be on the ground to push something
+        -- TODO here's a fun one: what happens with two objects with gravity in different directions?
+        (not self:get('fall') or self:get('fall').grounded) and
+        -- We can't push the ground
+        self.actor.ptrs.ground ~= obstacle and
+        -- Avoid a push loop or repeated attempts to push the same object
+        -- during the same sweep
+        -- XXX shouldn't this be named pushees, then?
+        not pushers[obstacle]
+    then
+        -- Try to push them along the rest of our movement, which is everything
+        -- left after we first touched
+        local nudge = collision.attempted * (1 - math.max(0, collision.contact_start))
+        -- You can only push along the ground, so remove any component along
+        -- the ground normal
+        -- FIXME if i'm already ON the ground to be pushing anyway, then...?
+        --nudge = nudge - nudge:projectOn(self:get('fall').ground_normal)
+        -- Only push in the direction the collision occurred!  If several
+        -- directions, well, just average them
+        local axis
+        if collision.left_normal and collision.right_normal then
+            axis = (collision.left_normal + collision.right_normal) / 2
+        else
+            axis = collision.left_normal or collision.right_normal
+        end
+        if axis then
+            -- A more complicated check: if we're trying to push something
+            -- that's moving faster than we are *against* us, that's not a real
+            -- push, so give up here.  When it pushes us, it'll absorb our
+            -- velocity (maybe?).
+            -- TODO this doesn't take into account transitive pushes or moving
+            -- platforms etc.  it should use "real" velocity for both of us
+            -- TODO absorbing velocity doesn't work super well for,
+            -- hypothetically, objects that have a constant velocity, but those
+            -- might need special handling anyway since they are rude
+            local our_dot = self:get('move').velocity * axis
+            local their_dot = obstacle:get('move').velocity * axis
+            -- (Remember, these dots are against a vector pointing *towards*
+            -- us, so we've moving faster if ours is more negative!)
+            if their_dot < our_dot then
+                return passable
+            end
+
+            -- FIXME rethink this.  if i am pushing a thing uphill, that's the direction i'm pushing it in, regardless of the direction of the normals, right?  but this is also what prevents us from kicking a box as we run on top of it.
+            nudge = nudge:projectOn(axis)
+
+            if their_fall and their_fall.ground_normal then
+                nudge = nudge - nudge:projectOn(their_fall.ground_normal)
+            end
+        else
+            nudge = Vector.zero
+        end
+
+    local function get_total_pushed_mass(actor, _seen)
+        _seen = _seen or {}
+        if _seen[actor] then
+            return 0
+        end
+        _seen[actor] = true
+
+        local total_pushed_mass = 0
+        local tote = actor:get('tote')
+        if tote then
+            for contact, info in pairs(tote.pushable_contacts) do
+                if not _seen[contact] and info.normal * axis > 0 then
+                    total_pushed_mass = total_pushed_mass + info.mass + get_total_pushed_mass(contact, _seen)
+                end
+            end
+        end
+
+        return total_pushed_mass
+    end
+
+        local total_mass = obstacle.mass + get_total_pushed_mass(obstacle)
+        if self.actor.is_player then
+            -- Reduce our movement relative to our max push power
+            -- FIXME definitely un-hardcode this
+            nudge = nudge * math.max(0, 1 - total_mass / 8)
+        end
+        print('total trying to push', total_mass)
+        print('PUSHING:', self.actor, 'pushing', obstacle, 'axis', axis, 'distance', nudge, 'out of', collision.attempted, collision.contact_start)
+
+        if collision.contact_type == 0 or _is_vector_almost_zero(nudge) then
+            -- We're not actually trying to push this thing, whatever it is, so
+            -- do nothing.  But mark down that we /could/ push this object; if
+            -- we get pushed from the other side, we need to know about this
+            -- object so we can include it in recursive friction and the like.
+            --manifest.state = CARGO_COULD_PUSH
+            print('. skipping because not pushing in that direction')
+        else
+            pushers[obstacle] = {
+                contact_normal = axis,
+                directly_pushed_by = self.actor,
+                originally_pushed_by = pushers[self.actor].originally_pushed_by or self.actor,
+            }
+            -- Actually push the object!
+            print(". nudging pushable", obstacle, collision.attempted, nudge, obstacle.is_pushable, obstacle.is_portable)
+            local can_slide = obstacle.name == 'big boulder' or obstacle.name == 'round boulder'
+            local actual, hits, _, direction = obstacle:get('move'):nudge(nudge, pushers, not can_slide)
+            print(". and it moved", actual, direction)
+            if not _is_vector_almost_zero(actual) then
+                pushers[obstacle].movement_direction = direction
+                passable = 'retry'
+            end
+            -- Mark as pushing even if it's blocked.  For sentient pushers,
+            -- this lets them keep their push animation and avoids flickering
+            -- between pushing and not; non-sentient pushers will lose their
+            -- velocity, not regain it, and be marked as pushable next time.
+            --manifest.state = CARGO_PUSHING
+
+            -- Marking the collision as no-slide will preserve our velocity.
+            -- It also fixes the case where we're pushing e.g. a boulder uphill
+            -- while we're still on flat ground, in which case the boulder
+            -- doesn't actually move as far as we asked it to, but only because
+            -- of sliding and not because it was actually blocked; in that case
+            -- we want to treat the movement as a success.
+            -- TODO nudge has a bit of a hack specifically to avoid infinite
+            -- looping because of this, but i'm not sure what cleaner way there
+            -- is to fix it
+            collision.no_slide = true
+        end
+
+        self.pushable_contacts[obstacle] = {
+            new = true,
+            normal = axis,
+            mass = obstacle.mass,
+        }
+    end
+
+    return passable
+end
+
 function Tote:after_collisions(movement, collisions)
+    -- Delete any pushables that weren't just added during this past nudge
+    for contact, info in pairs(self.pushable_contacts) do
+        if info.new then
+            info.new = nil
+        else
+            self.pushable_contacts[contact] = nil
+        end
+    end
+
+
+
+
+
     -- TODO ALRIGHT SO, what Tote really does is collect movement and share it
     -- movement can be "sticky", in which case it applies regardless of direction vs normal (a moving platform, but NOT a crate)
     do return end

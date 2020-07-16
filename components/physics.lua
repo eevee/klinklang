@@ -107,9 +107,6 @@ function Move:init(actor, args)
     self.pending_nudge = Vector()
     self.pending_integrated_velocity = Vector()
     self.pending_friction = Vector()
-
-    -- TODO move me to Tote or something?
-    self.pushable_contacts = {}
 end
 
 -- API for outside code to affect this actor's velocity.
@@ -208,15 +205,6 @@ function Move:update(dt)
     --local fluidres = self:get_fluid_resistance()
     local multiplier = 1
 
-    -- Delete any pushables that aren't from last frame
-    for contact, info in pairs(self.pushable_contacts) do
-        if info.new then
-            info.new = nil
-        else
-            self.pushable_contacts[contact] = nil
-        end
-    end
-
     local attempted = frame_velocity * (dt / multiplier)
     if attempted == Vector.zero and self.skip_zero_nudge then
         return
@@ -226,21 +214,18 @@ function Move:update(dt)
     -- XXX pending_velocity isn't read-reliable in this window, but i don't know how it could be since this is where we calculate it anyway
     --print('. resolved new velocity as', self.velocity, 'and frame velocity as', frame_velocity)
     --print('. performing main nudge', attempted)
-    local movement, all_hits, pushers = self:nudge(attempted, nil, false, 1)
+    local movement, all_hits = self:nudge(attempted, nil, false, 1)
     --print('. finished main nudge', movement)
 
-    -- Trim velocity as necessary, based on our last slide
+    -- Trim velocity as necessary, based on our slides
     -- FIXME this is clearly wrong and we need to trim it as we go, right?
     -- XXX note that this happens /after/ the velocity redist from pushing...
-    local v0 = self.velocity
     for _, hits in ipairs(all_hits) do
         if self.velocity == Vector.zero then
             break
         end
         self.velocity = Collision:slide_along_normals(hits, self.velocity)
     end
-
-    self._last_pushed_mass = total_mass
 
     -- Add the final slid velocity to next frame's velocity, /unless/
     -- set_velocity was called during nudge()
@@ -278,17 +263,6 @@ function Move:on_collide_with(collision)
         end
     end
 
-    -- XXX this should go in Tote, really, but it comes /after/ Move so it can do cargo bookkeeping
-    --[[
-    local tote = self:get('tote')
-    if tote then
-        if tote.cargo[collision.their_owner] then
-            tote.cargo[collision.their_owner].expiring = false
-            return true
-        end
-    end
-    ]]
-
     -- Otherwise, fall back to trying blocks()
     return not collision.their_owner:blocks(self.actor, collision)
 end
@@ -318,125 +292,10 @@ function Move:_collision_callback(collision, pushers, already_hit)
     -- also maybe the direction of movement is useful?
     local passable = self.actor:collect('on_collide_with', collision)
 
-    local their_fall = obstacle:get('fall')
-    if obstacle and
-        -- It has to be pushable, of course
-        self.actor.can_push and obstacle.is_pushable and
-        -- It has to be in our way (including slides, to track pushable)
-        (not passable or passable == 'slide') and
-        -- We can't be overlapping...?
-        -- FIXME should pushables that we overlap be completely permeable, or what?  happens with carryables too
-        not collision.overlapped and
-        -- We must be on the ground to push something
-        -- FIXME wellll, arguably, aircontrol should factor in.  also, objects
-        -- with no gravity are probably exempt from this
-        -- FIXME hm, what does no gravity component imply here?
-        -- FIXME oh here's a fun one: what happens with two objects with gravity in different directions?
-        self:get('fall') and self:get('fall').grounded and
-        -- We can't push the ground
-        self.actor.ptrs.ground ~= obstacle and
-        -- We can only push things sideways
-        -- FIXME this seems far too restrictive, but i don't know what's
-        -- correct here.  also this is wrong for no-grav objects, which might
-        -- be a hint
-        -- FIXME this is still wrong.  maybe we should just check this inside the body
-        --(not collision.left_normal or collision.left_normal * obstacle:get_gravity() >= 0) and
-        --(not collision.right_normal or collision.right_normal * obstacle:get_gravity() >= 0) and
-        --(not collision.right_normal or math.abs(collision.right_normal:normalized().y) < 0.25) and
-        --(not collision.left_normal or math.abs(collision.left_normal:normalized().y) < 0.25) and
-        --(not collision.right_normal or math.abs(collision.right_normal:normalized().y) < 0.25) and
-        -- TODO this stuff is probably good to have, but the body also needs to mark this as a pushable contact!
-        --[[
-        (not their_fall or not collision:faces(-their_fall:get_base_gravity())) and
-        -- Must be moving in the normal direction
-        collision.contact_type > 0 and
-        ]]
-        -- If we already pushed this object during this nudge, it must be
-        -- blocked or on a slope or otherwise unable to keep moving, so let it
-        -- block us this time
-        already_hit[obstacle] ~= 'nudged' and
-        -- Avoid a push loop, which could happen in pathological cases
-        not pushers[obstacle]
-    then
-        -- Try to push them along the rest of our movement, which is everything
-        -- left after we first touched
-        local nudge = collision.attempted * (1 - math.max(0, collision.contact_start))
-        -- You can only push along the ground, so remove any component along
-        -- the ground normal
-        nudge = nudge - nudge:projectOn(self:get('fall').ground_normal)
-        -- Only push in the direction the collision occurred!  If several
-        -- directions, well, just average them
-        local axis
-        if collision.left_normal and collision.right_normal then
-            axis = (collision.left_normal + collision.right_normal) / 2
-        else
-            axis = collision.left_normal or collision.right_normal
-        end
-        if axis then
-            nudge = nudge:projectOn(axis)
-        else
-            nudge = Vector.zero
-        end
-
-        -- Snag any existing manifest so we can update it
-        -- XXX if we get rid of manifest.velocity then this might not matter, just overwrite it?  but note that we do use expiring == nil to detect new pushes specifically
-        local tote = self:get('tote')
-        --[[
-        local manifest = tote.cargo[obstacle]
-        if manifest then
-            print('unexpiring', obstacle)
-            manifest.expiring = false
-        else
-            print('attaching', obstacle, 'to', self.actor, 'in collision')
-            manifest = components_cargo.Manifest()
-            tote.cargo[obstacle] = manifest
-        end
-        manifest.normal = axis
-        manifest.left_normal = collision.left_normal
-        manifest.right_normal = collision.right_normal
-        ]]
-
-        if collision.contact_type == 0 or _is_vector_almost_zero(nudge) then
-            -- We're not actually trying to push this thing, whatever it is, so
-            -- do nothing.  But mark down that we /could/ push this object; if
-            -- we get pushed from the other side, we need to know about this
-            -- object so we can include it in recursive friction and the like.
-            --manifest.state = CARGO_COULD_PUSH
-        elseif not self.pushable_contacts[obstacle] then
-            -- We didn't hit this last frame, so don't actually push it yet!
-        else
-            pushers[obstacle] = {
-                contact_normal = axis,
-            }
-            -- Actually push the object!
-            -- After we do this, its cargo should be populated with everything
-            -- /it's/ pushing, which will help us figure out how much to cut
-            -- our velocity in our own update()
-            print(". nudging pushable", obstacle, collision.attempted, nudge, obstacle.is_pushable, obstacle.is_portable)
-            local can_slide = obstacle.name == 'big boulder' or obstacle.name == 'round boulder'
-            local actual, _, _, direction = obstacle:get('move'):nudge(nudge, pushers, not can_slide)
-            -- XXX i think this should be done...  afterwards?  we should re-nudge the whole system
-            -- If we successfully moved it, ask collision detection to
-            -- re-evaluate this collision
-            if not _is_vector_almost_zero(actual) then
-                pushers[obstacle].movement_direction = direction
-                passable = 'retry'
-            end
-            -- Mark as pushing even if it's blocked.  For sentient pushers,
-            -- this lets them keep their push animation and avoids flickering
-            -- between pushing and not; non-sentient pushers will lose their
-            -- velocity, not regain it, and be marked as pushable next time.
-            -- TODO if we transitively hit a NEW thing, we should stop and count as blocked!  but how do i detect that case??
-            --manifest.state = CARGO_PUSHING
-            already_hit[obstacle] = 'nudged'
-            --collision.passable = 'pushed'
-        end
-
-        self.pushable_contacts[obstacle] = {
-            new = true,
-            normal = axis,
-            mass = obstacle.mass,
-        }
+    local tote = self:get('tote')
+    if tote then
+        -- TODO this is not great but i need to know the result of 'passable' inside here...
+        passable = tote:on_collide_with_2(passable, collision, pushers, already_hit)
     end
 
     if self.is_juggernaut and not passable then
@@ -492,7 +351,7 @@ function Move:nudge(movement, pushers, xxx_no_slide)
         shape:move(successful:unpack())
         total_movement = total_movement + successful
 
-        if xxx_no_slide == true then
+        if xxx_no_slide then
             break
         end
         local remaining = movement - successful
@@ -504,15 +363,17 @@ function Move:nudge(movement, pushers, xxx_no_slide)
         -- Find the allowed slide direction that's closest to the direction of movement.
         local slid
         movement, slid = Collision:slide_along_normals(hits, remaining)
-        if not slid then
-            break
-        end
-        if xxx_no_slide == 3 and movement:len2() > 0 then
-            -- XXX hacky, but, pushes want to actually move the thing until it's out of the way
-            movement = movement * (remaining:len() / movement:len())
-        end
-
-        if math.abs(movement.x) < 1/256 and math.abs(movement.y) < 1/256 then
+        -- Give up here if...
+        if
+            -- we were blocked...
+            not slid or
+            -- we have barely any movement left...
+            (math.abs(movement.x) < 1/256 and math.abs(movement.y) < 1/256) or
+            -- or our movement didn't change at all.
+            -- (This one happens when we're pushing an object and it doesn't
+            -- move, but we set no_slide on the collision.  Hmm.  FIXME?)
+            movement == remaining
+        then
             break
         end
 
@@ -534,20 +395,6 @@ function Move:nudge(movement, pushers, xxx_no_slide)
 
     self.actor.pos = self.actor.pos + total_movement
 
-    -- If we pushed anything, then most likely we caught up with it and now it
-    -- has a collision that looks like we hit it.  But we did manage to move
-    -- it, so we don't want that to count when cutting our velocity!
-    -- So we'll...  cheat a bit, and pretend it's passable for now.
-    -- FIXME oh boy i don't like this, but i don't want to add a custom prop
-    -- here that Collision has to know about either?
-    for _, hits in ipairs(all_hits) do
-        for _, collision in ipairs(hits) do
-            if already_hit[collision.their_owner] == 'nudged' then
-                collision.passable = 'pushed'
-            end
-        end
-    end
-
     -- Move our cargo along with us, independently of their own movement
     -- FIXME this means our momentum isn't part of theirs!!  i think we could
     -- compute effective momentum by comparing position to the last frame, or
@@ -565,8 +412,6 @@ function Move:nudge(movement, pushers, xxx_no_slide)
 
     game:time_pop('nudge')
     --print('> end nudge', total_movement)
-
-    --pushers[self.actor] = nil
 
     self.actor:each('after_collisions', total_movement, all_hits[#all_hits])
 
