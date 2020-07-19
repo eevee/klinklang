@@ -368,12 +368,12 @@ function Map:draw(aabb)
     -- arbitrary and can change at a moment's notice anyway
     local sorted_actors = {}
     for _, actor in ipairs(self.actors) do
-        if not actor.pos or aabb:contains(actor.pos) then
+        if actor.always_draw or not actor.pos or aabb:contains(actor.pos) then
             table.insert(sorted_actors, actor)
         end
     end
 
-    -- TODO this has actually /increased/ z-fighting, good job.  
+    -- TODO this has actually /increased/ z-fighting, good job.
     -- FIXME the counter appears /in front/ of npcs while fading in??  what??
     table.sort(sorted_actors, function(actor1, actor2)
         -- FIXME this is only for top-down mode, which is currently per-actor, yikes!!
