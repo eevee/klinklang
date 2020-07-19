@@ -57,6 +57,10 @@ local Move = Component:extend{
     -- TODO this used to be is_blockable = false, but i don't remember why i want it, and anyway i could just extend this component a bit?
     -- TODO this means they won't be blocked by the map edges, either...  is that a problem
     is_juggernaut = false,
+    -- Scale applied to all movement this object does; its velocity will be
+    -- computed the same, but its actual distance traveled will be multiplied
+    -- by this.  Obvious use is to set it < 1 for underwater.
+    multiplier = 1,
 
     -- State --
     -- TODO document this better thanks
@@ -88,6 +92,7 @@ function Move:init(actor, args)
     self.max_speed = args.max_speed
     self.skip_zero_nudge = args.skip_zero_nudge
     self.is_juggernaut = args.is_juggernaut
+    self.multiplier = args.multiplier
 
     -- Intrinsic velocity as of the last time we moved.  Please don't modify!
     self.velocity = Vector()
@@ -201,11 +206,8 @@ function Move:update(dt)
     -- FIXME how does terminal velocity apply to integration?  if you get
     -- launched Very Fast the integration will take some of it into account
     -- still
-    -- FIXME restore this of course
-    --local fluidres = self:get_fluid_resistance()
-    local multiplier = 1
 
-    local attempted = frame_velocity * (dt / multiplier)
+    local attempted = frame_velocity * (dt * self.multiplier)
     if attempted == Vector.zero and self.skip_zero_nudge then
         return
     end
