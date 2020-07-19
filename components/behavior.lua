@@ -80,6 +80,9 @@ local Walk = Component:extend{
     -- Multiplier for base_acceleration while moving against the actor's
     -- current velocity direction; stacks with the above two
     stop_multiplier = 1,
+    -- Whether to use free 2D movement (for something that flies, or everything
+    -- in a top-down game); if false, use 1D platformer movement
+    use_2d_movement = false,
 
     -- State --
     -- Normalized vector of the direction the actor is trying to move.  For a 1D actor (as determined by having a Fall rather than a Fall2D), this should be zero in the direction of gravity.
@@ -92,10 +95,11 @@ function Walk:init(actor, args)
     Walk.__super.init(self, actor)
 
     self.base_acceleration = args.base_acceleration
+    self.speed_cap = args.speed_cap
     self.ground_multiplier = args.ground_multiplier
     self.air_multiplier = args.air_multiplier
     self.stop_multiplier = args.stop_multiplier
-    self.speed_cap = args.speed_cap
+    self.use_2d_movement = args.use_2d_movement
 end
 
 function Walk:decide(dx, dy)
@@ -126,9 +130,10 @@ function Walk:update(dt)
     local goal_direction
     local current = self:get('move').velocity
     local in_air = false
-    -- XXX genericize this, somehow
-    -- XXX also this is wrong anyway, there's a Fall2D component
-    if fall then
+    if self.use_2d_movement then
+        -- For 2D, just move in the input direction
+        goal_direction = self.decision
+    else
         -- For 1D, find the direction of the ground, so walking on a slope
         -- will attempt to walk *along* the slope, not into it.
         -- This sounds wrong at a glance -- surely, someone can't walk as fast
@@ -146,9 +151,6 @@ function Walk:update(dt)
         end
         goal_direction = ground_axis * self.decision.x
         current = current:projectOn(ground_axis)
-    else
-        -- For 2D, just move in the input direction
-        goal_direction = self.decision
     end
 
     local goal = goal_direction * speed_cap
