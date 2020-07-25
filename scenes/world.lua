@@ -13,8 +13,7 @@ local MAX_UPDATES = 10
 -- - WorldScene:_create_actors has gone away
 -- - WorldScene:update_camera has gone away
 -- TODO obvious post cleanup
--- - remove actors, collider, fluct, tick, submap, camera
--- - give actors a reference to the map they're on?  maybe pass it to on_enter?
+-- - remove submap, camera
 -- - remove _draw_use_key_hint (fox flux specific?  or maybe neon phase?)
 -- - remove the inventory switch Q binding (oh my GOD)
 -- - move drawing of the blockmap to DebugLayer
@@ -27,7 +26,6 @@ local MAX_UPDATES = 10
 local DebugLayer = Object:extend{}
 
 function DebugLayer:init(world)
-    -- FIXME i dream of a day when the world is different from the scene it's in?
     self.world = world
 end
 
@@ -37,7 +35,7 @@ function DebugLayer:draw()
     end
 
     if game.debug_twiddles.show_shapes then
-        for _, actor in ipairs(self.world.actors) do
+        for _, actor in ipairs(self.world.active_map.actors) do
             love.graphics.setColor(1, 1, 0, 0.5)
             actor:draw_shape('fill')
             if actor.pos then
@@ -95,7 +93,7 @@ function DebugLayer:draw()
             if game.debug_twiddles.show_blockmap then
                 love.graphics.setColor(1, 0, 0, 1)
                 -- FIXME yikes
-                local blocksize = worldscene.world.active_map.collider.blockmap.blocksize
+                local blocksize = self.world.active_map.collider.blockmap.blocksize
                 for i, ab in pairs(blocks) do
                     local a, b = unpack(ab)
                     love.graphics.print(tostring(i), (a + 0.5) * blocksize, (b + 0.5) * blocksize)
@@ -113,8 +111,6 @@ local WorldScene = BaseScene:extend{
 
     -- State
     music = nil,
-    fluct = nil,
-    tick = nil,
 
     -- TODO these should really be in a separate player controls gizmo.
     -- components.....
@@ -137,7 +133,7 @@ function WorldScene:init(world, ...)
 
     self.layers = {}
     if game.debug then
-        table.insert(self.layers, DebugLayer(self))
+        table.insert(self.layers, DebugLayer(world))
     end
 
     self.world = world
@@ -334,7 +330,7 @@ function WorldScene:_draw_blockmap()
     love.graphics.setColor(1, 0.5, 0.5, 0.75)
     love.graphics.scale(game.scale, game.scale)
 
-    local blockmap = self.collider.blockmap
+    local blockmap = self.current_map.collider.blockmap
     local blocksize = blockmap.blocksize
     local x0 = -self.camera.x % blocksize
     local y0 = -self.camera.y % blocksize
@@ -391,7 +387,7 @@ function WorldScene:keypressed(key, scancode, isrepeat)
                 progress = 0,
                 name_opacity = 1,
             }
-            local event = self.fluct:to(self.inventory_switch, 0.33, { progress = 1 })
+            local event = self.current_map.flux:to(self.inventory_switch, 0.33, { progress = 1 })
                 :ease('linear')
                 :after(0.33, { name_opacity = 0 })
                 :delay(1)
@@ -406,7 +402,7 @@ function WorldScene:mousepressed(x, y, button, istouch)
         self.player:move_to(Vector(
             x / game.scale + self.camera.x,
             y / game.scale + self.camera.y))
-        self.player.velocity = Vector()
+        self.player:get('move'):set_velocity(Vector())
     end
 end
 
@@ -454,10 +450,6 @@ function WorldScene:load_map(tiled_map, spot_name)
     -- preserve them while keeping the usual moving behavior.  find a way to
     -- reconcile all of this
     local map, revisiting = self.world:load_map(tiled_map, '')
-    self.fluct = map.flux
-    self.tick = map.tick
-    self.actors = map.actors
-    self.collider = map.collider
 
     local player_start
     if spot_name then
@@ -514,11 +506,6 @@ function WorldScene:enter_submap(name)
     self.current_map = self.world.active_map
 
     self:add_actor(self.player)
-
-    self.fluct = self.current_map.flux
-    self.tick = self.current_map.tick
-    self.actors = self.current_map.actors
-    self.collider = self.current_map.collider
 end
 
 function WorldScene:leave_submap()
@@ -529,11 +516,6 @@ function WorldScene:leave_submap()
     self.submap = nil
 
     self:add_actor(self.player)
-
-    self.fluct = self.current_map.flux
-    self.tick = self.current_map.tick
-    self.actors = self.current_map.actors
-    self.collider = self.current_map.collider
 end
 
 function WorldScene:add_actor(actor)
