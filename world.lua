@@ -496,13 +496,6 @@ function Map:_create_initial_actors()
             -- FIXME maybe "actor properties" should be a more consistent and well-defined thing in tiled and should include shapes and other special things, whether it comes from a sprite or a tile object or a shape object
             -- FIXME oh hey maybe this should use a different kind of constructor entirely, so the main one doesn't have a goofy-ass signature?
             local actor = class(position, template.properties, template.shapes)
-            -- FIXME this feels...  hokey...
-            -- FIXME this also ends up requiring that a lot of init stuff has
-            -- to go in on_enter because the position is bogus.  but maybe it
-            -- should go there anyway?
-            if actor.sprite and actor.sprite.anchor then
-                actor:move_to(position + actor.sprite.anchor)
-            end
             self:add_actor(actor)
         end
     end

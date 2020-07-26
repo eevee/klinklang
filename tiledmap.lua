@@ -564,10 +564,11 @@ function TiledMap:add_layer(layer)
                 local class = tile:prop('actor')
                 if class then
                     local ty, tx = util.divmod(t - 1, width)
+                    local anchor = tile:get_anchor() or Vector.zero
                     table.insert(self.actor_templates, {
                         name = class,
                         submap = layer.submap,
-                        position = Vector(
+                        position = anchor + Vector(
                             tx * self.tilewidth,
                             (ty + 1) * self.tileheight - tile.tileset.tileheight),
                         properties = tile.tileset.tileprops[tile.id] or {},
@@ -591,10 +592,11 @@ function TiledMap:add_layer(layer)
                     for k, v in pairs(object.tile.tileset.tileprops[object.tile.id] or {}) do
                         props[k] = v
                     end
+                    local anchor = object.tile:get_anchor() or Vector.zero
                     table.insert(self.actor_templates, {
                         name = class,
                         submap = layer.submap,
-                        position = Vector(object.x, object.y - object.tile.tileset.tileheight),
+                        position = anchor + Vector(object.x, object.y - object.tile.tileset.tileheight),
                         properties = props,
                     })
                 end
