@@ -13,7 +13,7 @@ local MAX_UPDATES = 10
 -- - WorldScene:_create_actors has gone away
 -- - WorldScene:update_camera has gone away
 -- TODO obvious post cleanup
--- - remove submap, camera
+-- - remove submap, camera, add_actor, remove_actor
 -- - remove _draw_use_key_hint (fox flux specific?  or maybe neon phase?)
 -- - remove the inventory switch Q binding (oh my GOD)
 -- - move drawing of the blockmap to DebugLayer
@@ -452,7 +452,9 @@ function WorldScene:load_map(tiled_map, spot_name)
     local map, revisiting = self.world:load_map(tiled_map, '')
 
     local player_start
-    if spot_name then
+    if Vector.isvector(spot_name) then
+        player_start = spot_name
+    elseif spot_name then
         player_start = tiled_map.named_spots[spot_name]
         if not player_start then
             error(("No spot named %s on map %s"):format(spot_name, tiled_map))
@@ -476,8 +478,6 @@ function WorldScene:load_map(tiled_map, spot_name)
     else
         self.map_music = nil
     end
-
-    self.map_region = self.map:prop('region', '')
 
     -- Rez the player if necessary
     -- FIXME in general this seems like it does not remotely belong here, but
