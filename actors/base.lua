@@ -553,11 +553,13 @@ function SentientActor:push(dv)
 end
 
 function SentientActor:update(dt)
+    SentientActor.__super.update(self, dt)
+
     if self.is_dead or self.is_locked then
         -- Ignore conscious decisions; just apply physics
         -- FIXME used to stop climbing here, why?  so i fall off ladders during transformations i guess?
         -- FIXME i think "locked" only makes sense for the player?
-        return SentientActor.__super.update(self, dt)
+        return
     end
 
     -- Update facing -- based on the input, not the velocity!
@@ -580,13 +582,8 @@ function SentientActor:update(dt)
         end
     end
 
-    -- Apply physics
-    local movement, hits = SentientActor.__super.update(self, dt)
-
     -- Update the pose
     self:update_pose()
-
-    return movement, hits
 end
 
 -- Figure out a new pose and switch to it.  Default behavior is based on player
