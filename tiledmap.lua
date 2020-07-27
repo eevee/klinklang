@@ -587,10 +587,11 @@ function TiledMap:add_layer(layer)
                     -- also have options, e.g. a generic actor knows its sprite
                     -- name.  also should do this above too
                     -- FIXME this is not a clone for old maps
-                    -- FIXME um, shouldn't the object override the tile?
                     local props = extract_properties(object)
                     for k, v in pairs(object.tile.tileset.tileprops[object.tile.id] or {}) do
-                        props[k] = v
+                        if props[k] == nil then
+                            props[k] = v
+                        end
                     end
                     local anchor = object.tile:get_anchor() or Vector.zero
                     table.insert(self.actor_templates, {
