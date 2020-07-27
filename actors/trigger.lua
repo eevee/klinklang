@@ -1,15 +1,16 @@
 local Gamestate = require 'klinklang.vendor.hump.gamestate'
-local Vector = require 'klinklang.vendor.hump.vector'
 
 local actors_base = require 'klinklang.actors.base'
-local util = require 'klinklang.util'
-local whammo_shapes = require 'klinklang.whammo.shapes'
-local DialogueScene = require 'klinklang.scenes.dialogue'
+local components_behavior = require 'klinklang.components.behavior'
 local SceneFader = require 'klinklang.scenes.fader'
 
 
 local TriggerZone = actors_base.BareActor:extend{
     name = 'trigger',
+
+    COMPONENTS = {
+        [components_behavior.React] = {},
+    },
 }
 
 function TriggerZone:init(pos, props, shapes)
@@ -33,6 +34,8 @@ function TriggerZone:init(pos, props, shapes)
 
     if self.activation == 'use' then
         self.is_usable = true
+    else
+        self:get('react').disabled = true
     end
 end
 
