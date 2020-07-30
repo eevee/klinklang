@@ -114,6 +114,11 @@ function Walk:update(dt)
     -- player's input (even zero) as a desired velocity, and try to accelerate
     -- towards it, capping if necessary.
 
+    -- We divide by dt later, so...
+    if dt <= 0 then
+        return
+    end
+
     local speed_cap = self.speed_cap
     local fall = self:get('fall')
     local grip = 1
@@ -156,21 +161,26 @@ function Walk:update(dt)
     local goal = goal_direction * speed_cap
     local delta = goal - current
     local delta_len = delta:len()
-    local accel_cap = self.base_acceleration * dt
-    -- Collect multipliers that affect our walk acceleration
-    local multiplier = 1
+    -- If we're already moving at the goal velocity, we're done
+    if delta_len < 1e-8 then
+        return
+    end
+
+    -- Compute our (maximum) acceleration
+    local accel_cap = self.base_acceleration
     -- In the air (or on a steep slope), we're subject to air control
     if in_air then
-        multiplier = multiplier * self.air_multiplier
+        accel_cap = accel_cap * self.air_multiplier
     else
-        multiplier = multiplier * self.ground_multiplier
+        accel_cap = accel_cap * self.ground_multiplier
     end
+    -- TODO i wonder if these should also affect our max speed?  maybe try it out
     if grip > 1 then
         -- Muddy: slow our acceleration
-        multiplier = multiplier / grip
+        accel_cap = accel_cap / grip
     elseif grip < 1 then
         -- Icy: also slow our acceleration
-        multiplier = multiplier * grip
+        accel_cap = accel_cap * grip
     end
 
     -- When inputting no movement at all, an actor is considered to be
@@ -180,20 +190,19 @@ function Walk:update(dt)
     -- Slightly tricky to normalize them, since they could be zero.
     local skid_dot = delta * current
     if math.abs(skid_dot) > 1e-8 then
-        -- If the dot product is nonzero, then both vectors must be
+        -- If the dot product is nonzero, then both vectors must be nonzero too
         skid_dot = skid_dot / current:len() / delta_len
     end
     local skid = util.lerp((skid_dot + 1) / 2, self.stop_multiplier, 1)
-    multiplier = multiplier * skid
+    accel_cap = accel_cap * skid
 
-    -- Cap it
-    multiplier = math.min(multiplier, accel_cap / delta_len)
-
-    -- Put it all together, and we're done
-    -- TODO would be really nice to express this as an acceleration, but i think that would require dividing by dt somewhere  :S  plus it's a bit goofy to integrate something with a cap.
-    --print('WALK:', delta * (multiplier / dt), 'from', goal, current, delta, skid, multiplier, dt, 'and btw speed cap', speed_cap, 'current', current)
-    --self:get('move'):add_velocity(delta * (skid * multiplier))
-    self:get('move'):add_accel(delta * (multiplier / dt))
+    -- We're trying to change our velocity by `delta`, and we could do it in
+    -- this single frame if we accelerated by `delta / dt`!  But our
+    -- acceleration has a limit, so take that into account too, and we're done
+    local desired_accel_len = delta_len / dt
+    local allowed_fraction = math.min(1, accel_cap / desired_accel_len)
+    local final_accel = delta * (allowed_fraction / dt)
+    self:get('move'):add_accel(final_accel)
 end
 
 
@@ -253,6 +262,10 @@ function Jump:update(dt)
     local fall = self:get('fall')
     if fall.grounded then
         self.consecutive_jump_count = 0
+        self.is_jumping = false
+    end
+    -- TODO gravity
+    if move.velocity.y >= 0 then
         self.is_jumping = false
     end
 
