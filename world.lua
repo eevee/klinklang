@@ -57,7 +57,7 @@ function Camera:aabb()
     return AABB(self.x, self.y, self.width, self.height)
 end
 
-function Camera:aim_at(focusx, focusy)
+function Camera:aim_at(focusx, focusy, instant)
     -- Update camera position
     -- TODO i miss having a box type
     -- FIXME would like some more interesting features here like smoothly
@@ -65,8 +65,6 @@ function Camera:aim_at(focusx, focusy)
     local marginx = self.margin * self.width
     local x0 = marginx
     local x1 = self.width - marginx
-    --local minx = self.map.camera_margin_left
-    --local maxx = self.map.width - self.map.camera_margin_right - self.width
     local newx = self.x
     if focusx - newx < x0 then
         newx = focusx - x0
@@ -79,8 +77,6 @@ function Camera:aim_at(focusx, focusy)
     local marginy = self.margin * self.height
     local y0 = marginy
     local y1 = self.height - marginy
-    --local miny = self.map.camera_margin_top
-    --local maxy = self.map.height - self.map.camera_margin_bottom - self.height
     local newy = self.y
     if focusy - newy < y0 then
         newy = focusy - y0
@@ -88,13 +84,7 @@ function Camera:aim_at(focusx, focusy)
         newy = focusy - y1
     end
     newy = math.max(self.miny, math.min(self.maxy - self.height, newy))
-    -- FIXME moooove, elsewhere.  only tricky bit is that it still wants to clamp to miny/maxy
-    --[[
-    if self.player.camera_jitter and self.player.camera_jitter > 0 then
-        newy = newy + math.sin(self.player.camera_jitter * math.pi) * 3
-        newy = math.max(miny, math.min(maxy, newy))
     end
-    ]]
     self.y = math.floor(newy)
 end
 
@@ -522,6 +512,8 @@ function World:init(player)
     self.active_map = nil
 
     self.camera = Camera()
+    self.camera_offset = Vector()
+    self.camera_shake_intensity = 0
 end
 
 -- Loads a new map, or returns an existing map if it's been seen before.  Does
@@ -571,7 +563,17 @@ function World:_set_active(map)
     -- FIXME i don't think i need to set the camera size every frame though
     local w, h = game:getDimensions()
     self.camera:set_size(w, h)
-    self.camera:aim_at(self.player.pos.x, self.player.pos.y)
+    self.camera:aim_at(self.player.pos.x, self.player.pos.y, true)
+end
+
+-- Shakes the camera.
+-- Shakes do not stack; a new shake will simply clobber any existing one.
+function World:shake_camera(amount, duration)
+    local freq = 1/30
+    self.camera_shake_amount = amount
+    self.camera_shake_duration = duration
+    self.camera_shake_timer = 0
+    self.camera_shake_frequency = freq
 end
 
 function World:update(dt)
@@ -582,12 +584,32 @@ function World:update(dt)
     local w, h = game:getDimensions()
     self.camera:set_size(w, h)
     self.camera:aim_at(self.player.pos.x, self.player.pos.y)
+
+    if self.camera_shake_timer then
+        self.camera_shake_timer = self.camera_shake_timer + dt
+        if self.camera_shake_timer >= self.camera_shake_duration then
+            self.camera_shake_amount = nil
+            self.camera_shake_duration = nil
+            self.camera_shake_timer = nil
+            self.camera_shake_frequency = nil
+            self.camera_offset = Vector()
+        else
+            local progress = self.camera_shake_timer / self.camera_shake_duration
+            local intensity = math.pow(1 - progress, 2)
+            self.camera_offset = self.camera_shake_amount * (intensity * math.cos(self.camera_shake_timer / self.camera_shake_frequency * math.pi))
+        end
+    end
 end
 
 function World:draw()
     local w, h = game:getDimensions()
 
+    love.graphics.push()
     local camera_box = self.camera:aabb()
+    if self.camera_shake_timer then
+        love.graphics.translate(self.camera_offset:unpack())
+    end
+    self.camera:apply()
     for i, map in ipairs(self.map_stack) do
         if i > 1 then
             love.graphics.setColor(0, 0, 0, 0.75)
@@ -596,6 +618,7 @@ function World:draw()
         end
         map:draw(camera_box)
     end
+    love.graphics.pop()
 end
 
 

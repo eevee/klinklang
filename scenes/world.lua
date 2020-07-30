@@ -14,11 +14,6 @@ local MAX_UPDATES = 10
 -- - WorldScene:update_camera has gone away
 -- TODO obvious post cleanup
 -- - remove submap, camera, add_actor, remove_actor
--- - remove _draw_use_key_hint (fox flux specific?  or maybe neon phase?)
--- - remove the inventory switch Q binding (oh my GOD)
--- - move drawing of the blockmap to DebugLayer
--- - give everything a self.game property maybe??
--- - do something with camera jitter?
 
 --------------------------------------------------------------------------------
 -- Layers
@@ -34,8 +29,13 @@ function DebugLayer:draw()
         return
     end
 
+    local camera = self.world.camera
+    local map = self.world.active_map
+
     if game.debug_twiddles.show_shapes then
-        for _, actor in ipairs(self.world.active_map.actors) do
+        love.graphics.push()
+        camera:apply()
+        for _, actor in ipairs(map.actors) do
             love.graphics.setColor(1, 1, 0, 0.5)
             actor:draw_shape('fill')
             if actor.pos then
@@ -45,9 +45,12 @@ function DebugLayer:draw()
                 love.graphics.circle('line', actor.pos.x, actor.pos.y, 2)
             end
         end
+        love.graphics.pop()
     end
 
     if game.debug_twiddles.show_collision then
+        love.graphics.push()
+        camera:apply()
         for hit, collision in pairs(game.debug_hits) do
             if collision.contact_type > 0 then
                 -- Collision: red
@@ -93,13 +96,42 @@ function DebugLayer:draw()
             if game.debug_twiddles.show_blockmap then
                 love.graphics.setColor(1, 0, 0, 1)
                 -- FIXME yikes
-                local blocksize = self.world.active_map.collider.blockmap.blocksize
+                local blocksize = map.collider.blockmap.blocksize
                 for i, ab in pairs(blocks) do
                     local a, b = unpack(ab)
                     love.graphics.print(tostring(i), (a + 0.5) * blocksize, (b + 0.5) * blocksize)
                 end
             end
         end
+        love.graphics.pop()
+    end
+
+    if game.debug and game.debug_twiddles.show_blockmap then
+        love.graphics.push('all')
+        love.graphics.setColor(1, 1, 1, 0.25)
+        love.graphics.setColor(1, 0.5, 0.5, 0.75)
+        love.graphics.scale(game.scale, game.scale)
+
+        local blockmap = map.collider.blockmap
+        local blocksize = blockmap.blocksize
+        local x0 = -camera.x % blocksize
+        local y0 = -camera.y % blocksize
+        local w, h = game:getDimensions()
+        for x = x0, w, blocksize do
+            love.graphics.line(x, 0, x, h)
+        end
+        for y = y0, h, blocksize do
+            love.graphics.line(0, y, w, y)
+        end
+
+        for x = x0, w, blocksize do
+            for y = y0, h, blocksize do
+                local a, b = blockmap:to_block_units(camera.x + x, camera.y + y)
+                love.graphics.print((" %d, %d"):format(a, b), x, y)
+            end
+        end
+
+        love.graphics.pop()
     end
 end
 
@@ -265,91 +297,14 @@ function WorldScene:draw()
     -- FIXME since we ALREADY draw to a canvas it's a little silly to have to
     -- capture onto another one
     love.graphics.origin()
-
-    -- FIXME where does this belong...?  the camera is in the world, but we
-    -- have some layers that may care about world coordinates.  maybe they
-    -- should just deal with that themselves?
-    self.camera:apply()
-
     self.world:draw()
-
-    -- Draw a keycap when the player is next to something touchable
-    -- FIXME i seem to put this separately in every game?  standardize somehow?
-    if self.player.touching_mechanism then
-        if self.player.form ~= 'stone' then
-            self:_draw_use_key_hint(self.player.pos + Vector(0, -80))
-        end
-    end
-
-    -- FIXME i have overlooked something significant: some layers are in world
-    -- coordinates, some are not
     for _, layer in ipairs(self.layers) do
         layer:draw()
     end
-
     love.graphics.pop()
 
     self:_draw_final_canvas()
-
-    -- FIXME why is this here and not a layer?  is it because of the camera coord inconsistency with layers?
-    if game.debug and game.debug_twiddles.show_blockmap then
-        self:_draw_blockmap()
-    end
-
     game:time_pop('draw')
-end
-
--- Note: pos is the center of the hint; sprites should have their anchors at
--- their centers too
-function WorldScene:_draw_use_key_hint(anchor)
-    -- FIXME move this into fox flux as an actor (like neon phase), see if
-    -- there's anything useful that can be factored out of it i guess?
-    do return end
-    local letter, sprite
-    -- TODO just get the actual key/button from game.input
-    if game.input:getActiveDevice() == 'joystick' then
-        letter = 'X'
-        sprite = game.sprites['keycap button']:instantiate()
-    else
-        letter = love.keyboard.getKeyFromScancode('e'):upper()
-        sprite = game.sprites['keycap key']:instantiate()
-    end
-    sprite:draw_at(anchor)
-    love.graphics.push('all')
-    love.graphics.setColor(0, 0, 0)
-    love.graphics.setFont(m5x7small)
-    local tw = m5x7small:getWidth(letter)
-    local th = m5x7small:getHeight() * m5x7small:getLineHeight()
-    love.graphics.print(letter, math.floor(anchor.x - tw / 2 + 0.5), math.floor(anchor.y - 8))
-    love.graphics.pop()
-end
-
-function WorldScene:_draw_blockmap()
-    love.graphics.push('all')
-    love.graphics.setColor(1, 1, 1, 0.25)
-    love.graphics.setColor(1, 0.5, 0.5, 0.75)
-    love.graphics.scale(game.scale, game.scale)
-
-    local blockmap = self.current_map.collider.blockmap
-    local blocksize = blockmap.blocksize
-    local x0 = -self.camera.x % blocksize
-    local y0 = -self.camera.y % blocksize
-    local w, h = game:getDimensions()
-    for x = x0, w, blocksize do
-        love.graphics.line(x, 0, x, h)
-    end
-    for y = y0, h, blocksize do
-        love.graphics.line(0, y, w, y)
-    end
-
-    for x = x0, w, blocksize do
-        for y = y0, h, blocksize do
-            local a, b = blockmap:to_block_units(self.camera.x + x, self.camera.y + y)
-            love.graphics.print((" %d, %d"):format(a, b), x, y)
-        end
-    end
-
-    love.graphics.pop()
 end
 
 function WorldScene:_draw_final_canvas()
@@ -361,40 +316,6 @@ end
 
 function WorldScene:resize(w, h)
     self:_refresh_canvas()
-end
-
--- FIXME this is really /all/ game-specific
-function WorldScene:keypressed(key, scancode, isrepeat)
-    if isrepeat then
-        return
-    end
-
-    if scancode == 'q' then
-        do return end
-        -- Switch inventory items
-        if not self.inventory_switch or self.inventory_switch.progress == 1 then
-            local old_item = self.player.inventory[self.player.inventory_cursor]
-            self.player.inventory_cursor = self.player.inventory_cursor + 1
-            if self.player.inventory_cursor > #self.player.inventory then
-                self.player.inventory_cursor = 1
-            end
-            if self.inventory_switch then
-                self.inventory_switch.event:stop()
-            end
-            self.inventory_switch = {
-                old_item = old_item,
-                new_name = love.graphics.newText(m5x7, self.player.inventory[self.player.inventory_cursor].display_name),
-                progress = 0,
-                name_opacity = 1,
-            }
-            local event = self.current_map.flux:to(self.inventory_switch, 0.33, { progress = 1 })
-                :ease('linear')
-                :after(0.33, { name_opacity = 0 })
-                :delay(1)
-                :oncomplete(function() self.inventory_switch = nil end)
-            self.inventory_switch.event = event
-        end
-    end
 end
 
 function WorldScene:mousepressed(x, y, button, istouch)

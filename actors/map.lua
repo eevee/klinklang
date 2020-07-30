@@ -356,8 +356,9 @@ end
 
 function TiledMapImage:draw()
     -- TODO these do seem a LITTLE invasive
-    local camera = self.map.world.camera
-    local mh = self.map.tiled_map.height
+    local world = self.map.world
+    local camera = world.camera
+    local mh = self.map.height
 
     -- TODO it would be nice to have explicit pixel limits on how far
     -- apart the pieces can go, but this was complicated enough, so
@@ -377,7 +378,8 @@ function TiledMapImage:draw()
     local x1 = x0 + math.floor((camera.x - x0) / iw) * iw
     -- TODO this ignores the layer's own offsets?  do they make sense here?
     for x = x1, x1 + camera.width + iw, iw do
-        love.graphics.draw(self.image, x, y, 0, self.scale)
+        -- Draw this ignoring any camera shake
+        love.graphics.draw(self.image, x - world.camera_offset.x, y - world.camera_offset.y, 0, self.scale)
     end
 end
 

@@ -45,6 +45,10 @@ function AABB:with_margin(dx, dy)
     return AABB(self.x + dx, self.y + dy, self.width - dx * 2, self.height - dy * 2)
 end
 
+function AABB:shifted(dx, dy)
+    return AABB(self.x + dx, self.y + dy, self.width, self.height)
+end
+
 -- Returns x0, y0, x1, y1
 function AABB:bounds()
     return self.x, self.y, self.x + self.width, self.y + self.height
