@@ -49,7 +49,7 @@ function DebugLayer:draw()
     end
 
     if game.debug_twiddles.show_collision then
-        love.graphics.push()
+        love.graphics.push('all')
         camera:apply()
         for hit, collision in pairs(game.debug_hits) do
             if collision.contact_type > 0 then
