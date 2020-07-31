@@ -132,6 +132,7 @@ Sprite = Object:extend{}
 function Sprite:init(spriteset, pose_name, facing)
     self.spriteset = spriteset
     self.scale = 1
+    self.speed = 1
     self.pose = nil
     self.facing = facing or 'right'
     self.changed_this_frame = false
@@ -207,6 +208,10 @@ function Sprite:set_scale(scale)
     self.scale = scale
 end
 
+function Sprite:set_speed(speed)
+    self.speed = speed
+end
+
 function Sprite:getDimensions()
     local w, h = self.anim:getDimensions()
     return w * self.scale, h * self.scale
@@ -218,7 +223,7 @@ function Sprite:update(dt)
         return
     end
 
-    self.anim:update(dt)
+    self.anim:update(dt * self.speed)
 end
 
 function Sprite:draw_at(x, y)
