@@ -237,22 +237,20 @@ end
 --------------------------------------------------------------------------------
 -- Consumer API
 
+local _CONTACT_TYPE_LABELS = {
+    [-1] = 'overlap',
+    [0] = 'touch',
+    [1] = 'collide',
+}
 function Collision:print()
-    local fmt = "%20s: %s"
-    for _, key in ipairs{
-        'attempted', 'overlapped', 'our_shape', 'their_shape',
-        'contact_start', 'contact_end', 'contact_type', 'distance',
-        'left_normal', 'right_normal', 'left_separation', 'right_separation',
-    } do
-        print(fmt:format(key, self[key]))
-    end
+    print(("COLLISION: attempted %-20s"):format(self.attempted))
+    print(("%9s: %s"):format("us", self.our_owner or self.our_shape))
+    print(("%9s: %s"):format("them", self.their_owner or self.their_shape))
+    print(("%9s: normal %-20s separation %s"):format("left", self.left_normal or '--', self.left_separation or '--'))
+    print(("%9s: normal %-20s separation %s"):format("right", self.right_normal or '--', self.right_separation or '--'))
+    print(("%9s: %s (%d), %s by %.2f // %.2f to %.2f"):format("contact", _CONTACT_TYPE_LABELS[self.contact_type], self.contact_type, self.overlapped and 'overlapping' or 'separated', self.distance, self.contact_start, self.contact_end))
     if self.passable ~= nil then
-        for _, key in ipairs{
-            'passable',
-            'successful', 'success_fraction', 'success_state',
-        } do
-            print(fmt:format(key, self[key]))
-        end
+        print(("%9s: passable? %s // successful %.2f %s %s (%d)"):format('results', self.passable, self.success_fraction, self.successful, _CONTACT_TYPE_LABELS[self.success_state], self.success_state))
     end
 end
 
