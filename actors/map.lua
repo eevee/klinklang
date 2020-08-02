@@ -229,15 +229,15 @@ function TiledMapLayer:_make_batches()
             local batchid = batch:add(tileset.quads[tile.id], x, y)
 
             local animation
-            if tile.tileset.raw.tiles[tile.id] then
-                animation = tile.tileset.raw.tiles[tile.id].animation
+            if tileset.rawtiledata[tile.id] then
+                animation = tileset.rawtiledata[tile.id].animation
             end
             if animation then
                 if not self.animated_tiles[tile] then
                     local frames = {}
                     for _, framedef in ipairs(animation) do
                         table.insert(frames, {
-                            quad = tile.tileset.quads[framedef.tileid],
+                            quad = tileset.quads[framedef.tileid],
                             duration = framedef.duration / 1000,
                         })
                     end

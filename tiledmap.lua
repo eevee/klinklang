@@ -219,8 +219,6 @@ function TiledTileset:init(path, data, resource_manager)
     if not data then
         data = util.strict_json_decode(util.strict_read_file(path))
     end
-    -- FIXME get rid of this
-    self.raw = data
 
     -- Copy some basics
     local iw, ih = data.imagewidth, data.imageheight
