@@ -428,9 +428,20 @@ function TiledMapLayer.parse_json(class, data, resource_manager, base_path, tile
 
     if data.data then
         self.tilegrid = {}
-        for i, gid in ipairs(data.data) do
-            -- DO NOT use nil here, since it effectively truncates the list
-            self.tilegrid[i] = tiles_by_gid[gid] or false
+        if data.compression or data.encoding then
+            -- Packed string
+            local blob = love.data.decompress('string', data.compression, love.data.decode('string', data.encoding, data.data))
+            local p = 1
+            local gid
+            for i = 1, data.width * data.height do
+                gid, p = love.data.unpack('<I4', blob, p)
+                self.tilegrid[i] = tiles_by_gid[gid] or false
+            end
+        else
+            for i, gid in ipairs(data.data) do
+                -- DO NOT use nil here, since it effectively truncates the list
+                self.tilegrid[i] = tiles_by_gid[gid] or false
+            end
         end
     end
 
@@ -600,7 +611,7 @@ function TiledMap:add_layer(layer)
                     })
                 end
             -- FIXME this should probably be the default case rather than one more exception
-            elseif object.type == 'trigger' or object.type == 'ladder' or object.type == 'water zone' or object.type == 'map slice' then
+            elseif object.type == 'trigger' or object.type == 'ladder' or object.type == 'water zone' or object.type == 'map slice' or object.type == 'loading zone' then
                 table.insert(self.actor_templates, {
                     name = object.type,
                     submap = layer.submap,
