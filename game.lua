@@ -4,11 +4,11 @@ local AABB = require 'klinklang.aabb'
 local Object = require 'klinklang.object'
 local ResourceManager = require 'klinklang.resources'
 local SpriteSet = require 'klinklang.sprite'
+local tiledmap = require 'klinklang.tiledmap'
 
 local GameProgress = Object:extend{}
 
 local Game = Object:extend{
-    scale = 1,
     debug = false,
     input = nil,
     resource_manager = nil,
@@ -45,6 +45,7 @@ function Game:init(args)
     end
 
     self.resource_manager = ResourceManager()
+    self:_configure_resource_manager()
 
     self.debug_twiddles = {
         show_blockmap = false,
@@ -64,6 +65,14 @@ function Game:init(args)
     }
 
     self:_determine_scale()
+end
+
+function Game:_configure_resource_manager()
+    self.resource_manager:register_default_loaders()
+    self.resource_manager:register_loader('tmx.json', function(path)
+        return tiledmap.TiledMap:parse_json_file(path, game.resource_manager)
+    end)
+    self.resource_manager.locked = false  -- TODO make an api for this lol
 end
 
 
