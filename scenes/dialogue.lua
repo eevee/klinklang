@@ -621,10 +621,10 @@ function DialogueScene:check_script()
             table.insert(errors, ("Step %d: pose given without speaker"):format(i))
         end
 
-        -- Dialogue parts must be strings
+        -- Dialogue parts must be strings (or functions that return strings)
         for _, phrase in ipairs(step) do
-            if type(phrase) ~= 'string' then
-                table.insert(errors, ("Step %d: phrase is not a string"):format(i))
+            if type(phrase) ~= 'string' and type(phrase) ~= 'function' then
+                table.insert(errors, ("Step %d: phrase is not a string or function"):format(i))
             end
         end
 
