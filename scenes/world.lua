@@ -13,7 +13,7 @@ local MAX_UPDATES = 10
 -- - WorldScene:_create_actors has gone away
 -- - WorldScene:update_camera has gone away
 -- TODO obvious post cleanup
--- - remove submap, camera, add_actor, remove_actor
+-- - remove submap, camera
 
 --------------------------------------------------------------------------------
 -- Layers
@@ -216,7 +216,7 @@ function WorldScene:update(dt)
     if self.map_music then
         new_music = self.map_music
     end
-    for shape, music in pairs(self.map.music_zones) do
+    for shape, music in pairs(self.world.active_map.tiled_map.music_zones) do
         -- FIXME don't have a real api for this yet oops
         local x0, y0, x1, y1 = shape:bbox()
         if x0 <= x and x <= x1 and y0 <= y and y <= y1 then
@@ -334,34 +334,18 @@ end
 -- TODO i guess actually the scene could be responsible for the transition,
 -- right?  if everything else is, you know, elsewhere
 function WorldScene:load_map(tiled_map, spot_name)
-    if self.current_map then
+    if self.world.active_map then
+        self.world.active_map:remove_actor(self.player)
         -- TODO hmmm
         while self.world.active_map do
             self.world:pop()
         end
-        self:remove_actor(self.player)
     end
     -- TODO as usual, need a more rigorous idea of music management
     if self.music then
         self.music:stop()
     end
 
-    if spot_name then
-        -- FIXME this is very much a hack that happens to work with the design
-        -- of fox flux; there should be a more explicit way of setting save
-        -- points
-        game:set_save_spot(tiled_map.path, spot_name)
-    else
-        -- If this map declares its attachment to an overworld, use that point
-        -- as a save point
-        local overworld_map = tiled_map:prop('overworld map')
-        local overworld_spot = tiled_map:prop('overworld spot')
-        if overworld_map and overworld_spot then
-            game:set_save_spot(overworld_map, overworld_spot)
-        end
-    end
-
-    self.map = tiled_map
     --self.music = nil  -- FIXME not sure when this should happen; isaac vs neon are very different
 
     -- XXX revisiting is currently a bit half-assed; it was originally made for
@@ -370,7 +354,7 @@ function WorldScene:load_map(tiled_map, spot_name)
     -- fox flux explicitly want to throw away the old map, but anise wants to
     -- preserve them while keeping the usual moving behavior.  find a way to
     -- reconcile all of this
-    local map, revisiting = self.world:load_map(tiled_map, '')
+    local map, revisiting = self.world:reify_map(tiled_map, '')
 
     local player_start
     if Vector.isvector(spot_name) then
@@ -391,7 +375,6 @@ function WorldScene:load_map(tiled_map, spot_name)
 
     -- World:push also updates the camera, so do it after moving the player
     self.world:push(map)
-    self.current_map = map
 
     local map_music_path = tiled_map:prop('music')
     if map_music_path then
@@ -414,37 +397,27 @@ function WorldScene:load_map(tiled_map, spot_name)
 end
 
 function WorldScene:reload_map()
-    self:load_map(self.map)
+    self:load_map(self.world.active_map.tiled_map)
 end
 
 -- TODO how does this work if you enter submap A, then B, then A again?  poorly thought through
 function WorldScene:enter_submap(name)
     self.submap = name
-    self:remove_actor(self.player)
+    self.world.active_map:remove_actor(self.player)
 
-    local map = self.world:load_map(self.current_map.tiled_map, name or '')
+    local map = self.world:reify_map(self.world.active_map.tiled_map, name or '')
     self.world:push(map)
-    self.current_map = self.world.active_map
 
-    self:add_actor(self.player)
+    self.world.active_map:add_actor(self.player)
 end
 
 function WorldScene:leave_submap()
-    self:remove_actor(self.player)
+    self.world.active_map:remove_actor(self.player)
 
     self.world:pop()
-    self.current_map = self.world.active_map
     self.submap = nil
 
-    self:add_actor(self.player)
-end
-
-function WorldScene:add_actor(actor)
-    self.current_map:add_actor(actor)
-end
-
-function WorldScene:remove_actor(actor)
-    self.current_map:remove_actor(actor)
+    self.world.active_map:add_actor(self.player)
 end
 
 

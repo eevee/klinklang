@@ -105,7 +105,12 @@ end
 -- This is one independent map, though it's often referred to as a "submap"
 -- because more than one of them (e.g., overworld and inside buildings) can
 -- exist within the same Tiled map.
-local Map = Object:extend{}
+local Map = Object:extend{
+    -- If true when this map is removed from the World, this map will be
+    -- remembered as-is the next time it's returned from `World:reify_map`,
+    -- rather than reloaded from scratch
+    stashed = false,
+}
 
 function Map:init(world, tiled_map, submap)
     -- TODO? this could be added by a method that activates the map...
@@ -437,7 +442,7 @@ function Map:_create_initial_actors()
             elseif self.submap ~= '' and layer.name == self.submap then
                 z = -10000
             elseif layer.name == 'objects' then
-                z = 10000
+                z = 900
             elseif layer.name == 'foreground' then
                 z = 10001
             elseif layer.name == 'wiring' then
@@ -502,32 +507,40 @@ local World = Object:extend{
 function World:init(player)
     self.player = player
 
-    -- All maps whose state is preserved: both current ones and stashed ones.
-    -- Nested table of TiledMap => submap_name => Map
-    self.live_maps = {}
     -- Currently-active maps, mostly useful if you have one submap that draws
     -- on top of another.  In the common case, this will only contain one map
     self.map_stack = {}
     -- Always equivalent to self.map_stack[#self.map_stack]
     self.active_map = nil
+    -- Maps (presumably, not currently on the stack) whose state is preserved
+    self.stashed_maps = {}
 
     self.camera = Camera()
     self.camera_offset = Vector()
     self.camera_shake_intensity = 0
 end
 
--- Loads a new map, or returns an existing map if it's been seen before.  Does
--- NOT add the map to the stack.
-function World:load_map(tiled_map, submap)
-    local revisiting = true
-    if not self.live_maps[tiled_map] then
-        self.live_maps[tiled_map] = {}
+local function _map_key(tiled_map, submap)
+    return tiled_map.path .. '\0' .. (submap or '')
+end
+
+-- Create a Map object, populated with actors, based on the given tiled map.
+-- If the map was stashed last time it was unloaded, returns that existing map
+-- instead.  An optional second return value is true if the map was stashed.
+-- Note that this does NOT add the map to the stack.
+function World:reify_map(tiled_map, submap)
+    if type(tiled_map) == 'string' then
+        -- XXX is there any reason to use resource_manager here??  it keeps all maps in memory forever...
+        tiled_map = game.resource_manager:load(tiled_map)
     end
-    if not self.live_maps[tiled_map][submap] then
-        self.live_maps[tiled_map][submap] = self.map_class(self, tiled_map, submap)
-        revisiting = false
+    submap = submap or ''
+
+    local stashed_map = self.stashed_maps[_map_key(tiled_map, submap)]
+    if stashed_map then
+        return stashed_map, true
+    else
+        return self.map_class(self, tiled_map, submap), false
     end
-    return self.live_maps[tiled_map][submap], revisiting
 end
 
 function World:push(map)
@@ -535,13 +548,28 @@ function World:push(map)
     self:_set_active(map)
 end
 
--- TODO maybe an arg to say whether to preserve it?  or is that determined when
--- it's first pushed?  or by the map itself somehow??
 function World:pop()
     local popped_map = self.active_map
     self.map_stack[#self.map_stack] = nil
     self:_set_active(self.map_stack[#self.map_stack])
+
+    if popped_map.stashed then
+        if popped_map.tiled_map then
+            self.stashed_maps[_map_key(popped_map.tiled_map, popped_map.submap)] = popped_map
+        else
+            io.stderr:write("Can't stash a map that wasn't loaded from a Tiled map\n")
+        end
+    end
+
     return popped_map
+end
+
+-- Replace the entire stack with a given map
+function World:replace(map)
+    while self.active_map do
+        self:pop()
+    end
+    self:push(map)
 end
 
 function World:_set_active(map)
@@ -556,14 +584,13 @@ function World:_set_active(map)
         self.camera:set_bounds(map.camera_bounds:bounds())
     end
 
-    -- XXX this looks copy/pasted from update at the moment, but there's a
-    -- crucial difference: update may someday change to limit the rate of
-    -- camera movement or whatever, but this MUST be instant since we're
-    -- switching maps and there is no sensible "previous" camera position!
     -- FIXME i don't think i need to set the camera size every frame though
-    local w, h = game:getDimensions()
-    self.camera:set_size(w, h)
-    self.camera:aim_at(self.player.pos.x, self.player.pos.y, true)
+    self:update_camera(true)
+end
+
+function World:update_camera(instant)
+    self.camera:set_size(game:getDimensions())
+    self.camera:aim_at(self.player.pos.x, self.player.pos.y, instant)
 end
 
 -- Shakes the camera.
@@ -582,8 +609,7 @@ function World:update(dt)
     end
 
     local w, h = game:getDimensions()
-    self.camera:set_size(w, h)
-    self.camera:aim_at(self.player.pos.x, self.player.pos.y)
+    self:update_camera()
 
     if self.camera_shake_timer then
         self.camera_shake_timer = self.camera_shake_timer + dt
