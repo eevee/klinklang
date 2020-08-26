@@ -439,6 +439,13 @@ local FACING_VECTORS = {
     down = Vector(0, 1),
 }
 
+function Actor:set_facing(facing)
+    self.facing = facing
+    if self.sprite then
+        self.sprite:set_facing(facing)
+    end
+end
+
 function Actor:facing_to_vector()
     return FACING_VECTORS[self.facing]
 end
