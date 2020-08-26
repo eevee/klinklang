@@ -1,8 +1,9 @@
 local Vector = require 'klinklang.vendor.hump.vector'
 
-local Object = require 'klinklang.object'
 local components_behavior = require 'klinklang.components.behavior'
 local components_physics = require 'klinklang.components.physics'
+local Object = require 'klinklang.object'
+local util = require 'klinklang.util'
 
 
 -- ========================================================================== --
@@ -85,7 +86,7 @@ function BareActor:extend(body)
         local value = body[arg[1]]
         if value ~= nil then
             any_back_compat = true
-            print(("Actor '%s' is using deprecated class attribute '%s' which is now '%s.%s'"):format(
+            util.warn(("Actor '%s' is using deprecated class attribute '%s' which is now '%s.%s'"):format(
                 body.name or self.name, arg[1], arg[2], arg[3]))
             -- XXX this won't work if they specify a component explicitly
             local component_args = subtype_components[arg[2]]

@@ -1,6 +1,8 @@
 --[[
 Argh!  The dreaded util module.  You know what to expect.
 ]]
+local ffi = require 'ffi'
+
 local Vector = require 'klinklang.vendor.hump.vector'
 local json = require 'klinklang.vendor.dkjson'
 
@@ -15,6 +17,34 @@ local function strict_json_decode(str)
         return obj
     end
 end
+
+
+ffi.cdef[[
+int isatty(int);
+]]
+
+local function warn(...)
+    local chunks = {}
+    if package.config:sub(1, 1) == '/' and ffi.C.isatty(2) then
+        -- Quick and dirty way to check whether we're on a Unix (that's the
+        -- path separator, which would be \ on Windows), which strongly implies
+        -- stdout (if it's a terminal) understands ansi color codes
+        table.insert(chunks, "\x1b[33;1mwarning:\x1b[0m ")
+    else
+        table.insert(chunks, "warning: ")
+    end
+
+    for i, chunk in ipairs{...} do
+        if i > 1 then
+            table.insert(chunks, " ")
+        end
+        table.insert(chunks, tostring(chunk))
+    end
+    table.insert(chunks, "\n")
+
+    io.stderr:write(unpack(chunks))
+end
+
 
 --------------------------------------------------------------------------------
 -- Conspicuous mathematical omissions
@@ -131,12 +161,15 @@ end
 
 return {
     strict_json_decode = strict_json_decode,
+    warn = warn,
+
     sign = sign,
     clamp = clamp,
     divmod = divmod,
     divmod1 = divmod1,
     lerp = lerp,
     random_float = random_float,
+
     any_modifier_keys = any_modifier_keys,
     find_files = find_files,
     strict_read_file = strict_read_file,
