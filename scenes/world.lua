@@ -321,8 +321,8 @@ end
 function WorldScene:mousepressed(x, y, button, istouch)
     if game.debug and button == 2 then
         self.player:move_to(Vector(
-            x / game.scale + self.camera.x,
-            y / game.scale + self.camera.y))
+            (x - game.screen.x) / game.scale + self.camera.x,
+            (y - game.screen.y) / game.scale + self.camera.y))
         self.player:get('move'):set_velocity(Vector())
     end
 end
