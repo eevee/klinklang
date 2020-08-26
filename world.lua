@@ -84,7 +84,6 @@ function Camera:aim_at(focusx, focusy, instant)
         newy = focusy - y1
     end
     newy = math.max(self.miny, math.min(self.maxy - self.height, newy))
-    end
     self.y = math.floor(newy)
 end
 
