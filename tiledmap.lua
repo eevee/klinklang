@@ -567,6 +567,7 @@ function TiledMap:add_layer(layer)
                             tx * self.tilewidth,
                             (ty + 1) * self.tileheight - tile.tileset.tileheight),
                         properties = tile.tileset.tileprops[tile.id] or {},
+                        tile = tile,
                     })
                     layer.tilegrid[t] = false
                 end
@@ -594,6 +595,7 @@ function TiledMap:add_layer(layer)
                         submap = layer.submap,
                         position = anchor + Vector(object.x, object.y - object.tile.tileset.tileheight),
                         properties = props,
+                        tile = object.tile,
                     })
                 end
             -- FIXME this should probably be the default case rather than one more exception
@@ -604,6 +606,7 @@ function TiledMap:add_layer(layer)
                     position = Vector(object.x, object.y),
                     properties = extract_properties(object),
                     shapes = tiled_shape_to_whammo_shapes(object),
+                    tile = nil,
                 })
             elseif object.type == 'player start' then
                 self.player_start = Vector(object.x, object.y)
