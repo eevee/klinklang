@@ -45,34 +45,6 @@ local function extract_properties(thing)
 end
 
 
-
---------------------------------------------------------------------------------
--- TiledTile
--- What a ridiculous name!
-
-local TiledTile = Object:extend{
-    _parsed_collision = false,
-    _collision = nil,
-}
-
-function TiledTile:init(tileset, id)
-    self.tileset = tileset
-    self.id = id
-end
-
-function TiledTile:__tostring()
-    return ("<TiledTile #%d from %s>"):format(self.id, self.tileset.path)
-end
-
-function TiledTile:prop(key, default)
-    local props = self.tileset.tileprops[self.id]
-    if props == nil then
-        return default
-    end
-
-    return props[key]
-end
-
 local function tiled_shape_to_whammo_shapes(object)
     if object.polygon then
         local points = {}
@@ -111,6 +83,98 @@ local function tiled_shape_to_whammo_shapes(object)
     end
 end
 
+
+--------------------------------------------------------------------------------
+-- TiledTile
+-- What a ridiculous name!
+
+local TiledTile = Object:extend{
+    -- Vector indicating the anchor for this tile, relative to its top left
+    -- corner.  Remains nil, NOT a zero vector, if no anchor is defined; this
+    -- allows callers to distinguish between a missing anchor and an
+    -- explicit origin anchor and substitute another default if desired.
+    anchor = nil,
+    -- Optional list of whammo shapes associated with this tile.  May be nil if
+    -- there are none!  (Otherwise we'd have thousands of empty lists for tiles
+    -- not even intended to be used.)
+    collision_shapes = nil,
+    -- Optional mapping of shape type => list of shapes.  May be nil.
+    extra_shapes = nil,
+}
+
+function TiledTile:init(tileset, id)
+    self.tileset = tileset
+    self.id = id
+
+    -- Parse out interesting bits from the tile's object layer
+    if self:prop('solid') then
+        -- Shortcut for a totally solid tile
+        -- TODO could reuse this shape for every such tile too
+        self.collision_shapes = {whammo_shapes.Box(
+            0, 0, self.tileset.tilewidth, self.tileset.tileheight)}
+    end
+
+    local objects
+    local tiledata = self.tileset.rawtiledata[self.id]
+    if tiledata and tiledata.objectgroup then
+        objects = tiledata.objectgroup.objects
+    end
+    if objects then
+        for _, obj in ipairs(objects) do
+            if obj.type == "anchor" then
+                -- anchor
+                self.anchor = Vector(obj.x, obj.y)
+            elseif obj.type == "" or obj.type == "collision" then
+                -- collision shape
+                local new_shapes = tiled_shape_to_whammo_shapes(obj)
+                if self.collision_shapes == nil then
+                    self.collision_shapes = new_shapes
+                else
+                    for _, shape in ipairs(new_shapes) do
+                        table.insert(self.collision_shapes, shape)
+                    end
+                end
+            else
+                -- Some unrecognized type; game code presumably cares about it
+                if not self.extra_shapes then
+                    self.extra_shapes = {}
+                end
+                local extras = self.extra_shapes[obj.type]
+                if not extras then
+                    extras = {}
+                    self.extra_shapes[obj.type] = extras
+                end
+
+                if obj.point then
+                    table.insert(extras, Vector(obj.x, obj.y))
+                else
+                    -- TODO unclear what to do here, since e.g. a polygon might
+                    -- be a polyline, ellipses aren't supported...
+                    -- TODO apparently i once thought to use a box of type
+                    -- 'grid center' to declare a 3x3 drawable, but never
+                    -- implemented it; that's a good use case
+                    error(
+                        ("Don't know how to handle shape type %s on tile %s")
+                        :format(obj.type, self))
+                end
+            end
+        end
+    end
+end
+
+function TiledTile:__tostring()
+    return ("<TiledTile #%d from %s>"):format(self.id, self.tileset.path)
+end
+
+function TiledTile:prop(key, default)
+    local props = self.tileset.tileprops[self.id]
+    if props == nil then
+        return default
+    end
+
+    return props[key]
+end
+
 function TiledTile:has_solid_collision()
     if self:prop('solid') then
         return true
@@ -119,10 +183,7 @@ function TiledTile:has_solid_collision()
     local tw = self.tileset.tilewidth
     local th = self.tileset.tileheight
 
-    -- TODO? could hypothetically check without parsing the collision, but i'm
-    -- not sure that saves anything
-    local shapes = self:get_collision_shapes()
-
+    local shapes = self.collision_shapes
     return (
         #shapes == 1 and
         shapes[1]:isa(whammo_shapes.Box) and
@@ -131,81 +192,6 @@ function TiledTile:has_solid_collision()
         shapes[1].x1 == tw and
         shapes[1].y1 == th
     )
-end
-
--- Returns the collision shapes.  Does NOT take the anchor into account; that's
--- the caller's problem.  Note also that this returns the same shape objects on
--- every call, so you should clone it if you plan to modify it.
-function TiledTile:get_collision_shapes()
-    if self._parsed_collision then
-        return self._collision_shapes
-    end
-    self._parsed_collision = true
-
-    -- Shortcut for a totally solid tile
-    if self:prop('solid') then
-        self._collision_shapes = {whammo_shapes.Box(
-            0, 0, self.tileset.tilewidth, self.tileset.tileheight)}
-        return self._collision_shapes
-    end
-
-    local objects
-    local tiledata = self.tileset.rawtiledata[self.id]
-    if tiledata and tiledata.objectgroup then
-        objects = tiledata.objectgroup.objects
-    end
-    if not objects then
-        return
-    end
-
-    local shapes
-    for _, obj in ipairs(objects) do
-        if obj.type == "anchor" then
-            -- known but not relevant here
-        elseif obj.type == "" or obj.type == "collision" then
-            -- collision shape
-            local new_shapes = tiled_shape_to_whammo_shapes(obj)
-            if shapes == nil then
-                shapes = new_shapes
-            else
-                for _, shape in ipairs(new_shapes) do
-                    table.insert(shapes, shape)
-                end
-            end
-        else
-            -- FIXME maybe need to return a table somehow, because i want to keep this for wire points?
-            error(
-                ("Don't know how to handle shape type %s on tile %s")
-                :format(obj.type, self))
-        end
-    end
-
-    self._collision_shapes = shapes
-    return shapes
-end
-
--- Finds the anchor for a tile, as given by an 'anchor' object.  Returns nil,
--- NOT a zero vector, if no anchor is found; this allows the caller to
--- distinguish between a missing anchor and an explicit origin anchor and
--- substitute another default if desired.
-function TiledTile:get_anchor()
-    -- TODO this is ugly and duplicated from get_collision_shapes
-    local objects
-    local tiledata = self.tileset.rawtiledata[self.id]
-    if tiledata and tiledata.objectgroup then
-        objects = tiledata.objectgroup.objects
-    end
-    if not objects then
-        return
-    end
-
-    for _, obj in ipairs(objects) do
-        if obj.type == "anchor" then
-            return Vector(obj.x, obj.y)
-        end
-    end
-
-    return
 end
 
 
@@ -244,21 +230,6 @@ function TiledTileset:init(path, data, resource_manager)
             ):format(path, iw, ih, imgpath, aiw, aih))
     end
 
-    -- Create a quad for each tile
-    -- NOTE: This is NOT (quite) a Lua array; it's a map from Tiled's tile ids
-    -- (which start at zero) to quads
-    -- FIXME create the Tile objects here and let them make their own damn quads
-    self.tiles = {}
-    self.quads = {}
-    for relid = 0, self.tilecount - 1 do
-        self.tiles[relid] = TiledTile(self, relid)
-
-        -- TODO support spacing, margin
-        local row, col = util.divmod(relid, self.columns)
-        self.quads[relid] = love.graphics.newQuad(
-            col * tw, row * th, tw, th, iw, ih)
-    end
-
     -- Snag tile properties and animations
     self.rawtiledata = {}  -- tileid => raw data
     self.tileprops = {}  -- tileid => {name => value}
@@ -285,6 +256,21 @@ function TiledTileset:init(path, data, resource_manager)
         for t, props in pairs(data.tileproperties or {}) do
             self.tileprops[t + 0] = props
         end
+    end
+
+    -- Create a quad for each tile
+    -- NOTE: This is NOT (quite) a Lua array; it's a map from Tiled's tile ids
+    -- (which start at zero) to quads
+    -- FIXME create the Tile objects here and let them make their own damn quads
+    self.tiles = {}
+    self.quads = {}
+    for relid = 0, self.tilecount - 1 do
+        self.tiles[relid] = TiledTile(self, relid)
+
+        -- TODO support spacing, margin
+        local row, col = util.divmod(relid, self.columns)
+        self.quads[relid] = love.graphics.newQuad(
+            col * tw, row * th, tw, th, iw, ih)
     end
 
     -- Read named sprites (and their animations, if appropriate)
@@ -337,8 +323,8 @@ function TiledTileset:init(path, data, resource_manager)
             end
             args.facing = facing
 
-            local shapes = self.tiles[id]:get_collision_shapes()
-            local anchor = self.tiles[id]:get_anchor()
+            local shapes = self.tiles[id].collision_shapes
+            local anchor = self.tiles[id].anchor
 
             -- Add the above args as a pose for the sprite name (or names,
             -- separated by newlines)
@@ -573,7 +559,7 @@ function TiledMap:add_layer(layer)
                 local class = tile:prop('actor')
                 if class then
                     local ty, tx = util.divmod(t - 1, width)
-                    local anchor = tile:get_anchor() or Vector.zero
+                    local anchor = tile.anchor or Vector.zero
                     table.insert(self.actor_templates, {
                         name = class,
                         submap = layer.submap,
@@ -602,7 +588,7 @@ function TiledMap:add_layer(layer)
                             props[k] = v
                         end
                     end
-                    local anchor = object.tile:get_anchor() or Vector.zero
+                    local anchor = object.tile.anchor or Vector.zero
                     table.insert(self.actor_templates, {
                         name = class,
                         submap = layer.submap,

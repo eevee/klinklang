@@ -138,7 +138,7 @@ function TiledMapLayer:_make_shapes_and_actors()
 
             -- FIXME would be nice to have an arbitrary number of shapes per tile!
             -- then they could be part oneway, part not, or whatever.
-            local shapes = tile:get_collision_shapes()
+            local shapes = tile.collision_shapes
             if not shapes or #shapes == 0 then
                 reify_merged_shape()
                 goto continue
