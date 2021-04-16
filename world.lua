@@ -589,7 +589,7 @@ end
 
 function World:update_camera(instant)
     self.camera:set_size(game:getDimensions())
-    self.camera:aim_at(self.player.pos.x, self.player.pos.y, instant)
+    self.camera:aim_at(math.floor(self.player.pos.x + 0.5), math.floor(self.player.pos.y + 0.5), instant)
 end
 
 -- Shakes the camera.
