@@ -303,6 +303,7 @@ end
 -- Note that this might be called multiple times per frame, if WorldScene is
 -- trying to do catch-up updates
 function Map:update(dt)
+    --print('-- begin frame --')
     self.flux:update(dt)
     self.tick:update(dt)
 
@@ -325,8 +326,9 @@ end
 -- mechanism for deciding whether to update each actor.  well.  actually.  hmm
 -- FIXME and now it is definitely not appropriate for anise
 function Map:_update_actors(dt)
-    print()
+    --print()
     local fmt = "%50s %20s %20s %20s %20s"
+    --[[
     print(fmt:format("Actor move summary:", "velocity", "p velocity", "p accel", "friction"))
     for _, actor in ipairs(self.actors) do
         local move = actor:get('move')
@@ -334,6 +336,7 @@ function Map:_update_actors(dt)
             print(fmt:format(tostring(actor), tostring(move.velocity), tostring(move.pending_velocity), tostring(move.pending_accel), tostring(move.pending_friction)))
         end
     end
+    ]]
     for _, actor in ipairs(self.actors) do
         actor:update(dt)
     end
