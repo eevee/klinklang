@@ -191,6 +191,32 @@ function BareActor:get(slot)
     return self.components[slot]
 end
 
+-- Insert a new component; return the one that was in the slot before, if any
+function BareActor:add_component(component)
+    local old_component
+    if component.slot then
+        old_component = self.components[component.slot]
+    end
+    if old_component then
+        for i, c in ipairs(self.component_order) do
+            if c == old_component then
+                -- This is quicker than table.remove(), and we need to sort at the end anyway
+                self.component_order[i] = self.component_order[#self.component_order]
+                self.component_order[#self.component_order] = nil
+                break
+            end
+        end
+    end
+
+    self.components[component.slot] = component
+    table.insert(self.component_order, component)
+    table.sort(self.component_order, function(a, b)
+        return a.priority < b.priority
+    end)
+
+    return old_component
+end
+
 function BareActor:remove_component(slot_or_component)
     local slot, component
     if type(slot_or_component) == 'string' then
@@ -208,6 +234,8 @@ function BareActor:remove_component(slot_or_component)
             break
         end
     end
+
+    return component
 end
 
 function BareActor:each(method, ...)
