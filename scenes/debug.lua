@@ -41,8 +41,8 @@ function DebugScene:init(font)
 
     self.forms = {
         'rubber', 'slime', 'glass', 'stone', 'ice',
-        'moo', 'snek', 'robo', 'mini', 'pooltoy',
-        'dragon', 'hologram', 'balloon', 'bodyless',
+        'starcow', 'slither', 'robo', 'micro', 'pooltoy',
+        'kobold', 'holo', 'balloon', 'bouncy', 'bodyless',
     }
 end
 
