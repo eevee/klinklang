@@ -332,7 +332,9 @@ end
 -- map at the end of the next update, at which point GC will take care of it if
 -- it has no other references
 function BareActor:destroy()
-    self.map:delayed_remove_actor(self)
+    if self.map then
+        self.map:delayed_remove_actor(self)
+    end
 end
 
 -- Draw the collision shape, for the debug layer
