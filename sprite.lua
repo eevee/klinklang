@@ -39,11 +39,10 @@ end
 --   onloop: Behavior for the end of the loop.  Passed directly to anim8.
 --   flipped: If true, the frames face to the left, and will be flipped when
 --      the sprite faces right (rather than the other way around).
---   leftwards: If true, the pose is taken to be asymmetrical, and the given
---      frames are used as the left-facing view.  To create a fully
---      asymmetrical pose, call add_pose twice: once with leftwards false, once
---      with it true.  Note that the actual frames are still assumed to face
---      right, unless flipped is true.
+--   symmetrical: If true, the pose is taken to be explicitly symmetrical, meaning it will be used
+--      as-is for both left and right facings (with no flipping).  Useful for, e.g., a pose in a
+--      sidescroller that faces directly towards or away from the camera (which may not actually be
+--      symmetrical).
 -- FIXME that behavior exists for a reason but also is kind of absurd
 -- FIXME it is now possible to have only SOME facings for a particular sprite, oof
 function SpriteSet:add_pose(args)
@@ -54,6 +53,7 @@ function SpriteSet:add_pose(args)
     local durations = args.durations
     local onloop = args.onloop
     local flipped = args.flipped
+    local symmetrical = args.symmetrical
     local facing = args.facing or 'right'
 
     local pose
@@ -79,32 +79,37 @@ function SpriteSet:add_pose(args)
         normal_data.explicit = true
         pose[facing] = normal_data
     else  -- left or right
-        local flipped_shape
-        if shape then
-            flipped_shape = shape:flipx(0)
-        end
         -- FIXME this assumes the frames are all the same size; either avoid
         -- requiring that (which may be impossible) or explicitly enforce it
-        local _, _, w, _ = frames[1]:getViewport()
-        local flipped_data = {
-            animation = anim:clone():flipH(),
-            shape = flipped_shape,
-            anchor = Vector(w - anchor.x, anchor.y),
-        }
-
-        -- Handle flippedness
         local left_data, right_data
-        if flipped then
-            left_data, right_data = normal_data, flipped_data
+        local _, _, w, _ = frames[1]:getViewport()
+        if symmetrical then
+            left_data, right_data = normal_data, normal_data
+            normal_data.explicit = true
         else
-            left_data, right_data = flipped_data, normal_data
-        end
+            local flipped_shape
+            if shape then
+                flipped_shape = shape:flipx(0)
+            end
+            flipped_data = {
+                animation = anim:clone():flipH(),
+                shape = flipped_shape,
+                anchor = Vector(w - anchor.x, anchor.y),
+            }
 
-        -- Handle asymmetry
-        if facing == 'left' then
-            left_data.explicit = true
-        else
-            right_data.explicit = true
+            -- Handle flippedness
+            if flipped then
+                left_data, right_data = normal_data, flipped_data
+            else
+                left_data, right_data = flipped_data, normal_data
+            end
+
+            -- Handle asymmetry
+            if facing == 'left' then
+                left_data.explicit = true
+            else
+                right_data.explicit = true
+            end
         end
 
         -- Assign the pose facings

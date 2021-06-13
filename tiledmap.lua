@@ -312,6 +312,8 @@ function TiledTileset:init(path, data, resource_manager)
             end
             if props['sprite flipped'] then
                 args.flipped = true
+            elseif props['sprite doesn\'t flip'] then
+                args.symmetrical = true
             end
 
             local facing = 'right'
