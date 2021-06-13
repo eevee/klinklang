@@ -238,6 +238,42 @@ function BareActor:remove_component(slot_or_component)
     return component
 end
 
+-- State-like handling: set a given component as the current "mode", and allow it to provide an
+-- allow/denylist for whether other components are enabled.  Note that this applies immediately,
+-- even if in the middle of iterating over components!
+-- More interesting functionality coming soon?
+function BareActor:set_modal_component(component, component_filter)
+    self.component_modality = component
+    self.component_filter = component_filter
+end
+
+function BareActor:_is_component_active(component)
+    if component.disabled then
+        return false
+    end
+
+    if self.component_filter then
+        local res = self.component_filter[component]
+        if res ~= nil then
+            return res
+        end
+
+        if component.slot then
+            res = self.component_filter[component.slot]
+            if res ~= nil then
+                return res
+            end
+        end
+
+        res = self.component_filter[false]
+        if res ~= nil then
+            return res
+        end
+    end
+
+    return true
+end
+
 function BareActor:each(method, ...)
     if self[method] then
         self[method](self, ...)
@@ -248,7 +284,7 @@ function BareActor:each(method, ...)
     end
 
     for _, component in ipairs(self.component_order) do
-        if component[method] and not component.disabled then
+        if component[method] and self:_is_component_active(component) then
             component[method](component, ...)
         end
     end
@@ -269,7 +305,7 @@ function BareActor:collect(method, ...)
 
     for _, component in ipairs(self.component_order) do
         local f = component[method]
-        if f and not component.disabled then
+        if f and self:_is_component_active(component) then
             local ret = component[method](component, ...)
             if ret ~= nil then
                 return ret
@@ -282,7 +318,7 @@ end
 -- Main update and draw loops
 function BareActor:update(dt)
     for _, component in ipairs(self.component_order) do
-        if not component.disabled then
+        if self:_is_component_active(component) then
             component:update(dt)
         end
     end

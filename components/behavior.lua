@@ -107,6 +107,9 @@ function Walk:decide(dx, dy)
     if self.decision:len2() ~= 1 then
         self.decision:normalizeInplace()
     end
+    if not self.use_2d_movement then
+        self.decision.y = 0
+    end
 end
 
 function Walk:update(dt)
@@ -280,19 +283,7 @@ function Jump:update(dt)
             return
         end
 
-        -- You can "jump" off a ladder, but you just let go.  Only works if
-        -- you're holding a direction or straight down
-        -- FIXME move this to controls, get it out of here
-        local climb = self:get('climb')
-        if climb and climb.is_climbing then
-            if climb.decision > 0 or self:get('walk').decision ~= Vector.zero then
-                -- Drop off
-                climb.is_climbing = false
-            end
-            return
-        end
-
-        if self.consecutive_jump_count == 0 and not fall.ground_shallow and not climb.is_climbing then
+        if self.consecutive_jump_count == 0 and not fall.ground_shallow then
             -- If we're in mid-air for some other reason, act like we jumped to
             -- get here, for double-jump counting purposes
             self.consecutive_jump_count = 1
@@ -316,11 +307,6 @@ function Jump:update(dt)
             sfx:play()
         end
 
-        -- If we were climbing, we shouldn't be now
-        -- FIXME this is a "state"...  is it possible to get this out of here?  make this a more general thing??
-        climb.is_climbing = false
-        climb.climbing = nil
-        climb.decision = 0
         return true
     elseif self.decision == 0 then
         -- We released jump at some point, so cut our upwards velocity
@@ -332,7 +318,11 @@ end
 
 
 -- Climb
--- TODO this should disable gravity, but that's currently done in Fall, which seems...  extreeeemely hokey to me.  honestly this seems like it completely changes the physics "mode", but that's not a concept i really have anywhere yet
+-- FIXME remaining issues:
+-- - various fixmes/todos in here
+-- - if you're already holding up/down when you first touch a climbable, you currently ignore it,
+-- but you should totally grab on
+-- - two ladders side by side, or support for a big climbable surface?
 local Climb = Component:extend{
     slot = 'climb',
     priority = -1001,  -- needed before basic physics to override one-way collision
@@ -343,6 +333,7 @@ local Climb = Component:extend{
 
     -- State --
     is_climbing = false,
+    is_aligned = false,  -- whether the actor is centered on us
 }
 
 function Climb:init(actor, args)
@@ -393,6 +384,7 @@ function Climb:after_collisions(movement, collisions)
             -- FIXME these seem like they should specifically grab the highest and lowest in case of ties...
             -- FIXME aha, shouldn't this check if we're overlapping /now/?
             -- FIXME this is super not gonna work for "climbing" sideways
+            -- FIXME why not just do this with a cast when first attempting to climb...?
             if collision.overlapped or collision:faces(Vector(0, -1)) then
                 self.actor.ptrs.climbable_down = obstacle
                 self.on_climbable_down = collision
@@ -403,107 +395,133 @@ function Climb:after_collisions(movement, collisions)
             end
         end
 
-        -- If we're climbing downwards and hit something (i.e., the ground), let go
-        -- FIXME more generally, we should stop climbing if we're not touching a climbable actor any more?
-        -- FIXME gravity hardcoded
-        if self.is_climbing and self.decision > 0 and not collision.passable and collision:faces(Vector(0, -1)) then
-            self.is_climbing = false
-            self.climbing = nil
-            -- FIXME is this necessary?
-            self.decision = 0
+        -- If we're climbing downwards and hit something (i.e., the ground), let go.  But only if
+        -- we're actually centered, else it's tricky to climb down through a gap in solid floor
+        if self.is_climbing and self.is_aligned and self.decision > 0 and
+            -- FIXME gravity hardcoded
+            not collision.passable and collision:faces(Vector(0, -1))
+        then
+            self:_end_climbing()
         end
     end
 end
 
-function Climb:update(dt)
-    local move = self:get('move')
+function Climb:_begin_climbing()
+    if self.is_climbing then
+        return
+    end
 
-    -- Immunity to gravity while climbing is handled via get_gravity_multiplier
-    -- FIXME not any more it ain't
-    -- FIXME down+jump to let go, but does that belong here or in input handling?  currently it's in both and both are awkward
+    self.is_climbing = true
+    self.is_aligned = false
+    self.actor:set_modal_component(self, {
+        walk = false,
+        jump = false,
+        fall = false,
+        [false] = true,
+    })
+
+    -- We're not on the ground, but this still clears our jump count
+    local jump = self:get('jump')
+    if jump then
+        jump.consecutive_jump_count = 0
+    end
+end
+
+function Climb:_end_climbing()
+    if not self.is_climbing then
+        return
+    end
+
+    self.is_climbing = false
+    self.is_aligned = false
+    self.climbing = nil
+    if self.actor.component_modality == self then
+        self.actor:set_modal_component(nil, nil)
+    end
+end
+
+function Climb:update(dt)
+    local jump = self:get('jump')
+
     -- TODO does climbing make sense in no-gravity mode?
-    if self.decision then
+    if self.is_climbing and jump and jump.decision == 2 then
+        -- Jump to let go
+        self:_end_climbing()
+    elseif self.decision then
         if math.abs(self.decision) == 2 or (math.abs(self.decision) == 1 and self.is_climbing) then
-            -- Trying to grab a ladder for the first time.  See if we're
-            -- actually touching one!
-            -- FIXME Note that we might already be on a ladder, but not moving.  unless we should prevent that case in decide_climb?
+            -- Trying to grab a ladder; if we're touching one, do so
             if self.decision < 0 and self.actor.ptrs.climbable_up then
                 self.actor.ptrs.climbing = self.actor.ptrs.climbable_up
-                self.is_climbing = true
+                self:_begin_climbing()
                 self.climbing = self.on_climbable_up
                 self.decision = -1
             elseif self.decision > 0 and self.actor.ptrs.climbable_down then
                 self.actor.ptrs.climbing = self.actor.ptrs.climbable_down
-                self.is_climbing = true
+                self:_begin_climbing()
                 self.climbing = self.on_climbable_down
                 self.decision = 1
             else
                 -- There's nothing to climb!
-                self.is_climbing = false
+                self:_end_climbing()
             end
         end
-        -- FIXME handle all yon cases, including the "is it possible" block above
         if self.is_climbing then
-            -- We have no actual velocity...  unless...  sigh
-            -- TODO part of the point of this is to undo movement from Walk, which (a) makes it a /separate/ hack from disabling gravity, ugh, and (b) doesn't make sense if we're on something we can climb widely
-            if self.xxx_useless_climb then
-                move.pending_velocity = move.pending_velocity:projectOn(gravity)
-            else
-                -- XXX should there be a thing to forcibly set velocity?  how
-                -- would that affect other components that later try to modify
-                -- it?
-                move.pending_velocity = Vector()
-            end
-
-            -- Slide us gradually towards the center of a ladder
-            -- FIXME gravity dependant...?  how do ladders work in other directions?
-            local x0, _y0, x1, _y1 = self.climbing.shape:bbox()
-            local ladder_center = (x0 + x1) / 2
-            -- FIXME uhh, is this the point that should even be snapped...?
-            local dx = ladder_center - self.actor.pos.x
-            local max_dx = self.speed * dt
-            dx = util.sign(dx) * math.min(math.abs(dx), max_dx)
-
-            -- FIXME oh i super hate this var lol, it exists only for fox flux's slime lexy
-            -- OH FUCK I CAN JUST USE A DIFFERENT CLIMBING COMPONENT ? ??? ?
-            if self.xxx_useless_climb then
-                -- Can try to climb, but is just affected by gravity as normal
-                move:nudge(Vector(dx, 0))
-            elseif self.decision < 0 then
-                -- Climbing is done with a nudge, rather than velocity, to avoid
-                -- building momentum which would then launch you off the top
-                local climb_distance = self.speed * dt
-
-                -- Figure out how far we are from the top of the ladder
-                local ladder = self.on_climbable_up
-                local separation = ladder.left_separation or ladder.right_separation
-                if separation then
-                    local distance_to_top = separation * Vector(0, -1)
-                    if distance_to_top > 0 then
-                        climb_distance = math.min(distance_to_top, climb_distance)
-                    end
-                end
-                move:nudge(Vector(dx, -climb_distance))
-            elseif self.decision > 0 then
-                move:nudge(Vector(dx, self.speed * dt))
-            end
-
-            -- Never flip a climbing sprite, since they can only possibly face in
-            -- one direction: away from the camera!
-            self.facing = 'right'
-
-            -- We're not on the ground, but this still clears our jump count
-            -- FIXME this seems like it wants to say, i'm /kinda/ on the ground.  i'm stable.
-            -- FIXME regardless it probably shouldn't be here, there should be a "hit the ground" message
-            self:get('jump').consecutive_jump_count = 0
+            self:do_climb(dt)
         end
     end
 
     -- Clear these pointers so collision detection can repopulate them
     self.actor.ptrs.climbable_up = nil
     self.actor.ptrs.climbable_down = nil
-    self.actor.on_climbable_up = nil
-    self.actor.on_climbable_down = nil
+    self.on_climbable_up = nil
+    self.on_climbable_down = nil
+end
+
+-- This is split out so fox flux's slime can use it
+function Climb:compute_centering_nudge(dt)
+    -- FIXME gravity dependant...?  how do ladders work in other directions?
+    local x0, _y0, x1, _y1 = self.climbing.shape:bbox()
+    local ladder_center = (x0 + x1) / 2
+    -- FIXME uhh, is this the point that should even be snapped...?
+    local dx = ladder_center - self.actor.pos.x
+    if math.abs(dx) < 1 then
+        self.is_aligned = true
+    end
+    local max_dx = self.speed * dt
+    return util.sign(dx) * math.min(math.abs(dx), max_dx)
+end
+
+function Climb:do_climb(dt)
+    local move = self:get('move')
+
+    -- Discard any velocity from last frame
+    move:set_velocity(Vector())
+
+    if self.decision == 0 then
+        return
+    end
+
+    -- Slide us gradually towards the center of a ladder
+    local dx = self:compute_centering_nudge(dt)
+
+    -- Climbing is done with a nudge, rather than velocity, to avoid building momentum which would
+    -- then launch you off the top
+    if self.decision < 0 then
+        local climb_distance = self.speed * dt
+
+        -- Figure out how far we are from the top of the ladder
+        local ladder = self.on_climbable_up
+        local separation = ladder.left_separation or ladder.right_separation
+        if separation then
+            local distance_to_top = separation * Vector(0, -1)
+            if distance_to_top > 0 then
+                climb_distance = math.min(distance_to_top, climb_distance)
+            end
+        end
+        move:nudge(Vector(dx, -climb_distance))
+    elseif self.decision > 0 then
+        move:nudge(Vector(dx, self.speed * dt))
+    end
 end
 
 

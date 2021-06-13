@@ -443,6 +443,8 @@ function Map:_create_initial_actors()
             -- FIXME okay this particular case is terrible
             elseif self.submap ~= '' and layer.name == self.submap then
                 z = -10000
+            elseif layer.name == 'background objects' then
+                z = -9999
             elseif layer.name == 'objects' then
                 z = 900
             elseif layer.name == 'foreground' then

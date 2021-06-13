@@ -599,11 +599,7 @@ function Fall:update(dt)
         end
     end
 
-    -- TODO this feels like it does not belong here, but i don't know how to untangle them better
-    local climb = self:get('climb')
-    if not (climb and climb.is_climbing) then
-        move:add_accel(self:get_base_gravity() * multiplier)
-    end
+    move:add_accel(self:get_base_gravity() * multiplier)
 
     -- FIXME this was a good idea but components break it, so, now what?  is it
     -- ok if this doesn't include deliberate movement?
@@ -948,8 +944,6 @@ function SentientFall:after_collisions(movement, collisions)
     -- FIXME the real logic here is: if i'm //walking// (i.e. this is a normal move update) and nothing else had pushed me away from the ground since last frame, then stick to the ground.  it would be lovely to actually implement that
     if prev_ground_normal and not self.ground_normal and
         math.abs(prev_ground_normal * movement) < 1e-6 and
-        -- TODO there should definitely be a cleaner way to deal with this...  but then, when climbing, gravity doesn't exist, right?
-        (not self:get('climb') or not self:get('climb').is_climbing) and
         self.multiplier > 0 and self.multiplier_down > 0
     then
         -- How far to try dropping is pretty fuzzy, but a decent assumption is
