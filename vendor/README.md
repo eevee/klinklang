@@ -12,9 +12,9 @@ License: MIT
 
 ## baton
 
-Commit bfb2cd3 from Nov 6, 2016
+Commit 3defe19 from Dec 12, 2020
 
-Vendored on Feb 27, 2017
+Vendored on Jun 25, 2021
 
 Original source: https://github.com/tesselode/baton
 

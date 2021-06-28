@@ -1,3 +1,4 @@
+local baton = require 'klinklang.vendor.baton'
 local Vector = require 'klinklang.vendor.hump.vector'
 
 local AABB = require 'klinklang.aabb'
@@ -73,6 +74,10 @@ function Game:_configure_resource_manager()
         return tiledmap.TiledMap:parse_json_file(path, game.resource_manager)
     end)
     self.resource_manager.locked = false  -- TODO make an api for this lol
+end
+
+function Game:assign_controls(mapping)
+    self.input = baton.new(mapping)
 end
 
 
