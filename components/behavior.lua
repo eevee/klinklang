@@ -158,6 +158,10 @@ function Walk:update(dt)
             in_air = true
         end
         goal_direction = ground_axis * self.decision.x
+        -- If we're upside-down, flip the x direction to keep the controls intuitive
+        if ground_axis.x < 0 then
+            goal_direction = goal_direction * -1
+        end
         current = current:projectOn(ground_axis)
     end
 
