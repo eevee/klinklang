@@ -40,9 +40,10 @@ function DebugScene:init(font)
     end
 
     self.forms = {
-        'rubber', 'slime', 'glass', 'stone', 'ice',
-        'starcow', 'slither', 'robo', 'micro', 'pooltoy',
-        'kobold', 'holo', 'balloon', 'bouncy', 'bodyless',
+        'rubber',   'slime',    'glass',    'pooltoy',  'robo',     'micro',
+        'holo',     false,      false,      false,      false,      false,
+        'kobold',   'starcow',  'slither',  'drone',    false,      false,
+        'stone',    'ice',      'balloon',  'bouncy',   'bodyless', false,
     }
 end
 
@@ -71,7 +72,7 @@ function DebugScene:do_main_menu(dt)
     local padding = 8
     suit.layout:reset(margin, margin, padding)
 
-    local width, height = love.graphics.getDimensions()
+    local width, height = game:getDimensions()
     width = width - margin * 2
     height = height - margin * 2
 
@@ -140,9 +141,12 @@ function DebugScene:do_world_menu(inner_width)
 
     suit.layout:push(suit.layout:row())
     local padx, pady = suit.layout:padding()
-    local form_columns = 5
+    local form_columns = 6
     local bw = math.floor((inner_width - (form_columns - 1) * padx) / form_columns)
     for n, form in ipairs(self.forms) do
+        if not form then
+            goto continue
+        end
         if n > 1 and (n - 1) % form_columns == 0 then
             suit.layout:pop()
             suit.layout:push(suit.layout:row())
@@ -158,6 +162,7 @@ function DebugScene:do_world_menu(inner_width)
         if suit.Button(form, opt, suit.layout:col(bw, self.unit)).hit then
             worldscene.player:transform(form)
         end
+        ::continue::
     end
     suit.layout:pop()
 
@@ -240,6 +245,9 @@ function DebugScene:update(dt)
         self.wrapped:update(dt)
     end
 
+    local mx, my = love.mouse.getPosition()
+    suit.updateMouse((mx - game.screen.x) / game.scale, (my - game.screen.y) / game.scale)
+
     love.graphics.push('all')
     love.graphics.setFont(self.font)
     if self.current_screen == 'main' then
@@ -252,16 +260,17 @@ function DebugScene:draw()
     self.wrapped:draw()
 
     love.graphics.push('all')
-    local w, h = love.graphics.getDimensions()
-    love.graphics.setColor(0, 0, 0, 0.5)
+    game:transform_viewport()
+
+    love.graphics.push('all')
+    local w, h = game:getDimensions()
+    love.graphics.setColor(0, 0, 0, 0.75)
     love.graphics.rectangle('fill', 0, 0, w, h)
     love.graphics.setColor(0, 1, 0)
     love.graphics.rectangle('line', 0.5, 0.5, w - 1, h - 1)
     love.graphics.rectangle('line', 1.5, 1.5, w - 3, h - 3)
-    love.graphics.setColor(1, 1, 1)
     love.graphics.pop()
 
-    love.graphics.push('all')
     love.graphics.setFont(self.font)
     suit.draw()
     love.graphics.pop()
