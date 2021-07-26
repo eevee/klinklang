@@ -641,7 +641,8 @@ function SentientActor:update(dt)
     -- FIXME where does this live?  on Walk?  on Think?
     local walk = self:get('walk')
     if walk then
-        if math.abs(walk.decision.x) > math.abs(walk.decision.y) then
+        -- FIXME this is a goofy hack, lexy swimming should not try to go up or down
+        if math.abs(walk.decision.x) > math.abs(walk.decision.y) or self:get('fall') then
             if walk.decision.x < 0 then
                 self.facing = 'left'
             elseif walk.decision.x > 0 then

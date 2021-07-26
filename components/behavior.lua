@@ -122,6 +122,12 @@ function Walk:update(dt)
         return
     end
 
+    -- FIXME this shouldn't be here, probably, but then, where should it be
+    local ail = self:get('ail')
+    if ail and ail.recoil_timer and ail.recoil_timer > 0 then
+        return
+    end
+
     local speed_cap = self.speed_cap
     local fall = self:get('fall')
     local grip = 1
@@ -401,7 +407,7 @@ function Climb:after_collisions(movement, collisions)
 
         -- If we're climbing downwards and hit something (i.e., the ground), let go.  But only if
         -- we're actually centered, else it's tricky to climb down through a gap in solid floor
-        if self.is_climbing and self.is_aligned and self.decision > 0 and
+        if self.is_climbing and self.is_aligned and self.decision and self.decision > 0 and
             -- FIXME gravity hardcoded
             not collision.passable and collision:faces(Vector(0, -1))
         then
@@ -536,8 +542,12 @@ local Interact = Component:extend{
     slot = 'interact',
 }
 
-function Interact:decide()
-    self.decision = true
+function Interact:decide(whether)
+    if whether == nil then
+        self.decision = true
+    else
+        self.decision = whether
+    end
 end
 
 function Interact:get_mechanism()
