@@ -175,6 +175,10 @@ function TiledTile:prop(key, default)
     return props[key]
 end
 
+function TiledTile:get_quad()
+    return self.tileset.quads[self.id]
+end
+
 function TiledTile:has_solid_collision()
     if self:prop('solid') then
         return true
@@ -262,6 +266,7 @@ function TiledTileset:init(path, data, resource_manager)
     -- NOTE: This is NOT (quite) a Lua array; it's a map from Tiled's tile ids
     -- (which start at zero) to quads
     -- FIXME create the Tile objects here and let them make their own damn quads
+    -- FIXME make them lazily?
     self.tiles = {}
     self.quads = {}
     for relid = 0, self.tilecount - 1 do
@@ -579,20 +584,22 @@ function TiledMap:add_layer(layer)
         for _, object in ipairs(layer.objects) do
             if object.tile then
                 -- This is a "tile" object
-                local class = object.tile:prop('actor')
-                if class then
-                    -- FIXME this is a mess lol, but i want it so tiles can
-                    -- also have options, e.g. a generic actor knows its sprite
-                    -- name.  also should do this above too
-                    -- FIXME this is not a clone for old maps
-                    local props = extract_properties(object)
-                    for k, v in pairs(object.tile.tileset.tileprops[object.tile.id] or {}) do
-                        if props[k] == nil then
-                            props[k] = v
-                        end
+                -- FIXME this is a mess lol, but i want it so tiles can also
+                -- have options, e.g. a generic actor knows its sprite name.
+                -- also should do this above too
+                local props = extract_properties(object)
+                for k, v in pairs(object.tile.tileset.tileprops[object.tile.id] or {}) do
+                    if props[k] == nil then
+                        props[k] = v
                     end
+                end
+
+                local class = props['actor']
+                if class then
+                    -- FIXME this is not a clone for old maps
                     local anchor = object.tile.anchor or Vector.zero
                     table.insert(self.actor_templates, {
+                        id = object.id,
                         name = class,
                         submap = layer.submap,
                         position = anchor + Vector(object.x, object.y - object.tile.tileset.tileheight),
@@ -601,8 +608,9 @@ function TiledMap:add_layer(layer)
                     })
                 end
             -- FIXME this should probably be the default case rather than one more exception
-            elseif object.type == 'trigger' or object.type == 'ladder' or object.type == 'water zone' or object.type == 'map slice' or object.type == 'loading zone' then
+            elseif object.type == 'trigger' or object.type == 'ladder' or object.type == 'water zone' or object.type == 'map slice' or object.type == 'loading zone' or object.type == 'control hint' then
                 table.insert(self.actor_templates, {
+                    id = object.id,
                     name = object.type,
                     submap = layer.submap,
                     position = Vector(object.x, object.y),
@@ -664,4 +672,5 @@ return {
     TiledTileset = TiledTileset,
     TiledTile = TiledTile,
     tiled_shape_to_whammo_shapes = tiled_shape_to_whammo_shapes,
+    extract_properties
 }
