@@ -72,9 +72,9 @@ License: MIT
 
 ## SDL\_GameControllerDB
 
-Commit aad1132b from January 14, 2017
+Commit f500243 from July 2, 2021
 
-Vendored on January 18, 2017
+Vendored on July 4, 2021
 
 Original source: https://github.com/gabomdq/SDL_GameControllerDB
 
