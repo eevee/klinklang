@@ -7,28 +7,66 @@ local actors_base = require 'klinklang.actors.base'
 local actors_map = require 'klinklang.actors.map'
 local Object = require 'klinklang.object'
 local tiledmap = require 'klinklang.tiledmap'
+local util = require 'klinklang.util'
 local whammo = require 'klinklang.whammo'
 local whammo_shapes = require 'klinklang.whammo.shapes'
 
 
+-- Camera that smoothly catches up to its target.
+-- Attempts to keep the target within a particular part of the screen:
+-- | C |  B  |    A    |  B  | C |
+-- If the subject is within region A, all is well, and the camera won't move.
+-- If the subject is within region B, the camera will attempt to move to put them within region
+-- A.  The camera's movement speed is proportional to how deep into region B they are; it will
+-- ramp from min_speed to max_speed.  You can set these to the same value to disable the varying
+-- movement speed.
+-- If the subject is within region C, the camera will immediately snap to put the subject back
+-- within region B.
+--
+-- 
+--
+-- Has several interesting special cases:
+-- 1. If the target is outside 
 local Camera = Object:extend{
-    minx = -math.huge,
-    miny = -math.huge,
-    maxx = math.huge,
-    maxy = math.huge,
+    xmin = -math.huge,
+    ymin = -math.huge,
+    xmax = math.huge,
+    ymax = math.huge,
     -- TODO what happens if i just don't provide these?
     width = 0,
     height = 0,
     x = 0,
     y = 0,
-    margin = 0.33,
+    margin_left = 0.33,
+    margin_right = 0.33,
+    margin_top = 0.33,
+    margin_bottom = 0.33,
+    panic_margin_left = 0,
+    panic_margin_right = 0,
+    panic_margin_top = 0,
+    panic_margin_bottom = 0,
+    x_min_speed = 64,
+    x_max_speed = 1024,
+    y_min_speed = 64,
+    y_max_speed = 1024,
+
+    -- Acceleration and maximum speed when shifting the camera
+    max_speed = nil,
+    velocity = nil,
 }
+
+function Camera:init()
+    self.velocity = Vector()
+end
 
 function Camera:clone()
     local camera = getmetatable(self)()
     camera:set_size(self.width, self.height)
-    camera:set_bounds(self.minx, self.miny, self.maxx, self.maxy)
-    camera.margin = self.margin
+    camera:set_bounds(self.xmin, self.ymin, self.xmax, self.ymax)
+    camera.margin_left = self.margin_left
+    camera.margin_right = self.margin_right
+    camera.margin_top = self.margin_top
+    camera.margin_bottom = self.margin_bottom
     camera.x = self.x
     camera.y = self.y
     return camera
@@ -39,65 +77,136 @@ function Camera:set_size(width, height)
     self.height = height
 end
 
-function Camera:set_bounds(minx, miny, maxx, maxy)
-    self.minx = minx
-    self.maxx = maxx
-    self.miny = miny
-    self.maxy = maxy
+function Camera:set_bounds(xmin, ymin, xmax, ymax)
+    self.xmin = xmin
+    self.xmax = xmax
+    self.ymin = ymin
+    self.ymax = ymax
 end
 
 function Camera:clear_bounds()
-    self.minx = -math.huge
-    self.maxx = math.huge
-    self.miny = -math.huge
-    self.maxy = math.huge
+    self.xmin = -math.huge
+    self.xmax = math.huge
+    self.ymin = -math.huge
+    self.ymax = math.huge
+end
+
+function Camera:set_margins(left, right, top, bottom)
+    self.margin_left = left
+    self.margin_right = right
+    self.margin_top = top
+    self.margin_bottom = bottom
 end
 
 function Camera:aabb()
     return AABB(self.x, self.y, self.width, self.height)
 end
 
-function Camera:aim_at(focusx, focusy, instant)
-    -- Update camera position
-    -- TODO i miss having a box type
-    -- FIXME would like some more interesting features here like smoothly
-    -- catching up with the player, platform snapping?
-    local marginx = self.margin * self.width
-    local x0 = marginx
-    local x1 = self.width - marginx
-    local newx = self.x
-    if focusx - newx < x0 then
-        newx = focusx - x0
-    elseif focusx - newx > x1 then
-        newx = focusx - x1
+function Camera:aim_at(focusx, focusy, dt)
+    -- Clamp to the panic margin
+    local panic_x0 = focusx - self.width * (1 - self.panic_margin_right)
+    local panic_x1 = focusx - self.width * (0 + self.panic_margin_left)
+    local prev_x = math.max(panic_x0, math.min(panic_x1, self.x))
+    -- Try to move to within the regular margin
+    local x0 = focusx - self.width * (1 - self.margin_right)
+    local x1 = focusx - self.width * (0 + self.margin_left)
+    local x = math.max(x0, math.min(x1, self.x))
+    -- Clamp both to extreme bounds
+    prev_x = math.max(self.xmin, math.min(self.xmax - self.width, prev_x))
+    x = math.max(self.xmin, math.min(self.xmax - self.width, x))
+    if dt > 0 then
+        local p
+        if prev_x < x0 then
+            if panic_x0 < x0 then
+                p = (prev_x - x0) / (panic_x0 - x0)
+            end
+        elseif prev_x > x1 then
+            if panic_x1 > x1 then
+                p = (prev_x - x1) / (panic_x1 - x1)
+            end
+        end
+        if p then
+            local speed = util.lerp(p * p, self.x_min_speed, self.x_max_speed)
+            local dist = speed * dt
+            local shift = x - prev_x
+            if math.abs(shift) > dist then
+                shift = dist * util.sign(shift)
+            end
+            x = prev_x + shift
+        end
     end
-    newx = math.max(self.minx, math.min(self.maxx - self.width, newx))
-    self.x = math.floor(newx)
+    self.x = x
 
-    local marginy = self.margin * self.height
-    local y0 = marginy
-    local y1 = self.height - marginy
-    local newy = self.y
-    if focusy - newy < y0 then
-        newy = focusy - y0
-    elseif focusy - newy > y1 then
-        newy = focusy - y1
+    -- Clamp to the panic margin
+    local panic_y0 = focusy - self.height * (1 - self.panic_margin_bottom)
+    local panic_y1 = focusy - self.height * (0 + self.panic_margin_top)
+    local prev_y = math.max(panic_y0, math.min(panic_y1, self.y))
+    -- Try to move to within the regular margin
+    local y0 = focusy - self.height * (1 - self.margin_bottom)
+    local y1 = focusy - self.height * (0 + self.margin_top)
+    local y = math.max(y0, math.min(y1, prev_y))
+    -- Clamp both to extreme bounds
+    prev_y = math.max(self.ymin, math.min(self.ymax - self.height, prev_y))
+    y = math.max(self.ymin, math.min(self.ymax - self.height, y))
+    if dt > 0 then
+        local p
+        if prev_y < y0 then
+            if panic_y0 < y0 then
+                p = (prev_y - y0) / (panic_y0 - y0)
+            end
+        elseif prev_y > y1 then
+            if panic_y1 > y1 then
+                p = (prev_y - y1) / (panic_y1 - y1)
+            end
+        end
+        if p then
+            local speed = util.lerp(p, self.y_min_speed, self.y_max_speed)
+            local dist = speed * dt
+            local shift = y - prev_y
+            if math.abs(shift) > dist then
+                shift = dist * util.sign(shift)
+            end
+            y = prev_y + shift
+        end
     end
-    newy = math.max(self.miny, math.min(self.maxy - self.height, newy))
-    self.y = math.floor(newy)
+    self.y = y
 end
 
 function Camera:apply()
-    love.graphics.translate(-self.x, -self.y)
+    love.graphics.translate(-math.floor(self.x + 0.5), -math.floor(self.y + 0.5))
+    --love.graphics.translate(-math.floor(self.x), -math.floor(self.y))
 end
 
 -- Draws the camera parameters, in world coordinates
 function Camera:draw()
-    love.graphics.rectangle('line',
-        self.x + self.width * self.margin,
-        self.y + self.height * self.margin,
-        self.width * (1 - 2 * self.margin),
-        self.height * (1 - 2 * self.margin))
+    -- top, bottom, left, right
+    love.graphics.setColor(0.5, 0, 0)
+    love.graphics.line(
+        self.x, self.y + self.height * self.panic_margin_top,
+        self.x + self.width, self.y + self.height * self.panic_margin_top)
+    love.graphics.line(
+        self.x, self.y + self.height * (1 - self.panic_margin_bottom),
+        self.x + self.width, self.y + self.height * (1 - self.panic_margin_bottom))
+    love.graphics.line(
+        self.x + self.width * self.panic_margin_left, self.y,
+        self.x + self.width * self.panic_margin_left, self.y + self.height)
+    love.graphics.line(
+        self.x + self.width * (1 - self.panic_margin_right), self.y,
+        self.x + self.width * (1 - self.panic_margin_right), self.y + self.height)
+
+    love.graphics.setColor(1, 1, 1)
+    love.graphics.line(
+        self.x, self.y + self.height * self.margin_top,
+        self.x + self.width, self.y + self.height * self.margin_top)
+    love.graphics.line(
+        self.x, self.y + self.height * (1 - self.margin_bottom),
+        self.x + self.width, self.y + self.height * (1 - self.margin_bottom))
+    love.graphics.line(
+        self.x + self.width * self.margin_left, self.y,
+        self.x + self.width * self.margin_left, self.y + self.height)
+    love.graphics.line(
+        self.x + self.width * (1 - self.margin_right), self.y,
+        self.x + self.width * (1 - self.margin_right), self.y + self.height)
 end
 
 
@@ -487,6 +596,7 @@ function Map:_create_initial_actors()
         end
     end
 
+    self._actors_by_id = {}
     for _, template in ipairs(self.tiled_map.actor_templates) do
         if (template.submap or '') == self.submap then
             local class = actors_base.Actor:get_named_type(template.name)
@@ -496,6 +606,9 @@ function Map:_create_initial_actors()
             -- FIXME oh hey maybe this should use a different kind of constructor entirely, so the main one doesn't have a goofy-ass signature?
             local actor = class(position, template.properties, template.shapes, template.tile)
             self:add_actor(actor)
+            if template.id then
+                self._actors_by_id[template.id] = actor
+            end
         end
     end
 end
@@ -589,16 +702,19 @@ function World:_set_active(map)
     end
 
     -- FIXME i don't think i need to set the camera size every frame though
-    self:update_camera(true)
+    self:update_camera(0)
 end
 
-function World:update_camera(instant)
+function World:update_camera(dt)
     self.camera:set_size(game:getDimensions())
-    self.camera:aim_at(math.floor(self.player.pos.x + 0.5), math.floor(self.player.pos.y + 0.5), instant)
+
+    self.camera:aim_at(math.floor(self.player.pos.x + 0.5), math.floor(self.player.pos.y + 0.5), dt)
+    --self.camera:aim_at(self.player.pos.x, self.player.pos.y, dt)
 end
 
 -- Shakes the camera.
 -- Shakes do not stack; a new shake will simply clobber any existing one.
+-- FIXME this shouldn't persist through map changes, and it could easily have a smoother ease
 function World:shake_camera(amount, duration)
     local freq = 1/30
     self.camera_shake_amount = amount
@@ -613,7 +729,7 @@ function World:update(dt)
     end
 
     local w, h = game:getDimensions()
-    self:update_camera()
+    self:update_camera(dt)
 
     if self.camera_shake_timer then
         self.camera_shake_timer = self.camera_shake_timer + dt
@@ -637,6 +753,7 @@ function World:draw()
     love.graphics.push()
     local camera_box = self.camera:aabb()
     if self.camera_shake_timer then
+        -- FIXME uggggghhhh the parallax background actually reads from the camera directly; hacked it for now
         love.graphics.translate(self.camera_offset:unpack())
     end
     self.camera:apply()
@@ -648,6 +765,7 @@ function World:draw()
         end
         map:draw(camera_box)
     end
+    --self.camera:draw()
     love.graphics.pop()
 end
 
