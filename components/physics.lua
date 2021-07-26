@@ -104,6 +104,7 @@ function Move:init(actor, args)
     self.pending_velocity = Vector()
     self._pending_velocity_was_reset = false
     self.pending_extrinsic_velocity = Vector()
+    self._extrinsic_velocity = Vector()
     -- ...make them here.  This is an /acceleration/ to be applied next frame,
     -- and will be integrated appropriately.  ONLY use this for continuous
     -- acceleration (like gravity); DO NOT use it for instantaneous velocity
@@ -156,6 +157,13 @@ function Move:update(dt)
     -- FIXME this is used for cargo sigh
     local attempted_velocity = self.velocity
 
+    -- Check if our reference frame changed; if so, we want to adjust our "natural" velocity by this
+    -- difference, but either way the entire extrinsic velocity should be part of our motion
+    -- FIXME finish this idea.  i would prefer reference frame be explicit rather than built up
+    -- every frame, but i don't know what kind of structure would provide that.  also the above
+    -- comment is kind of incoherent
+    local reference_frame_change = self.pending_extrinsic_velocity - self._extrinsic_velocity
+
     -- This is basically vt + ½at², and makes the results exactly correct, as
     -- long as pending_accel contains constant sources of acceleration (like
     -- gravity).  It avoids problems like jump height being eroded too much by
@@ -163,12 +171,15 @@ function Move:update(dt)
     -- called, but it's similar to Verlet integration and the midpoint method.
     local dv = self.pending_accel * dt
     -- intrinsic only!
-    --print("\27[33m** MOVE **", self.actor, self.pending_velocity, self.pending_extrinsic_velocity, "\27[0m")
+    --print("\27[33m** MOVE **", self.actor, self.pending_velocity, self.pending_extrinsic_velocity, reference_frame_change, "\27[0m")
     -- TODO should friction apply /before/ acceleration, maybe?  otherwise if you're moving slowly up a slope, gravity pulls you down, and then friction pushes you back /up/ which is kind of weird?  comes up when pushing things...
-    local frame_velocity = self.pending_velocity - self.pending_extrinsic_velocity + 0.5 * dv
+    -- TODO shouldn't this be pending_extrinsic_velocity?  or no, because pending_velocity is
+    -- relative to our previous extrinsic velocity?
+    local frame_velocity = self.pending_velocity + self._extrinsic_velocity + 0.5 * dv
     --print('. initial frame velocity', frame_velocity)
-    self.velocity = self.pending_velocity + dv
-    if self.pending_friction ~= Vector.zero and dt ~= 0 then
+    self.velocity = self.pending_velocity - reference_frame_change + dv
+    -- Friction is very sensitive to small numbers that can become zero
+    if self.pending_friction:len2() > 1e-8 and dt > 1e-8 then
         local friction_decel = self.pending_friction * dt
         local friction_direction = friction_decel:trimmed(1)
 
@@ -188,9 +199,10 @@ function Move:update(dt)
             self.velocity = self.velocity + perma_friction
         end
     end
-    -- XXX frame_velocity = frame_velocity + self.pending_extrinsic_velocity
+    local reference_frame = self.pending_extrinsic_velocity
     self.pending_velocity = Vector()
     self._pending_velocity_was_reset = false
+    self._extrinsic_velocity = self.pending_extrinsic_velocity
     self.pending_extrinsic_velocity = Vector()
     self.pending_accel = Vector()
     self.pending_friction = Vector()
@@ -511,6 +523,7 @@ function Fall:get_friction(normalized_direction)
         -- with gravity
         local normal_strength = gravity1 * self.ground_normal * self:_get_carried_mass()
         local friction = self.ground_normal:perpendicular() * (self.friction_decel * self.grip * self.ground_grip * self.ground_friction * normal_strength)
+        -- TODO i commented this out at some point and can't remember why, or why it's here
         do return friction end
         local dot = friction * normalized_direction
         if math.abs(dot) < 1e-8 then
@@ -853,6 +866,7 @@ function SentientFall:check_for_ground(collisions)
     -- ground they're on is shallow enough to stand on; if not, they won't be
     -- able to jump, they won't have slope resistance, and they'll pretty much
     -- act like they're falling
+    -- FIXME ah i set this to (2, -1) for someone and it doesn't actually work.  what
     self.ground_shallow = self.ground_normal and not (self.ground_normal * gravity - max_slope_dot > 1e-8)
     if self.grounded and not self.ground_shallow then
         -- For generic purposes, we're not standing on the ground any more...
