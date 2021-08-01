@@ -218,6 +218,7 @@ local Map = Object:extend{
     -- remembered as-is the next time it's returned from `World:reify_map`,
     -- rather than reloaded from scratch
     stashed = false,
+    initial_parallax_z = -20000,
 }
 
 function Map:init(world, tiled_map, submap)
@@ -538,46 +539,14 @@ function Map:_create_initial_actors()
     -- more appropriate.  i DO like that it starts to move "submap" out of the
     -- map parsing, where it 100% does not belong
     -- TODO imo the collision should be attached to the tile layers too
-    local parallax_z = -20000
+    self._last_parallax_z = self.initial_parallax_z
     for _, layer in ipairs(self.tiled_map.layers) do
         if layer.submap ~= self.submap then
             -- Not relevant to us; skip it
         elseif layer.type == 'tilelayer' then
-            local z
-            -- FIXME better!  but i still don't like hardcoded layer names
-            if layer.name == 'background' then
-                z = -10002
-            elseif layer.name == 'main terrain' then
-                z = -10001
-            -- FIXME okay this particular case is terrible
-            elseif self.submap ~= '' and layer.name == self.submap then
-                z = -10000
-            elseif layer.name == 'background objects' then
-                z = -9999
-            elseif layer.name == 'objects' then
-                z = 900
-            elseif layer.name == 'foreground' then
-                z = 10001
-            elseif layer.name == 'wiring' then
-                z = 10002
-            end
-            if z ~= nil then
-                self:add_actor(actors_map.TiledMapLayer(layer, self.tiled_map, z))
-            end
+            self:_add_tile_layer_actor(layer, self.tiled_map)
         elseif layer.type == 'imagelayer' then
-            -- FIXME well this is stupid.  the main problem with automatic
-            -- z-numbering of tiled layers is that it's not obvious at a glance
-            -- where the object layer is...
-            -- FIXME slime effect also needs to know what the "background" is
-            -- FIXME maybe i need a more rigorous set of z ranges?
-            local z
-            if layer.name == 'foreground' then
-                z = 10001
-            else
-                z = parallax_z
-                parallax_z = parallax_z + 1
-            end
-            self:add_actor(actors_map.TiledMapImage(layer, z))
+            self:_add_image_layer_actor(layer, self.tiled_map)
         elseif layer.type == 'objectgroup' then
             for _, obj in ipairs(layer.objects) do
                 if obj.type == 'collision' then
@@ -613,7 +582,45 @@ function Map:_create_initial_actors()
     end
 end
 
+function Map:_add_tile_layer_actor(layer, tiled_map)
+    local z
+    -- FIXME better!  but i still don't like hardcoded layer names
+    if layer.name == 'background' then
+        z = -10002
+    elseif layer.name == 'main terrain' then
+        z = -10001
+    -- FIXME okay this particular case is terrible
+    elseif self.submap ~= '' and layer.name == self.submap then
+        z = -10000
+    elseif layer.name == 'background objects' then
+        z = -9999
+    elseif layer.name == 'objects' then
+        z = 900
+    elseif layer.name == 'foreground' then
+        z = 10001
+    elseif layer.name == 'wiring' then
+        z = 10002
+    end
+    if z ~= nil then
+        self:add_actor(actors_map.TiledMapLayer(layer, tiled_map, z))
+    end
+end
 
+function Map:_add_image_layer_actor(layer, tiled_map)
+    -- FIXME well this is stupid.  the main problem with automatic
+    -- z-numbering of tiled layers is that it's not obvious at a glance
+    -- where the object layer is...
+    -- FIXME slime effect also needs to know what the "background" is
+    -- FIXME maybe i need a more rigorous set of z ranges?
+    local z
+    if layer.name == 'foreground' then
+        z = 10001
+    else
+        z = self._last_parallax_z
+        self._last_parallax_z = self._last_parallax_z + 1
+    end
+    self:add_actor(actors_map.TiledMapImage(layer, z))
+end
 
 
 -- Entire game world.  Knows about maps (or, at least one!)
