@@ -472,6 +472,14 @@ function Actor:draw()
     end
 end
 
+function Actor:draw_rotated(angle)
+    love.graphics.push()
+    love.graphics.translate(math.floor(self.pos.x + 0.5), math.floor(self.pos.y + 0.5))
+    love.graphics.rotate(angle)
+    self.sprite:draw_at(0, 0)
+    love.graphics.pop()
+end
+
 -- General API stuff for controlling actors from outside
 function Actor:move_to(position)
     self.pos = position
