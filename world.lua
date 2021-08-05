@@ -37,6 +37,8 @@ local Camera = Object:extend{
     height = 0,
     x = 0,
     y = 0,
+    rounded_x = 0,
+    rounded_y = 0,
     margin_left = 0.33,
     margin_right = 0.33,
     margin_top = 0.33,
@@ -170,10 +172,13 @@ function Camera:aim_at(focusx, focusy, dt)
         end
     end
     self.y = y
+
+    self.rounded_x = math.floor(self.x + 0.5)
+    self.rounded_y = math.floor(self.y + 0.5)
 end
 
 function Camera:apply()
-    love.graphics.translate(-math.floor(self.x + 0.5), -math.floor(self.y + 0.5))
+    love.graphics.translate(-self.rounded_x, -self.rounded_y)
     --love.graphics.translate(-math.floor(self.x), -math.floor(self.y))
 end
 
