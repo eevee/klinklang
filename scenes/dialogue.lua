@@ -405,6 +405,7 @@ function DialogueScene:init(...)
     for name, config in pairs(args.speakers) do
         local speaker = {
             name = name,
+            _config = config,
         }
         self.speakers[name] = speaker
 
@@ -998,26 +999,9 @@ function DialogueScene:draw()
     love.graphics.push('all')
     game:transform_viewport()
 
-    -- Draw the dialogue box, which is slightly complicated because it involves
-    -- drawing the ends and then repeating the middle bit to fit the screen
-    -- size
-    -- TODO get ridda this, put it in the menu bit too
-    self:_draw_background(self.dialogue_box)
 
-    -- Print the text
-    -- FIXME this is unnecessary if the menu goes on top of the box
-    if true then
-        -- There may be more available lines than will fit in the textbox; if
-        -- so, only show the last few lines
-        -- FIXME should prompt to scroll when we hit the bottom, probably
-        self.scroller:draw(self.text_box.x, self.text_box.y + self.scroller.font.line_offset)
+    self:_draw_textbox()
 
-        -- Draw a small chevron if we're waiting
-        -- FIXME more magic numbers
-        if self.state == 'waiting' then
-            self:_draw_chevron()
-        end
-    end
     if self.menu then
         -- FIXME just pop when appropriate dude
         love.graphics.setColor(1, 1, 1)
@@ -1056,6 +1040,31 @@ function DialogueScene:_draw_background(box)
 
     -- FIXME isaac scaled the box by 2, oof
     background:fill(box)
+end
+
+function DialogueScene:_draw_textbox()
+    -- Draw the dialogue box, which is slightly complicated because it involves
+    -- drawing the ends and then repeating the middle bit to fit the screen
+    -- size
+    -- TODO get ridda this, put it in the menu bit too
+    self:_draw_background(self.dialogue_box)
+
+    -- Print the text
+    -- FIXME this is unnecessary if the menu goes on top of the box
+    self:_draw_text()
+
+    -- Draw a small chevron if we're waiting
+    -- FIXME more magic numbers
+    if self.state == 'waiting' then
+        self:_draw_chevron()
+    end
+end
+
+function DialogueScene:_draw_text()
+    -- There may be more available lines than will fit in the textbox; if
+    -- so, only show the last few lines
+    -- FIXME should prompt to scroll when we hit the bottom, probably
+    self.scroller:draw(self.text_box.x, self.text_box.y + self.scroller.font.line_offset)
 end
 
 function DialogueScene:_draw_chevron()

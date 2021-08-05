@@ -37,8 +37,9 @@ function TextScroller:init(font, text, speed, width, height, color, shadow_color
     self.color = color
     self.shadow_color = shadow_color
 
-    self.max_lines = math.floor(self.height / self.font.full_height)
-    self.y0 = math.floor(self.height % self.font.full_height / 2)
+    local line_spacing = self.font.full_height - self.font.height
+    self.max_lines = math.floor((self.height + line_spacing) / self.font.full_height)
+    self.y0 = math.floor((self.height + line_spacing - self.max_lines * self.font.full_height) / 2)
 
     local _textwidth, lines = self.font:wrap(text, self.width)
     self.phrase_lines = lines
@@ -138,13 +139,18 @@ function TextScroller:update(dt)
     end
 end
 
+function TextScroller:first_visible_line()
+    return math.max(1, #self.phrase_texts - self.max_lines + 1)
+end
+
+function TextScroller:last_visible_line()
+    return math.min(self:first_visible_line() + self.max_lines - 1, #self.phrase_texts)
+end
+
 function TextScroller:draw(x, y)
     y = y + self.y0
-    -- Don't use self.line here, because it might be a line we haven't started
-    -- drawing at all yet
-    local first_line = math.max(1, #self.phrase_texts - self.max_lines + 1)
-    local last_line = math.min(first_line + self.max_lines - 1, #self.phrase_texts)
-    for i = first_line, last_line do
+    -- Don't use self.line here, because it might be a line we haven't started drawing at all yet
+    for i = self:first_visible_line(), self:last_visible_line() do
         local text = self.phrase_texts[i]
         -- Draw the text, twice: once for a drop shadow, then the text itself
         love.graphics.setColor(self.shadow_color)
@@ -155,6 +161,7 @@ function TextScroller:draw(x, y)
 
         y = y + self.font.full_height
     end
+    love.graphics.setColor(1, 1, 1)
 end
 
 return TextScroller

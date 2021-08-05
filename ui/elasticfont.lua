@@ -50,8 +50,8 @@ function ElasticFont:init(path, size, line_height, props)
     self.font = font
 
     self.height = font:getHeight()
-    self.full_height = math.ceil(font:getHeight() * self.line_height)
-    self.line_offset = math.floor(font:getHeight() * (font:getLineHeight() - 1) * 0.75)
+    self.full_height = math.ceil(self.height * self.line_height)
+    self.line_offset = math.floor(self.height * (font:getLineHeight() - 1) * 0.75)
 
     self.rendered_texts = setmetatable({}, { __mode = 'k' })
 end
@@ -71,8 +71,9 @@ function ElasticFont.from_font(class, font)
     self.frozen = true
     self.line_height = font:getLineHeight()
     -- FIXME duplicated
-    self.full_height = math.ceil(font:getHeight() * self.line_height)
-    self.line_offset = math.floor(font:getHeight() * (font:getLineHeight() - 1) * 0.75)
+    self.height = font:getHeight()
+    self.full_height = math.ceil(self.height * self.line_height)
+    self.line_offset = math.floor(self.height * (font:getLineHeight() - 1) * 0.75)
     -- FIXME don't even need this really, since we can't re-render them
     self.rendered_texts = {}
     return self

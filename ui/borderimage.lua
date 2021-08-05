@@ -33,9 +33,8 @@ local BorderImage = Object:extend{
 }
 
 
--- Takes an image (or a path to one, in which case it'll be loaded lazily) and
--- an AABB defining the center region.  If the AABB isn't provided, the entire
--- image will be the center region.  The center region MUST be nonzero.
+-- Takes an image (or a path to an image) and an AABB defining the center region.  If no
+-- AABB is given, the entire image will be the center region.  Center region MUST NOT be empty.
 function BorderImage:init(path_or_image, center)
     if type(path_or_image) == 'string' then
         self.path = path_or_image
@@ -46,6 +45,17 @@ function BorderImage:init(path_or_image, center)
     self.center = center
 
     -- Everything else is done in load
+end
+
+-- Create a border image from the first frame of a Sprite's current pose
+function BorderImage.from_sprite(class, sprite, center)
+    local self = setmetatable({}, class)
+    self.image = sprite.spriteset.image
+    self.region = AABB(sprite.anim.frames[1]:getViewport())
+
+    self.center = center
+
+    return self
 end
 
 -- Initialize, if it hasn't been done already.  This is usually called for you.
@@ -61,9 +71,16 @@ function BorderImage:load()
         self.center = AABB:from_drawable(self.image)
     end
 
-    local w, h = self.image:getDimensions()
-    local x0, x1, x2, x3 = 0, self.center.left, self.center.right, w
-    local y0, y1, y2, y3 = 0, self.center.top, self.center.bottom, h
+    local iw, ih = self.image:getDimensions()
+    local ox, oy, w, h
+    if self.region then
+        ox, oy, w, h = self.region:xywh()
+    else
+        ox, oy, w, h = 0, 0, iw, ih
+    end
+
+    local x0, x1, x2, x3 = ox, ox + self.center.left, ox + self.center.right, ox + w
+    local y0, y1, y2, y3 = oy, oy + self.center.top, oy + self.center.bottom, oy + h
 
     -- TODO shrink center (or maybe just error) if it extends beyond the bounds
     -- of the image?
@@ -80,7 +97,7 @@ function BorderImage:load()
         return love.graphics.newQuad(
             x_start, y_start,
             x_end - x_start, y_end - y_start,
-            w, h)
+            iw, ih)
     end
 
     self.quad_tl = quad(x0, y0, x1, y1)
@@ -116,7 +133,7 @@ function BorderImage:fill(box)
     local y0 = box.top
     local y1 = box.top + self.margin_top
     local y2 = box.bottom - self.margin_bottom
-    
+
     -- TODO what do i do if the box is smaller than the combined margins
 
     local function draw(quad, ...)
