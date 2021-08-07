@@ -416,7 +416,8 @@ function TiledMapLayer.parse_json(class, data, resource_manager, base_path, tile
         -- TODO probably convert this into...  something.  like parse the shape immediately?
         if object.gid then
             -- TODO what if the gid is bogus?
-            object.tile = tiles_by_gid[object.gid]
+            -- TODO should use the horizontal flip flag for altering facing
+            object.tile = tiles_by_gid[bit.band(object.gid, 0x1fffffff)]
         end
     end
 
