@@ -85,10 +85,12 @@ end
 function ElasticFont.coerce(class, maybe_font)
     if maybe_font == nil then
         return class:from_font(love.graphics.getFont())
-    elseif type(maybe_font) == 'table' then
+    elseif type(maybe_font) == 'userdata' then
         if maybe_font.typeOf and maybe_font:typeOf('Font') then
             return class:from_font(maybe_font)
-        elseif maybe_font.isa and maybe_font:isa(class) then
+        end
+    elseif type(maybe_font) == 'table' then
+        if maybe_font.isa and maybe_font:isa(class) then
             return maybe_font
         end
     end

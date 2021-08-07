@@ -196,7 +196,7 @@ function DialogueMenu:init(kwargs)
     self.top_line = 1
 end
 
-function DialogueMenu:cursor_up()
+function DialogueMenu:up()
     if self.cursor == 1 then
         return
     end
@@ -211,7 +211,7 @@ function DialogueMenu:cursor_up()
     self.cursor = self.cursor - 1
 end
 
-function DialogueMenu:cursor_down()
+function DialogueMenu:down()
     if self.cursor == #self.items then
         return
     end
@@ -709,6 +709,9 @@ function DialogueScene:update(dt)
                 self.phrase_speaker.sprite:set_talking(false)
             end
         end
+    elseif self.state == 'menu' then
+        -- Menus can have their own dialogue
+        self.scroller:update(dt)
     end
 
     -- Check input LAST.  This way, text won't start scrolling until the next
@@ -745,14 +748,14 @@ function DialogueScene:update(dt)
                 if self.cursor_sfx then
                     self.cursor_sfx:clone():play()
                 end
-                self.menu:cursor_up()
+                self.menu:up()
             end
         elseif game.input:pressed('down') then
             if self.menu then
                 if self.cursor_sfx then
                     self.cursor_sfx:clone():play()
                 end
-                self.menu:cursor_down()
+                self.menu:down()
             end
         end
     end
@@ -893,6 +896,7 @@ function DialogueScene:advance()
             self:_say_phrase(step, self.curphrase + 1)
             return
         elseif step.menu then
+            -- Show a menu after the last phrase is spoken...?
             self:show_menu(step)
             return
         end
@@ -931,6 +935,12 @@ function DialogueScene:run_from(script_index)
             -- Run arbitrary code
             if step.execute then
                 step.execute(self, unpack(self.callback_args))
+
+                -- FIXME hack for fox flux, which uses execute() to produce a custom shop menu: bail
+                -- on this loop if that happened
+                if self.state == 'menu' then
+                    return
+                end
             end
         end
         -- Change poses
