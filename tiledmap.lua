@@ -359,6 +359,9 @@ function TiledTileset:init(path, data, resource_manager)
                 if anchor then
                     if args.shape then
                         args.shape:move(-anchor.x, -anchor.y)
+                        -- Make this move "permanent" by erasing the offsets
+                        args.shape.xoff = 0
+                        args.shape.yoff = 0
                     end
                     if not default_anchors[sprite_name][facing] then
                         default_anchors[sprite_name][facing] = anchor

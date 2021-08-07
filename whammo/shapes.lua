@@ -64,6 +64,13 @@ end
 -- Return a copy of this shape.
 -- Must be implemented in subtypes!
 function Shape:clone()
+    local new = self:_clone()
+    new.xoff = self.xoff
+    new.yoff = self.yoff
+    return new
+end
+
+function Shape:_clone()
     error("clone not implemented")
 end
 
@@ -643,7 +650,7 @@ function Polygon:init(...)
     self:_generate_normals()
 end
 
-function Polygon:clone()
+function Polygon:_clone()
     -- TODO or do this ridiculous repacking (though the vectors need cloning regardless)
     return Polygon(unpack(self:to_coords()))
 end
@@ -850,18 +857,14 @@ local Box = Polygon:extend{
     _normals = {},
 }
 
-function Box:init(x, y, width, height, _xoff, _yoff)
+function Box:init(x, y, width, height)
     Polygon.init(self, x, y, x + width, y, x + width, y + height, x, y + height)
     self.width = width
     self.height = height
-    self.xoff = _xoff or 0
-    self.yoff = _yoff or 0
 end
 
-function Box:clone()
-    -- FIXME i don't think most shapes clone xoff/yoff correctly, oops...  ARGH this breaks something though
+function Box:_clone()
     return Box(self.x0, self.y0, self.width, self.height)
-    --return Box(self.x0, self.y0, self.width, self.height, self.xoff, self.yoff)
 end
 
 function Box:__tostring()
@@ -908,7 +911,7 @@ function Circle:__tostring()
     return ("<Circle %.2f at (%.2f, %.2f)>"):format(self.radius, self.x, self.y)
 end
 
-function Circle:clone()
+function Circle:_clone()
     return Circle(self.x, self.y, self.radius)
 end
 
