@@ -693,7 +693,7 @@ function PlayerThink:update(dt)
 
     local interact = self:get('interact')
     if interact then
-        if game.input:pressed('use') then
+        if game.input:pressed('interact') then
             interact:decide()
         end
     end
