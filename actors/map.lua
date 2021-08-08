@@ -365,17 +365,17 @@ function TiledMapImage:draw()
     -- TODO probably comment and variableize this better
     local iw = self.image_width
     local ih = self.image_height
-    local x0 = camera.x * self.rate_x
+    local x0 = camera.rounded_x * self.rate_x
     local y_amount = 0
     if mh > camera.height then
-        y_amount = camera.y / (mh - camera.height)
+        y_amount = camera.rounded_y / (mh - camera.height)
     end
     local y_camera_offset = self.rate_y * (y_amount - self.anchor_y)
     local y = (mh - ih) * self.anchor_y + (mh - camera.height) * y_camera_offset
 
     -- x0 is the offset from the left edge of the map; find the
     -- rightmost x position before the camera area
-    local x1 = x0 + math.floor((camera.x - x0) / iw) * iw
+    local x1 = x0 + math.floor((camera.rounded_x - x0) / iw) * iw
     -- TODO this ignores the layer's own offsets?  do they make sense here?
     for x = x1, x1 + camera.width + iw, iw do
         -- Draw this ignoring any camera shake
