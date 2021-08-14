@@ -370,6 +370,8 @@ local Climb = Component:extend{
     -- Configuration --
     -- Speed of movement while climbing
     speed = 128,
+    -- Speed of the jump done off a ladder
+    jump_speed = 0,
 
     -- State --
     is_climbing = false,
@@ -380,24 +382,30 @@ function Climb:init(actor, args)
     Climb.__super.init(self, actor, args)
 
     self.speed = args.speed
+    self.jump_speed = args.jump_speed
 end
 
 -- Decide to climb.  Negative for up, positive for down, zero to stay in place,
 -- nil to let go.
 function Climb:decide(direction)
-    -- Like jumping, climbing has multiple states: we use -2/+2 for the initial
-    -- attempt, and -1/+1 to indicate we're still climbing.  Unlike jumping,
-    -- this may still be called every frame, so updating it is a bit fiddlier.
+    -- Like jumping, climbing has multiple states: we use -2/+2 for the initial attempt, and -1/+1
+    -- to indicate we're still climbing.  Unlike jumping, this may still be called every frame, so
+    -- updating it is a bit fiddlier.
+    -- The idea is that you can jump into a ladder while already holding [ascend] and you'll latch
+    -- onto it, BUT if you jump OFF of a ladder while already holding [ascend], that input is
+    -- ignored until you release and press it again; otherwise, you'd regrab the ladder immediately.
     if direction == 0 or direction == nil then
         self.decision = direction
     elseif direction > 0 then
-        if self.decision > 0 then
+        -- Either we're climbing, OR we THINK we're climbing because we're still holding a key from
+        -- last time we were holding a ladder.
+        if self.is_climbing or self.decision == 1 or self.decision == -1 then
             self.decision = 1
         else
             self.decision = 2
         end
     else
-        if self.decision < 0 then
+        if self.is_climbing or self.decision == 1 or self.decision == -1 then
             self.decision = -1
         else
             self.decision = -2
@@ -487,6 +495,15 @@ function Climb:update(dt)
     if self.is_climbing and jump and jump.decision == 2 then
         -- Jump to let go
         self:_end_climbing()
+        -- If holding descend, simply drop; otherwise do a jump.  (This is presumed to be a very
+        -- short jump, so it doesn't support releasing early like Jump does.)
+        if not self.decision or self.decision <= 0 then
+            self:get('move'):add_velocity(Vector(0, -self.jump_speed))
+            if jump.sound then
+                -- TODO Game needs a Jukebox mixer thing
+                jump.sound:clone():play()
+            end
+        end
     elseif self.decision then
         if math.abs(self.decision) == 2 or (math.abs(self.decision) == 1 and self.is_climbing) then
             -- Trying to grab a ladder; if we're touching one, do so
