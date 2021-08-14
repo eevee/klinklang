@@ -45,9 +45,39 @@ end
 -- Respond to a generic "interact" action
 local React = Component:extend{
     slot = 'react',
+
+    player_only = false,
+    -- TODO super unclear what this means if gravity is different between two things
+    ground_aligned = false,
+    -- Not used here, but may be useful for other components
+    hidden = false,
 }
 
+function React:init(actor, args)
+    React.__super.init(self, actor)
+
+    self.player_only = args.player_only
+    self.ground_aligned = args.ground_aligned
+    self.hidden = args.hidden
+end
+
+function React:is_valid_activator(actor)
+    if self.player_only and not actor.is_player then
+        return false
+    end
+
+    if self.ground_aligned and math.abs(self.actor.pos.y - actor.pos.y) > 4 then
+        return false
+    end
+
+    return true
+end
+
 function React:on_interact(activator)
+    if not self:is_valid_activator(activator) then
+        return
+    end
+
     -- FIXME hm.  this seems like it'd be different for every actor type, which
     -- suggests it's data?  i don't know, i just want to be able to write this
     -- in a simple way
@@ -589,7 +619,8 @@ function TouchInteract:after_collisions(movement, collisions)
 
     for _, collision in pairs(collisions) do
         local actor = collision.their_owner
-        if collision.success_state <= 0 and actor:get('react') then
+        local react = actor:get('react')
+        if collision.success_state <= 0 and react and react:is_valid_activator(self.actor) then
             if actor == self.touched_mechanism then
                 -- We're still touching the same mechanism, so don't let
                 -- anything else replace it!
