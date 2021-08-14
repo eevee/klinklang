@@ -88,6 +88,29 @@ local function lerp(t, a, b)
     return (1 - t) * a + t * b
 end
 
+local function resolve_path(relpath, root, is_dir)
+    if is_dir then
+        if not root:match('/$') then
+            root = root .. '/'
+        end
+    else
+        root = root:match('^(.*/)[^/]+$')
+    end
+
+    local path = root .. relpath
+
+    -- Trim off any ..s
+    local matches
+    while true do
+        path, matches = path:gsub('[^/]+/%.%./', '')
+        if matches == 0 then
+            break
+        end
+    end
+
+    return path
+end
+
 
 --------------------------------------------------------------------------------
 -- LÖVE-specific helpers
@@ -169,6 +192,7 @@ return {
     divmod1 = divmod1,
     lerp = lerp,
     random_float = random_float,
+    resolve_path = resolve_path,
 
     any_modifier_keys = any_modifier_keys,
     find_files = find_files,

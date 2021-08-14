@@ -28,14 +28,18 @@ end
 -- Given a Tiled /thing/ (map, layer, object...), extract its properties as a
 -- regular table.  Works with both the "old" and "new" formats.  If there are
 -- no properties, returns an empty table.
-local function extract_properties(thing)
+local function extract_properties(thing, source_path)
     if thing.properties == nil then
         return {}
     elseif thing.propertytypes == nil then
         -- New format: properties is a list of name/type/value
         local props = {}
         for _, prop in ipairs(thing.properties) do
-            props[prop.name] = prop.value
+            local value = prop.value
+            if prop.type == 'file' and source_path then
+                value = util.resolve_path(value, source_path, false)
+            end
+            props[prop.name] = value
         end
         return props
     else
@@ -421,7 +425,7 @@ function TiledMapLayer.parse_json(class, data, resource_manager, base_path, tile
         end
     end
 
-    self.properties = extract_properties(data)
+    self.properties = extract_properties(data, base_path)
 
     if data.data then
         self.tilegrid = {}
@@ -497,7 +501,7 @@ function TiledMap.parse_json_file(class, path, resource_manager)
     self.path = path
 
     -- Copy some basics
-    local props = extract_properties(data)
+    local props = extract_properties(data, path)
     self.camera_margin_left = props['camera margin'] or props['camera margin left'] or 0
     self.camera_margin_right = props['camera margin'] or props['camera margin right'] or 0
     self.camera_margin_top = props['camera margin'] or props['camera margin top'] or 0
@@ -595,7 +599,7 @@ function TiledMap:add_layer(layer)
                 -- FIXME this is a mess lol, but i want it so tiles can also
                 -- have options, e.g. a generic actor knows its sprite name.
                 -- also should do this above too
-                local props = extract_properties(object)
+                local props = extract_properties(object, self.path)
                 for k, v in pairs(object.tile.tileset.tileprops[object.tile.id] or {}) do
                     if props[k] == nil then
                         props[k] = v
@@ -641,7 +645,7 @@ function TiledMap:add_layer(layer)
                     name = object.type,
                     submap = layer.submap,
                     position = Vector(object.x, object.y),
-                    properties = extract_properties(object),
+                    properties = extract_properties(object, self.path),
                     shapes = tiled_shape_to_whammo_shapes(object),
                     tile = nil,
                 })
@@ -679,5 +683,5 @@ return {
     TiledTileset = TiledTileset,
     TiledTile = TiledTile,
     tiled_shape_to_whammo_shapes = tiled_shape_to_whammo_shapes,
-    extract_properties
+    extract_properties = extract_properties,
 }
