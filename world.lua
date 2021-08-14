@@ -426,14 +426,7 @@ function Map:update(dt)
     -- their controls end up as a component on themselves
     self:_update_actors(dt)
 
-    local seen = {}  -- avoid removing the same one twice!
-    for i, actor in ipairs(self.actors_to_remove) do
-        if not seen[actor] then
-            self:remove_actor(actor)
-            seen[actor] = true
-        end
-        self.actors_to_remove[i] = nil
-    end
+    self:_remove_actors()
 end
 
 -- FIXME this is only here so anise can override it, which, seems very silly to
@@ -454,6 +447,15 @@ function Map:_update_actors(dt)
     ]]
     for _, actor in ipairs(self.actors) do
         actor:update(dt)
+    end
+end
+
+function Map:_remove_actors()
+    for i, actor in ipairs(self.actors_to_remove) do
+        if actor.map == self then
+            self:remove_actor(actor)
+        end
+        self.actors_to_remove[i] = nil
     end
 end
 
@@ -539,6 +541,7 @@ function Map:_create_initial_actors()
         return
     end
 
+    self._actors_by_id = {}
     -- TODO this seems /slightly/ invasive but i'm not sure where else it would
     -- go.  i guess if the "map" parts of the world got split off it would be
     -- more appropriate.  i DO like that it starts to move "submap" out of the
@@ -570,7 +573,10 @@ function Map:_create_initial_actors()
         end
     end
 
-    self._actors_by_id = {}
+    -- Tile actors can hold references to other actors (via Tiled object id), but the other actors
+    -- may or may not exist yet, so to avoid dependency resolution hell, create the actors first and
+    -- then add them all to the map in a separate pass
+    local pending_actors = {}
     for _, template in ipairs(self.tiled_map.actor_templates) do
         if (template.submap or '') == self.submap then
             local class = actors_base.Actor:get_named_type(template.name)
@@ -579,11 +585,14 @@ function Map:_create_initial_actors()
             -- FIXME maybe "actor properties" should be a more consistent and well-defined thing in tiled and should include shapes and other special things, whether it comes from a sprite or a tile object or a shape object
             -- FIXME oh hey maybe this should use a different kind of constructor entirely, so the main one doesn't have a goofy-ass signature?
             local actor = class(position, template.properties, template.shapes, template.tile)
-            self:add_actor(actor)
             if template.id then
                 self._actors_by_id[template.id] = actor
             end
+            table.insert(pending_actors, actor)
         end
+    end
+    for _, actor in ipairs(pending_actors) do
+        self:add_actor(actor)
     end
 end
 
@@ -650,7 +659,7 @@ function World:init(player)
 end
 
 local function _map_key(tiled_map, submap)
-    return tiled_map.path .. '\0' .. (submap or '')
+    return tiled_map.path .. '//' .. (submap or '')
 end
 
 -- Create a Map object, populated with actors, based on the given tiled map.
