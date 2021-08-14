@@ -398,7 +398,7 @@ function TiledMapLayer:init(name, width, height)
     self.properties = {}
 end
 
-function TiledMapLayer.parse_json(class, data, resource_manager, base_path, tiles_by_gid)
+function TiledMapLayer.parse_json(class, data, resource_manager, base_path, tiles_by_gid, submap)
     local self = class(data.name, data.width, data.height)
 
     -- XXX i only support these for images atm, but i /think/ they work for tiles as well...?
@@ -442,7 +442,7 @@ function TiledMapLayer.parse_json(class, data, resource_manager, base_path, tile
         end
     end
 
-    self.submap = self:prop('submap', '')
+    self.submap = self:prop('submap') or submap or ''
 
     return self
 end
@@ -530,14 +530,19 @@ function TiledMap.parse_json_file(class, path, resource_manager)
         -- atm the group layer itself is not actually loaded as a layer)
         -- FIXME should store the parent/child relationships too
         -- FIXME recurse indefinitely
-        local sublayers
-        if raw_layer.layers then
+        local sublayers, submap
+        if raw_layer.type == 'group' then
             sublayers = raw_layer.layers
+            submap = raw_layer.name
+            if submap == 'default' then
+                submap = ''
+            end
         else
             sublayers = {raw_layer}
+            submap = ''
         end
         for _, raw_sublayer in ipairs(sublayers) do
-            self:add_layer(TiledMapLayer:parse_json(raw_sublayer, resource_manager, path, self._tiles_by_gid))
+            self:add_layer(TiledMapLayer:parse_json(raw_sublayer, resource_manager, path, self._tiles_by_gid, submap))
         end
     end
 
@@ -545,7 +550,6 @@ function TiledMap.parse_json_file(class, path, resource_manager)
 end
 
 function TiledMap:add_tileset(tileset, firstgid)
-
     -- TODO spacing, margin
     if firstgid then
         for relid = 0, tileset.tilecount - 1 do
