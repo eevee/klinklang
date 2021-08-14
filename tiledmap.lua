@@ -615,17 +615,6 @@ function TiledMap:add_layer(layer)
                         tile = object.tile,
                     })
                 end
-            -- FIXME this should probably be the default case rather than one more exception
-            elseif object.type == 'trigger' or object.type == 'ladder' or object.type == 'water zone' or object.type == 'map slice' or object.type == 'loading zone' or object.type == 'control hint' then
-                table.insert(self.actor_templates, {
-                    id = object.id,
-                    name = object.type,
-                    submap = layer.submap,
-                    position = Vector(object.x, object.y),
-                    properties = extract_properties(object),
-                    shapes = tiled_shape_to_whammo_shapes(object),
-                    tile = nil,
-                })
             elseif object.type == 'player start' then
                 self.player_start = Vector(object.x, object.y)
             elseif object.type == 'spot' then
@@ -646,6 +635,16 @@ function TiledMap:add_layer(layer)
                     table.insert(points, Vector(object.x + rawpoint.x, object.y + rawpoint.y))
                 end
                 self.named_tracks[object.name] = points
+            elseif object.type ~= '' and object.type ~= 'collision' then
+                table.insert(self.actor_templates, {
+                    id = object.id,
+                    name = object.type,
+                    submap = layer.submap,
+                    position = Vector(object.x, object.y),
+                    properties = extract_properties(object),
+                    shapes = tiled_shape_to_whammo_shapes(object),
+                    tile = nil,
+                })
             end
         end
     end
