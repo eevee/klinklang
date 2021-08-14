@@ -593,9 +593,15 @@ function DialogueScene:check_script()
                 if step.pose == false then
                     -- This is always fine
                 elseif type(step.pose) == 'string' then
-                    -- This is a metapose, check that it exists
-                    if not sprite.sprite_metaposes[step.pose] then
-                        table.insert(errors, ("Step %d: invalid metapose '%s'"):format(i, step.pose))
+                    -- This is a regular sprite pose or a metapose; check that it exists
+                    if sprite.sprite_metaposes then
+                        if not sprite.sprite_metaposes[step.pose] then
+                            table.insert(errors, ("Step %d: invalid metapose '%s'"):format(i, step.pose))
+                        end
+                    else
+                        if not sprite.spriteset.poses[step.pose] then
+                            table.insert(errors, ("Step %d: invalid pose '%s'"):format(i, step.pose))
+                        end
                     end
                 else
                     -- This is a table of metaposes and/or layer poses
