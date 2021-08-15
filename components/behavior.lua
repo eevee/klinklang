@@ -152,12 +152,6 @@ function Walk:update(dt)
         return
     end
 
-    -- FIXME this shouldn't be here, probably, but then, where should it be
-    local ail = self:get('ail')
-    if ail and ail.recoil_timer and ail.recoil_timer > 0 then
-        return
-    end
-
     local speed_cap = self.speed_cap
     local fall = self:get('fall')
     local grip = 1
