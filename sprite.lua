@@ -153,6 +153,11 @@ function Sprite:set_pose(pose, callback)
         -- "Changing" to the same pose shouldn't restart it
         if callback then
             self:_add_loop_callback(callback)
+            if self.anim.status == 'paused' and self.anim.timer == self.anim.totalDuration then
+                -- Special case: if we're already at this pose, and it's stopped at the end, run the
+                -- new callback now; otherwise it will likely never run!
+                callback()
+            end
         end
     elseif self.spriteset.poses[pose] then
         self:_set_pose(pose)
