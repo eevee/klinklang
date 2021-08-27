@@ -17,13 +17,13 @@ local TiledMapTile = actors_base.BareActor:extend{
     name = 'map tile',
 
     permeable = nil,
-    terrain = nil,
+    terrain_type = nil,
     fluid = nil,
     one_way_direction = nil,
 
     -- Properties that must be the same between neighboring tiles in order to
     -- merge their collision boxes
-    MERGABILITY_PROPS = {'is_solid', 'terrain', 'fluid', 'one-way platform'},
+    MERGABILITY_PROPS = {'is_solid', 'terrain_type', 'fluid', 'one-way platform'},
 }
 
 function TiledMapTile:init(tiled_tile)
@@ -31,7 +31,7 @@ function TiledMapTile:init(tiled_tile)
 
     self.tiled_tile = tiled_tile
     self.is_solid = not tiled_tile:prop('permeable')
-    self.terrain = tiled_tile:prop('terrain')
+    self.terrain_type = tiled_tile:prop('terrain')
     self.fluid = tiled_tile:prop('fluid')
 
     if tiled_tile:prop('one-way platform') then
@@ -42,7 +42,6 @@ function TiledMapTile:init(tiled_tile)
     -- TODO consolidate with above
     self.friction_multiplier = tiled_tile:prop('friction')
     self.grip_multiplier = tiled_tile:prop('grip')
-    self.terrain_type = tiled_tile:prop('terrain')
     self.is_climbable = tiled_tile:prop('climbable')
     -- This is fox flux only but whatever??
     self.hardness = tiled_tile:prop('hardness')

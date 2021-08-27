@@ -110,7 +110,7 @@ function Tote:x_on_collide_with(collision)
     end
 end
 
-function Tote:on_collide_with_2(passable, collision, pushers)
+function Tote:on_collide_with(collision, passable, pushers)
     local obstacle = collision.their_owner
     -- If we already pushed this thing once, then don't try to push it again in
     -- the same nudge, but mark the collision as no-slide to preserve velocity

@@ -252,47 +252,18 @@ local function _is_vector_almost_zero(v)
     return math.abs(v.x) < 1e-8 and math.abs(v.y) < 1e-8
 end
 
--- Lower-level function passed to the collider to determine whether another
--- object blocks us
--- FIXME now that they're next to each other, these two methods look positively silly!  and have a bit of a symmetry problem: the other object can override via the simple blocks(), but we have this weird thing
-function Move:on_collide_with(collision)
-    -- FIXME i would LOVE to move this into Actor:blocks(), but there's some
-    -- universal logic here that would get clobbered by objects trying to be
-    -- solid by having their blocks() just always return true.  maybe i want an
-    -- is_blocking prop, or even just collision layers
-    -- FIXME if i do that, i should see if it's feasible to also move a lot of
-    -- on_collide_with stuff into the obstacle's blocks()
-
-    -- Moving away is always fine
-    if collision.contact_type < 0 then
-        return true
-    end
-
-    -- One-way platforms only block when the collision hits a surface
-    -- facing the specified direction
-    -- FIXME doubtless need to fix overlap collision with a pushable
-    if collision.their_owner.one_way_direction then
-        if collision.overlapped or not collision:faces(collision.their_owner.one_way_direction) then
-            return true
-        end
-    end
-
-    -- Otherwise, fall back to trying blocks()
-    return not collision.their_owner:blocks(self.actor, collision)
-end
-
+-- Lower-level glue function passed to the collider; acts as a conduit between the collider's dumb
+-- shape-pushing logic and the higher-level actor code
 function Move:_collision_callback(collision, pushers, already_hit)
     local obstacle = collision.their_owner
 
-    -- Only announce a hit once per frame
-    -- XXX this is once per /nudge/, not once per frame.  should this be made
-    -- to be once per frame (oof!), removed entirely, or just have the comment
-    -- fixed?
+    -- Only announce a hit once per nudge
     -- XXX is this even necessary?  on_collide doesn't do a /lot/.  but guarantees would be nice too.
     local hit_this_actor = already_hit[obstacle]
     if obstacle and not hit_this_actor then
         -- FIXME movement is fairly misleading and i'm not sure i want to
         -- provide it, at least not in this order
+        -- FIXME we don't know success state until after this function returns...
         obstacle:on_collide(self.actor, movement, collision)
         already_hit[obstacle] = true
     end
@@ -304,12 +275,14 @@ function Move:_collision_callback(collision, pushers, already_hit)
 
     -- FIXME again, i would love a better way to expose a normal here.
     -- also maybe the direction of movement is useful?
-    local passable = self.actor:collect('on_collide_with', collision)
+    local passable = not self.actor.map:check_blocking(self.actor, collision.their_owner, collision)
 
-    local tote = self:get('tote')
-    if tote then
-        -- TODO this is not great but i need to know the result of 'passable' inside here...
-        passable = tote:on_collide_with_2(passable, collision, pushers, already_hit)
+    -- It's possible, but discouraged, for on_collide_with to override passable; this is only really
+    -- used by Tote, which can force a retry
+    -- FIXME can we have it assign to collision.passable instead?
+    local passable2 = self.actor:collect('on_collide_with', collision, passable, pushers)
+    if passable2 ~= nil then
+        passable = passable2
     end
 
     if self.is_juggernaut and not passable then
@@ -415,6 +388,7 @@ function Move:nudge(movement, pushers, xxx_no_slide)
     -- by collecting all nudges...?  important for some stuff like glass lexy
     -- FIXME doesn't check can_carry, because it needs to handle both
     -- XXX this should be in Tote, of course, but where exactly?
+    -- FIXME this crashes if the cargo has disappeared  :I  try putting a cardboard box on a spring and taking it
     if tote and not _is_vector_almost_zero(total_movement) then
         for obstacle, manifest in pairs(tote.cargo) do
             if manifest.state == CARGO_CARRYING and self.actor.can_carry then

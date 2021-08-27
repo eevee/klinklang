@@ -417,11 +417,12 @@ function Climb:decide(direction)
     end
 end
 
-function Climb:on_collide_with(collision)
-    -- Ignore collision with one-way platforms when climbing ladders, since
-    -- they tend to cross (or themselves be) one-way platforms
-    if collision.their_owner.one_way_direction and self.is_climbing then
-        return true
+function Climb:is_blocked_by(obstacle)
+    -- Ignore collision with one-way platforms when climbing ladders, since they tend to cross (or
+    -- themselves be) one-way platforms
+    -- FIXME shouldn't do this at the very bottom of a ladder!
+    if obstacle.one_way_direction and self.is_climbing then
+        return false
     end
 end
 

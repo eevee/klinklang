@@ -235,6 +235,13 @@ end
 
 
 --------------------------------------------------------------------------------
+-- Basic query API
+
+function Collision:is_moving_away()
+    return self.contact_type < 0
+end
+
+--------------------------------------------------------------------------------
 -- Consumer API
 
 local _CONTACT_TYPE_LABELS = {

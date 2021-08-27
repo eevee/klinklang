@@ -358,8 +358,8 @@ function BareActor:blocks(actor, collision)
 end
 
 -- Allows a moving object to override the blocks() of something it's colliding with.  If this
--- returns true, the collision is ignored.  May also be implemented on components.
-function BareActor:is_blocked_by(actor, collision)
+-- returns false, the collision is ignored.  May also be implemented on components.
+function BareActor:is_blocked_by(obstacle, collision)
 end
 
 function BareActor:damage(amount, source)

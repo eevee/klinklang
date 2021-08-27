@@ -375,6 +375,36 @@ function Map:broadcast(source, filters, func, ...)
     end
 end
 
+-- Check whether one actor can pass into another, given an optional collision.
+function Map:check_blocking(mover, obstacle, collision)
+    -- Moving apart is always fine
+    if collision and collision:is_moving_away() then
+        return false
+    end
+
+    -- This has to return false, not just nil
+    if mover:collect('is_blocked_by', obstacle, collision) == false then
+        return false
+    end
+
+    if not obstacle:blocks(mover, collision) then
+        return false
+    end
+
+    -- One-way platforms only block when the collision hits a surface
+    -- facing the specified direction
+    -- FIXME what should this return without a collision?  always yes or always no?
+    -- FIXME doubtless need to fix overlap collision with a pushable
+    if collision and obstacle.one_way_direction then
+        if collision.overlapped or not collision:faces(obstacle.one_way_direction) then
+            return false
+        end
+    end
+
+    return true
+end
+
+
 -- Test whether a shape is blocked.  You must provide your own predicate, which for example might test actor:blocks(something).
 function Map:is_blocked(shape, predicate)
     local blocked = false
