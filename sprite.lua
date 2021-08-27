@@ -55,6 +55,7 @@ function SpriteSet:add_pose(args)
     local flipped = args.flipped
     local symmetrical = args.symmetrical
     local facing = args.facing or 'right'
+    local source_tile = args.source_tile
 
     local pose
     if self.poses[pose_name] then
@@ -73,6 +74,7 @@ function SpriteSet:add_pose(args)
         animation = anim,
         shape = shape,
         anchor = anchor,
+        source_tile = source_tile,
     }
 
     if facing == 'up' or facing == 'down' then
@@ -95,6 +97,7 @@ function SpriteSet:add_pose(args)
                 animation = anim:clone():flipH(),
                 shape = flipped_shape,
                 anchor = Vector(w - anchor.x, anchor.y),
+                source_tile = source_tile,
             }
 
             -- Handle flippedness

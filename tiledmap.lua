@@ -113,9 +113,7 @@ function TiledTile:init(tileset, id)
     -- Parse out interesting bits from the tile's object layer
     if self:prop('solid') then
         -- Shortcut for a totally solid tile
-        -- TODO could reuse this shape for every such tile too
-        self.collision_shapes = {whammo_shapes.Box(
-            0, 0, self.tileset.tilewidth, self.tileset.tileheight)}
+        self.collision_shapes = {self.tileset._solid_shape}
     end
 
     local objects
@@ -223,6 +221,8 @@ function TiledTileset:init(path, data, resource_manager)
     self.tileheight = th
     self.tilecount = data.tilecount
     self.columns = data.columns
+    -- Shared solid tile shape
+    self._solid_shape = whammo_shapes.Box(0, 0, self.tilewidth, self.tileheight)
 
     -- Fetch the image
     local imgpath = relative_path(path, data.image)
@@ -291,10 +291,15 @@ function TiledTileset:init(path, data, resource_manager)
     local default_anchors = {}
     for id = 0, self.tilecount - 1 do
         if self.tileprops[id] and self.tileprops[id]['sprite name'] then
+            local args = {}
+
             local props = self.tileprops[id]
+            local tile = self.tiles[id]
+            local shapes = tile.collision_shapes
+            local anchor = tile.anchor
+            args.source_tile = tile
 
             -- Collect the frames, as a list of quads
-            local args = {}
             if self.rawtiledata[id] and self.rawtiledata[id].animation then
                 args.frames = {}
                 args.durations = {}
@@ -333,9 +338,6 @@ function TiledTileset:init(path, data, resource_manager)
                 facing = 'left'
             end
             args.facing = facing
-
-            local shapes = self.tiles[id].collision_shapes
-            local anchor = self.tiles[id].anchor
 
             -- Add the above args as a pose for the sprite name (or names,
             -- separated by newlines)
