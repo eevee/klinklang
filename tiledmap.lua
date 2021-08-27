@@ -358,7 +358,7 @@ function TiledTileset:init(path, data, resource_manager)
                 if shapes and #shapes > 0 then
                     if #shapes > 1 then
                         -- FIXME
-                        print("WARNING: multiple or convex shapes on a sprite aren't yet supported")
+                        util.warn(("%s: '%s' has multiple or convex shapes, which aren't yet supported"):format(path, full_sprite_name))
                     end
                     args.shape = shapes[1]:clone()
                 end
