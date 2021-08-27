@@ -43,7 +43,8 @@ function DebugScene:init(font)
         'rubber',   'slime',    'glass',    'pooltoy',  'robo',     'micro',
         'holo',     false,      false,      false,      false,      false,
         'kobold',   'starcow',  'slither',  'drone',    false,      false,
-        'stone',    'ice',      'balloon',  'bouncy',   'bodyless', false,
+        'stone',    'ice',      'balloon',  'bouncy',   false,      false,
+        'bodyless', 'glitch',   'nega',     false,      false,      false,
     }
 end
 
