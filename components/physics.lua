@@ -27,13 +27,6 @@ function Exist:on_leave()
 end
 
 
-
--- XXX shouldn't need this stuff here...
-local CARGO_CARRYING = 'carrying'
-local CARGO_PUSHING = 'pushing'
-local CARGO_COULD_PUSH = 'pushable'
-local CARGO_BLOCKED = 'blocked'
-
 -- Physical existence: the ability to interact with the rest of the world,
 -- mostly via collision
 local Move = Component:extend{
@@ -81,8 +74,6 @@ local Move = Component:extend{
     pending_accel = nil,
     -- Velocity this actor will use to do the actual next movement.
     pending_integrated_velocity = nil,
-    -- Extra movement to apply
-    pending_nudge = nil,
 }
 
 function Move:init(actor, args)
@@ -104,13 +95,12 @@ function Move:init(actor, args)
     self.pending_velocity = Vector()
     self._pending_velocity_was_reset = false
     self.pending_extrinsic_velocity = Vector()
-    self._extrinsic_velocity = Vector()
+    self.extrinsic_velocity = Vector()
     -- ...make them here.  This is an /acceleration/ to be applied next frame,
     -- and will be integrated appropriately.  ONLY use this for continuous
     -- acceleration (like gravity); DO NOT use it for instantaneous velocity
     -- changes!
     self.pending_accel = Vector()
-    self.pending_nudge = Vector()
     self.pending_integrated_velocity = Vector()
     self.pending_friction = Vector()
 end
@@ -133,8 +123,16 @@ function Move:set_velocity(v)
     self._pending_velocity_was_reset = true
 end
 
+-- Add velocity to this actor that will be included in its movement, but will NOT be considered part
+-- of its "natural" velocity (self.velocity).  Consider a conveyor belt, where the floor itself is
+-- moving, which alters your movement relative to the world, but where your walking speed and the
+-- like should still be considered as relative to the movement of the floor.
 function Move:add_extrinsic_velocity(dv)
     self.pending_extrinsic_velocity = self.pending_extrinsic_velocity + dv
+end
+
+function Move:get_world_velocity()
+    return self.velocity + self.extrinsic_velocity
 end
 
 function Move:add_accel(da)
@@ -145,24 +143,13 @@ function Move:add_friction(friction)
     self.pending_friction = self.pending_friction + friction
 end
 
-function Move:add_movement(ds)
-    self.pending_nudge = self.pending_nudge + ds
-end
-
 function Move:update(dt)
-    -- Stash our current velocity, before gravity and friction and other
-    -- external forces.  This is (more or less) the /attempted/ movement for a
-    -- sentient actor, and lingering momentum for any mobile actor, which is
-    -- later used for figuring out which objects a pusher was 'trying' to push
-    -- FIXME this is used for cargo sigh
-    local attempted_velocity = self.velocity
-
     -- Check if our reference frame changed; if so, we want to adjust our "natural" velocity by this
     -- difference, but either way the entire extrinsic velocity should be part of our motion
     -- FIXME finish this idea.  i would prefer reference frame be explicit rather than built up
     -- every frame, but i don't know what kind of structure would provide that.  also the above
     -- comment is kind of incoherent
-    local reference_frame_change = self.pending_extrinsic_velocity - self._extrinsic_velocity
+    local reference_frame_change = self.pending_extrinsic_velocity - self.extrinsic_velocity
 
     -- This is basically vt + ½at², and makes the results exactly correct, as
     -- long as pending_accel contains constant sources of acceleration (like
@@ -175,7 +162,7 @@ function Move:update(dt)
     -- TODO should friction apply /before/ acceleration, maybe?  otherwise if you're moving slowly up a slope, gravity pulls you down, and then friction pushes you back /up/ which is kind of weird?  comes up when pushing things...
     -- TODO shouldn't this be pending_extrinsic_velocity?  or no, because pending_velocity is
     -- relative to our previous extrinsic velocity?
-    local frame_velocity = self.pending_velocity + self._extrinsic_velocity + 0.5 * dv
+    local frame_velocity = self.pending_velocity + self.extrinsic_velocity + 0.5 * dv
     --print('. initial frame velocity', frame_velocity)
     self.velocity = self.pending_velocity - reference_frame_change + dv
     -- Friction is very sensitive to small numbers that can become zero
@@ -202,7 +189,7 @@ function Move:update(dt)
     local reference_frame = self.pending_extrinsic_velocity
     self.pending_velocity = Vector()
     self._pending_velocity_was_reset = false
-    self._extrinsic_velocity = self.pending_extrinsic_velocity
+    self.extrinsic_velocity = self.pending_extrinsic_velocity
     self.pending_extrinsic_velocity = Vector()
     self.pending_accel = Vector()
     self.pending_friction = Vector()
@@ -327,10 +314,8 @@ function Move:nudge(movement, pushers, xxx_no_slide)
     local total_movement = Vector.zero
     local all_hits = {}
     local stuck_counter = 0
-    local last_attempted
     while true do
         game:time_push('sweep')
-        last_attempted = movement
         local successful, hits = collider:sweep(shape, movement, pass_callback)
         game:time_pop('sweep')
         table.insert(all_hits, hits)
@@ -379,31 +364,12 @@ function Move:nudge(movement, pushers, xxx_no_slide)
 
     self.actor.pos = self.actor.pos + total_movement
 
-    -- Move our cargo along with us, independently of their own movement
-    -- FIXME this means our momentum isn't part of theirs!!  i think we could
-    -- compute effective momentum by comparing position to the last frame, or
-    -- by collecting all nudges...?  important for some stuff like glass lexy
-    -- FIXME doesn't check can_carry, because it needs to handle both
-    -- XXX this should be in Tote, of course, but where exactly?
-    -- FIXME this crashes if the cargo has disappeared  :I  try putting a cardboard box on a spring and taking it
-    -- FIXME this could be in Tote:after_collisions?
-    if tote and not _is_vector_almost_zero(total_movement) then
-        for obstacle, manifest in pairs(tote.cargo) do
-            if manifest.state == CARGO_CARRYING and self.actor.can_carry then
-                --print('. nudging to move cargo at end of parent nudge')
-                obstacle:get('move'):nudge(total_movement, pushers)
-            end
-        end
-    end
-
     game:time_pop('nudge')
     --print('> end nudge', total_movement)
 
-    self.actor:each('after_collisions', total_movement, all_hits[#all_hits])
+    self.actor:each('after_collisions', total_movement, all_hits[#all_hits], pushers)
 
-    -- FIXME possibly ridiculous
-    -- FIXME last_attempted isn't a GREAT way to communicate this but it's so pushers know the rough direction the pushee ends up moving
-    return total_movement, all_hits, pushers, last_attempted
+    return total_movement, all_hits
 end
 
 
@@ -555,7 +521,7 @@ function Fall:_get_carried_mass(_seen)
     local tote = self:get('tote')
     if tote then
         for cargum, manifest in pairs(tote.cargo) do
-            if manifest.state == CARGO_CARRYING then
+            if manifest.state == 'carrying' then
                 mass = mass + cargum:get('fall'):_get_carried_mass(_seen)
             end
         end
@@ -673,15 +639,15 @@ function Fall:check_for_ground(hits)
     local carrier
     local carrier_normal
     for _, collision in ipairs(hits) do
-        -- Super special case: if we're standing on a platform that moves
-        -- upwards, it'll move us upwards /afterwards/, and we'll no longer be
-        -- colliding with anything downwards and will become detached from it.
-        -- If we see this case, abort immediately, which will leave all the
-        -- ground twiddles as they were.
+        -- Super special case: if we're standing on a platform that moves upwards, it'll nudge us
+        -- upwards (either as part of its own movement, or afterwards), this method will be called,
+        -- we'll no longer be colliding with anything downwards (since we're moving up!), and we'll
+        -- become detached from it.  If we see this case, abort immediately, which will leave all
+        -- the ground twiddles as they were.
         if collision.their_owner and
             collision.their_owner == self.actor.ptrs.cargo_of and
             collision.overlapped and
-            collision.contact_end == 1
+            math.abs(collision.contact_end - 1) < 1e-6
         then
             return
         end
@@ -785,26 +751,14 @@ function Fall:check_for_ground(hits)
     -- XXX cargo_of is very suspicious also
     -- XXX this doesn't expire naturally...
     if self.actor.ptrs.cargo_of and self.actor.ptrs.cargo_of ~= carrier then
-        self.actor.ptrs.cargo_of:get('tote').cargo[self.actor] = nil
-        self.actor.ptrs.cargo_of = nil
+        self.actor.ptrs.cargo_of:get('tote'):detach(self.actor)
     end
     -- TODO i still feel like there should be some method for determining whether we're being carried
     -- TODO still seems rude that we inject ourselves into their cargo also
     if carrier then
         local tote = carrier:get('tote')
         if tote then
-            local manifest = tote.cargo[self.actor]
-            if manifest then
-                manifest.expiring = false
-            else
-                print('attaching', self.actor, 'to', carrier, 'in ground')
-                manifest = components_cargo.Manifest()
-                tote.cargo[self.actor] = manifest
-            end
-            manifest.state = CARGO_CARRYING
-            manifest.normal = carrier_normal
-
-            self.actor.ptrs.cargo_of = carrier
+            tote:attach(self.actor, 'carrying', carrier_normal)
         end
     end
 end
@@ -872,8 +826,7 @@ function SentientFall:check_for_ground(collisions)
         local carrier = self.actor.ptrs.cargo_of
         local manifest = carrier:get('tote').cargo[self.actor]
         if manifest and manifest.normal * gravity - max_slope_dot > 1e-8 then
-            carrier.cargo[self] = nil
-            self.actor.ptrs.cargo_of = nil
+            carrier:get('tote'):detach(self.actor)
         end
     end
 end
