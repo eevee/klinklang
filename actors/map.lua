@@ -23,14 +23,14 @@ local TiledMapTile = actors_base.BareActor:extend{
 
     -- Properties that must be the same between neighboring tiles in order to
     -- merge their collision boxes
-    MERGABILITY_PROPS = {'permeable', 'terrain', 'fluid', 'one-way platform'},
+    MERGABILITY_PROPS = {'is_solid', 'terrain', 'fluid', 'one-way platform'},
 }
 
 function TiledMapTile:init(tiled_tile)
     TiledMapTile.__super.init(self)
 
     self.tiled_tile = tiled_tile
-    self.permeable = tiled_tile:prop('permeable')
+    self.is_solid = not tiled_tile:prop('permeable')
     self.terrain = tiled_tile:prop('terrain')
     self.fluid = tiled_tile:prop('fluid')
 
@@ -50,10 +50,6 @@ end
 
 function TiledMapTile:__tostring()
     return ("<TiledMapTile #%d from %s>"):format(self.tiled_tile.id, self.tiled_tile.tileset.path)
-end
-
-function TiledMapTile:blocks()
-    return not self.permeable
 end
 
 function TiledMapTile:on_collide(actor)
@@ -390,6 +386,7 @@ end
 -- Thin wrapper for the boxes at the edges of the map that prevent leaving it
 local MapEdge = actors_base.BareActor:extend{
     name = 'map edge',
+    is_solid = true,
 }
 
 function MapEdge:init(shape)
@@ -398,24 +395,17 @@ function MapEdge:init(shape)
     self.shape = shape
 end
 
-function MapEdge:blocks()
-    return true
-end
-
 
 -- Thin wrapper for a collision shape drawn directly on the map
 local MapCollider = actors_base.BareActor:extend{
     name = 'map collider',
+    is_solid = true,
 }
 
 function MapCollider:init(shape)
     MapCollider.__super.init(self)
 
     self.shape = shape
-end
-
-function MapCollider:blocks()
-    return true
 end
 
 

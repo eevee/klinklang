@@ -17,6 +17,7 @@ local BareActor = Object:extend{
     map = nil,
 
     pos = nil,
+    is_solid = false,
 
     -- Used for debug printing; should only be used for abstract types
     _type_name = 'BareActor',
@@ -350,10 +351,15 @@ end
 function BareActor:on_collide(actor, movement, collision)
 end
 
--- Determines whether this actor blocks another one.  By default, actors are
--- non-blocking, and mobile actors are blocking.
+-- Determines whether this actor blocks another one.  By default, returns self.is_solid, which is
+-- false for BareActor and true for MobileActor.  Note that the collision may not be available.
 function BareActor:blocks(actor, collision)
-    return false
+    return self.is_solid
+end
+
+-- Allows a moving object to override the blocks() of something it's colliding with.  If this
+-- returns true, the collision is ignored.  May also be implemented on components.
+function BareActor:is_blocked_by(actor, collision)
 end
 
 function BareActor:damage(amount, source)
@@ -541,6 +547,7 @@ local gravity = Vector(0, 768)
 local MobileActor = Actor:extend{
     _type_name = 'MobileActor',
 
+    is_solid = true,
     ground_friction = 1,  -- FIXME this is state, dumbass, not a twiddle
     -- Pushing and platform behavior
     is_pushable = false,
@@ -559,10 +566,6 @@ local MobileActor = Actor:extend{
         --[components_cargo.Tote]
     },
 }
-
-function MobileActor:blocks(actor, collision)
-    return true
-end
 
 -- Return the relative resistance of whatever fluid the actor is currently
 -- inside.  This doesn't affect the actor's velocity, gravity, or anything

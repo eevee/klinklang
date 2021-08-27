@@ -50,10 +50,6 @@ function TriggerZone:on_enter(...)
     end
 end
 
-function TriggerZone:blocks()
-    return false
-end
-
 function TriggerZone:on_collide(activator)
     if activator.is_player and self.activation == 'touch' then
         self:execute_trigger(activator)

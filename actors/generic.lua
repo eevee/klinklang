@@ -7,6 +7,8 @@ local whammo_shapes = require 'klinklang.whammo.shapes'
 
 
 local GenericSlidingDoor = actors_base.Actor:extend{
+    is_solid = true,
+
     -- Configuration
     door_width = 16,
 
@@ -48,10 +50,6 @@ end
 
 function GenericSlidingDoor:on_leave()
     --self.sfx:stop()
-end
-
-function GenericSlidingDoor:blocks()
-    return true
 end
 
 function GenericSlidingDoor:update(dt)
@@ -130,6 +128,8 @@ end
 
 
 local GenericSlidingDoorShutter = actors_base.Actor:extend{
+    is_solid = true,
+
     -- Configuration
     door_type = nil,
 }
@@ -143,10 +143,6 @@ function GenericSlidingDoorShutter:on_enter(...)
     local door = self.door_type(self.pos)
     self.ptrs.door = door
     self.map:add_actor(door)
-end
-
-function GenericSlidingDoorShutter:blocks()
-    return true
 end
 
 function GenericSlidingDoorShutter:open()
