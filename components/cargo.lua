@@ -169,6 +169,10 @@ function Tote:on_collide_with(collision, passable, pushers)
         print('total trying to push', total_mass)
         print('PUSHING:', self.actor, 'pushing', obstacle, 'axis', axis, 'distance', nudge, 'out of', collision.attempted, collision.contact_start)
 
+        -- XXX this happens even for objects on top of us, which we're carrying!  it appears i just
+        -- removed the sideways-y "can i push this" check entirely and relied on it to happen ad hoc
+        local manifest = self:attach(obstacle, 'pushable', axis)
+
         if collision.contact_type == 0 or _is_vector_almost_zero(nudge) then
             -- We're not actually trying to push this thing, so do nothing
             print('. skipping because not pushing in that direction')
@@ -181,6 +185,7 @@ function Tote:on_collide_with(collision, passable, pushers)
             print(". and it moved", actual, direction)
             if not _is_vector_almost_zero(actual) then
                 passable = 'retry'
+                manifest.just_pushed = true
             end
             -- Mark as pushing even if it's blocked.  For sentient pushers, this lets them keep
             -- their push animation and avoids flickering between pushing and not; non-sentient
@@ -197,10 +202,6 @@ function Tote:on_collide_with(collision, passable, pushers)
             -- is to fix it
             collision.no_slide = true
         end
-
-        -- XXX this happens even for objects on top of us, which we're carrying!  it appears i just
-        -- removed the sideways-y "can i push this" check entirely and relied on it to happen ad hoc
-        self:attach(obstacle, 'pushable', axis)
     end
 
     return passable
@@ -223,6 +224,8 @@ function Tote:after_collisions(movement, collisions, pushers)
 
     -- Delete any pushables that weren't just added during this past nudge
     for cargum, manifest in pairs(self.cargo) do
+        manifest.just_pushed = false
+
         if manifest.new then
             manifest.new = nil
         elseif manifest.state == 'pushable' then
