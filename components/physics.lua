@@ -254,19 +254,8 @@ end
 
 -- Lower-level glue function passed to the collider; acts as a conduit between the collider's dumb
 -- shape-pushing logic and the higher-level actor code
-function Move:_collision_callback(collision, pushers, already_hit)
+function Move:_collision_callback(collision, pushers)
     local obstacle = collision.their_owner
-
-    -- Only announce a hit once per nudge
-    -- XXX is this even necessary?  on_collide doesn't do a /lot/.  but guarantees would be nice too.
-    local hit_this_actor = already_hit[obstacle]
-    if obstacle and not hit_this_actor then
-        -- FIXME movement is fairly misleading and i'm not sure i want to
-        -- provide it, at least not in this order
-        -- FIXME we don't know success state until after this function returns...
-        obstacle:on_collide(self.actor, movement, collision)
-        already_hit[obstacle] = true
-    end
 
     -- Debugging
     if game and game.debug and game.debug_twiddles.show_collision then
@@ -281,6 +270,18 @@ function Move:_collision_callback(collision, pushers, already_hit)
     -- used by Tote, which can force a retry
     -- FIXME can we have it assign to collision.passable instead?
     local passable2 = self.actor:collect('on_collide_with', collision, passable, pushers)
+    if passable2 ~= nil then
+        passable = passable2
+    end
+
+    -- Announce to whatever we hit
+    -- XXX this used to be once per nudge only, but the way i'm using it for fox flux's signs
+    -- requires doing it on each hit!  hope that doesn't break anything lol!!
+    -- It is again possible, but discouraged, for on_collide to override passable; this is helpful
+    -- for very complex blocking logic, such as that in fox flux's signs, which does a raycast (!)
+    -- FIXME movement argument is gone
+    -- FIXME we don't know success state until after this function returns, which is annoying
+    passable2 = obstacle:on_collide(self.actor, nil, collision, passable)
     if passable2 ~= nil then
         passable = passable2
     end
@@ -305,7 +306,6 @@ function Move:nudge(movement, pushers, xxx_no_slide)
     if movement.x ~= movement.x or movement.y ~= movement.y then
         error(("Refusing to nudge actor %s by NaN vector %s"):format(self.actor, movement))
     end
-    --print('> nudge', self.actor, movement)
 
     local tote = self:get('tote')
     game:time_push('nudge')
@@ -317,9 +317,8 @@ function Move:nudge(movement, pushers, xxx_no_slide)
     local shape = self.actor.shape
 
     -- Set up the hit callback, which also tells other actors that we hit them
-    local already_hit = {}
     local pass_callback = function(collision)
-        return self:_collision_callback(collision, pushers, already_hit)
+        return self:_collision_callback(collision, pushers)
     end
 
     -- Main movement loop!  Try to slide in the direction of movement; if that
@@ -364,8 +363,6 @@ function Move:nudge(movement, pushers, xxx_no_slide)
             break
         end
 
-        --print('> continuing nudge with remainder', movement)
-
         -- Automatically break if we don't move for three iterations -- not
         -- moving once is okay because we might slide, but three indicates a
         -- bad loop somewhere
@@ -389,6 +386,7 @@ function Move:nudge(movement, pushers, xxx_no_slide)
     -- FIXME doesn't check can_carry, because it needs to handle both
     -- XXX this should be in Tote, of course, but where exactly?
     -- FIXME this crashes if the cargo has disappeared  :I  try putting a cardboard box on a spring and taking it
+    -- FIXME this could be in Tote:after_collisions?
     if tote and not _is_vector_almost_zero(total_movement) then
         for obstacle, manifest in pairs(tote.cargo) do
             if manifest.state == CARGO_CARRYING and self.actor.can_carry then
