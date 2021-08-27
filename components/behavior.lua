@@ -350,6 +350,16 @@ function Jump:update(dt)
     end
 end
 
+function Jump:do_special_jump(speed)
+    local move = self:get('move')
+    move.pending_velocity.y = math.min(-speed, move.pending_velocity.y)
+
+    if self.sound then
+        -- TODO Game needs a Jukebox mixer thing
+        self.sound:clone():play()
+    end
+end
+
 
 -- Climb
 -- FIXME remaining issues:
@@ -492,11 +502,7 @@ function Climb:update(dt)
         -- If holding descend, simply drop; otherwise do a jump.  (This is presumed to be a very
         -- short jump, so it doesn't support releasing early like Jump does.)
         if not self.decision or self.decision <= 0 then
-            self:get('move'):add_velocity(Vector(0, -self.jump_speed))
-            if jump.sound then
-                -- TODO Game needs a Jukebox mixer thing
-                jump.sound:clone():play()
-            end
+            jump:do_special_jump(self.jump_speed)
         end
     elseif self.decision then
         if math.abs(self.decision) == 2 or (math.abs(self.decision) == 1 and self.is_climbing) then
