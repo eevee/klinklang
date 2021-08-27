@@ -2,6 +2,7 @@ local baton = require 'klinklang.vendor.baton'
 local Vector = require 'klinklang.vendor.hump.vector'
 
 local AABB = require 'klinklang.aabb'
+local Jukebox = require 'klinklang.jukebox'
 local Object = require 'klinklang.object'
 local ResourceManager = require 'klinklang.resources'
 local SpriteSet = require 'klinklang.sprite'
@@ -10,6 +11,8 @@ local tiledmap = require 'klinklang.tiledmap'
 local GameProgress = Object:extend{}
 
 local Game = Object:extend{
+    jukebox_class = Jukebox,
+
     debug = false,
     input = nil,
     resource_manager = nil,
@@ -55,6 +58,8 @@ function Game:init(args)
     }
     self.debug_hits = {}
     self.debug_rays = {}
+
+    self.jukebox = self.jukebox_class()
 
     self.time_stack = {}
     self.time_summary = {}
