@@ -211,6 +211,25 @@ function Move:update(dt)
         return
     end
 
+    -- Very very special case: when something is on flat ground and not moving horizontally, try to
+    -- round it to the nearest pixel.  This fixes camera jitter on the player and makes it possible
+    -- to (juuust barely) push an object so it'll fall down a hole exactly the same width.
+    local fall = self:get('fall')
+    if fall and math.abs(attempted.x) < 1e-6 and fall.grounded and fall.ground_normal == Vector(0, -1) then
+        local offset = self.actor.pos.x
+        local carrier = self.actor.ptrs.cargo_of
+        if carrier then
+            offset = offset - carrier.pos.x
+        end
+
+        offset = offset - math.floor(offset)
+        if offset > 0.5 then
+            offset = offset - 1
+        end
+
+        attempted.x = -offset
+    end
+
     -- Collision time!
     -- XXX pending_velocity isn't read-reliable in this window, but i don't know how it could be since this is where we calculate it anyway
     --print('. resolved new velocity as', self.velocity, 'and frame velocity as', frame_velocity)
