@@ -224,6 +224,8 @@ local Map = Object:extend{
     -- rather than reloaded from scratch
     stashed = false,
     initial_parallax_z = -20000,
+
+    timer = 0,
 }
 
 function Map:init(world, tiled_map, submap)
@@ -448,6 +450,7 @@ end
 -- Note that this might be called multiple times per frame, if WorldScene is
 -- trying to do catch-up updates
 function Map:update(dt)
+    self.timer = self.timer + dt
     --print('-- begin frame --')
     self.flux:update(dt)
     self.tick:update(dt)
