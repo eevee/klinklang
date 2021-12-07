@@ -278,7 +278,7 @@ function Jump:init(actor, args)
     Jump.__super.init(self, actor, args)
 
     self.speed = args.speed or 0
-    self.abort_multiplier = args.abort_multiplier or 0
+    self.abort_multiplier = args.abort_multiplier or 0.25
     self.sound = args.sound or nil
     if type(self.sound) == 'string' then
         self.sound = game.resource_manager:get(self.sound)
