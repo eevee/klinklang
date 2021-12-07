@@ -116,6 +116,7 @@ end
 function Game:transform_viewport()
     love.graphics.translate(self.screen.x, self.screen.y)
     love.graphics.scale(self.scale, self.scale)
+    -- FIXME i thought this fucked things up, but i didn't note what exactly, so, ?
     love.graphics.intersectScissor(self.screen:xywh())
 end
 

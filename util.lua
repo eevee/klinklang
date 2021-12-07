@@ -113,6 +113,31 @@ end
 
 
 --------------------------------------------------------------------------------
+-- Non-text to text
+
+local function format_duration(t, precision)
+    precision = precision or 0
+    local s = t % 60
+    t = math.floor(t / 60)
+    local m = t % 60
+    t = math.floor(t / 60)
+    local h = t
+
+    local secs_fmt
+    if precision == 0 then
+        secs_fmt = "%02d"
+    else
+        secs_fmt = "%0" .. (precision + 3) .. "." .. precision .. "f"
+    end
+
+    if h == 0 then
+        return ("%d:" .. secs_fmt):format(m, s)
+    else
+        return ("%d:%02d:" .. secs_fmt):format(h, m, s)
+    end
+end
+
+--------------------------------------------------------------------------------
 -- LÖVE-specific helpers
 
 -- Returns true if any of alt, ctrl, or super are held.  Useful as a very rough
@@ -193,6 +218,8 @@ return {
     lerp = lerp,
     random_float = random_float,
     resolve_path = resolve_path,
+
+    format_duration = format_duration,
 
     any_modifier_keys = any_modifier_keys,
     find_files = find_files,
