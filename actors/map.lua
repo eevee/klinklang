@@ -21,9 +21,9 @@ local TiledMapTile = actors_base.BareActor:extend{
     fluid = nil,
     one_way_direction = nil,
 
-    -- Properties that must be the same between neighboring tiles in order to
-    -- merge their collision boxes
-    MERGABILITY_PROPS = {'is_solid', 'terrain_type', 'fluid', 'one-way platform'},
+    -- Properties that must be the same between neighboring tiles in order to merge their collision
+    -- boxes.  These are names of the props IN TILED, NOT the names of actor attributes in Lua!
+    MERGABILITY_PROPS = {'permeable', 'terrain', 'fluid', 'one-way platform'},
 }
 
 function TiledMapTile:init(tiled_tile)
