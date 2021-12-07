@@ -241,6 +241,10 @@ function Collision:is_moving_away()
     return self.contact_type < 0
 end
 
+function Collision:is_blocked()
+    return self.passable == false
+end
+
 --------------------------------------------------------------------------------
 -- Consumer API
 
