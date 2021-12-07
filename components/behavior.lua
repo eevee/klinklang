@@ -335,18 +335,7 @@ function Jump:update(dt)
         end
 
         -- Perform the actual jump
-        move.pending_velocity.y = -self.speed
-        self.consecutive_jump_count = self.consecutive_jump_count + 1
-        self.is_jumping = true
-
-        if self.sound then
-            -- FIXME oh boy, this is gonna be a thing that i have to care about in a lot of places huh
-            local sfx = self.sound:clone()
-            if sfx:getChannelCount() == 1 then
-                sfx:setRelative(true)
-            end
-            sfx:play()
-        end
+        self:do_normal_jump()
 
         return true
     elseif self.decision == 0 then
@@ -357,9 +346,32 @@ function Jump:update(dt)
     end
 end
 
-function Jump:do_special_jump(speed)
+function Jump:do_normal_jump()
+    self:get('move').pending_velocity.y = -self.speed
+    self.consecutive_jump_count = self.consecutive_jump_count + 1
+    self.is_jumping = true
+    if self.decision == 2 then
+        self.decision = 1
+    end
+
+    if self.sound then
+        -- FIXME oh boy, this is gonna be a thing that i have to care about in a lot of places huh
+        local sfx = self.sound:clone()
+        if sfx:getChannelCount() == 1 then
+            sfx:setRelative(true)
+        end
+        sfx:play()
+    end
+end
+
+function Jump:do_special_jump(speed, affect_decision)
     local move = self:get('move')
     move.pending_velocity.y = math.min(-speed, move.pending_velocity.y)
+    self.consecutive_jump_count = self.consecutive_jump_count + 1
+    self.is_jumping = true
+    if self.decision == 2 and affect_decision ~= false then
+        self.decision = 1
+    end
 
     if self.sound then
         -- TODO Game needs a Jukebox mixer thing
