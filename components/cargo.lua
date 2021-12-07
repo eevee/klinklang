@@ -50,6 +50,12 @@ local Tote = Component:extend{
     -- TODO figure these out
     --push_resistance_multiplier = 1,
     push_momentum_multiplier = 1,
+    -- Limit of what this actor can push.  Note that this is the amount at which the actor becomes
+    -- UNABLE to push, so they CANNOT push this much!  Effective velocity is scaled down the more
+    -- they're pushing.  Nil means no limit.
+    push_mass_limit = nil,
+    no_pickup_on_lift = false,
+
     -- Map of everything this actor is currently pushing/carrying.  Keys are
     -- the other actors; values are a manifest.  TODO document manifest
     cargo = nil,
@@ -57,6 +63,9 @@ local Tote = Component:extend{
 
 function Tote:init(actor, args)
     Tote.__super.init(self, actor, args)
+
+    self.push_mass_limit = args.push_mass_limit
+    self.no_pickup_on_lift = args.no_pickup_on_lift
 
     -- FIXME explain how this works, somewhere, as an overview
     -- XXX this used to be in on_enter, which seems like a better idea tbh
@@ -87,15 +96,23 @@ function Tote:on_collide_with(collision, passable, pushers)
     -- Check for something we can carry
     -- FIXME really need to distinguish these cases.  i guess by gravity.  of the obstacle!
     local obstacle_gravity_direction = Vector(0, 1)
+    local manifest = self.cargo[obstacle]
+    local carried = manifest and manifest.state == 'carrying'
     if self.actor.can_carry and obstacle.is_portable and
         -- It has to be in our way (slides are OK!)
         not passable and
         -- It has to be held onto us, either by the force of gravity OR by some manual effect
         (
-            (self.cargo[obstacle] and self.cargo[obstacle] == 'carrying') or
+            carried or
             (obstacle_gravity_direction and collision:faces(obstacle_gravity_direction))
         )
     then
+        if not carried and self.no_pickup_on_lift then
+            -- We're not allowed to pick this thing up here, so exit now and consider us blocked.
+            -- Do NOT fall through to the next block, or the obstacle will be moved by a push!
+            return
+        end
+
         -- This is pretty simple: move it along the rest of our movement, which is the fraction left
         -- after we first touched, then retry the move.  We don't care about normals or anything!
         local nudge = collision.attempted * (1 - math.max(0, collision.contact_start))
@@ -160,11 +177,15 @@ function Tote:on_collide_with(collision, passable, pushers)
         end
 
         local total_mass = self:get_total_pushed_mass(obstacle, axis)
-        if self.actor.is_player then
+        if self.push_mass_limit then
             -- Reduce our movement relative to our max push power
             -- FIXME definitely un-hardcode this
             -- FIXME oops, this only makes sense if the player is the original source of the push
-            nudge = nudge * math.max(0, 1 - total_mass / 8)
+            if self.push_mass_limit == 0 then
+                nudge = Vector.zero
+            else
+                nudge = nudge * math.max(0, 1 - total_mass / self.push_mass_limit)
+            end
         end
         print('total trying to push', total_mass)
         print('PUSHING:', self.actor, 'pushing', obstacle, 'axis', axis, 'distance', nudge, 'out of', collision.attempted, collision.contact_start)
