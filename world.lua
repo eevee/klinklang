@@ -384,9 +384,10 @@ function Map:check_blocking(mover, obstacle, collision)
         return false
     end
 
-    -- This has to return false, not just nil
-    if mover:collect('is_blocked_by', obstacle, collision) == false then
-        return false
+    -- This has to return true or false, not just nil
+    local is_blocked = mover:collect('is_blocked_by', obstacle, collision)
+    if is_blocked ~= nil then
+        return is_blocked
     end
 
     if not obstacle:blocks(mover, collision) then
