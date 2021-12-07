@@ -635,12 +635,6 @@ function TiledMap:add_layer(layer)
                     -- FIXME this is broken, resource_manager isn't down here
                     self.music_zones[shape] = resource_manager:load(object.properties.music)
                 end
-            elseif object.type == 'track' then
-                local points = {}
-                for _, rawpoint in ipairs(object.polyline) do
-                    table.insert(points, Vector(object.x + rawpoint.x, object.y + rawpoint.y))
-                end
-                self.named_tracks[object.name] = points
             elseif object.type ~= '' and object.type ~= 'collision' then
                 table.insert(self.actor_templates, {
                     id = object.id,
@@ -650,6 +644,7 @@ function TiledMap:add_layer(layer)
                     properties = extract_properties(object, self.path),
                     shapes = tiled_shape_to_whammo_shapes(object),
                     tile = nil,
+                    object = object,
                 })
             end
         end
