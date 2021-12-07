@@ -66,8 +66,15 @@ function React:is_valid_activator(actor)
         return false
     end
 
-    if self.ground_aligned and math.abs(self.actor.pos.y - actor.pos.y) > 4 then
-        return false
+    if self.ground_aligned then
+        local offset = self.actor.pos.y - actor.pos.y
+        -- Note that they must be exactly aligned OR ABOVE us; slightly below is no good, it causes
+        -- some very bad results when e.g. opening a fox flux treasure chest on a platform, which
+        -- then starts a cutscene that moves the player!
+        -- (Also remember we might be a billionth of a pixel inside stuff.)
+        if offset < -1e-6 or 4 < offset then
+            return false
+        end
     end
 
     return true
