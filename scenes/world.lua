@@ -269,9 +269,12 @@ function WorldScene:update(dt)
     ]]
     self.world:update(dt)
 
-    love.audio.setPosition(self.player.pos.x, self.player.pos.y, 0)
-    local facing = self.player:facing_to_vector()
-    love.audio.setOrientation(facing.x, facing.y, 0, 0, 0, 1)
+    love.audio.setPosition(self.player.pos.x, self.player.pos.y, -320)
+    -- This makes sense in 3D, but when the camera has a fixed orientation...
+    --local facing = self.player:facing_to_vector()
+    --love.audio.setOrientation(facing.x, facing.y, 0, 0, 0, 1)
+    -- ...we should just use that.
+    love.audio.setOrientation(0, 0, 1, 0, -1, 0)
 
     for _, layer in ipairs(self.layers) do
         if layer.update then
