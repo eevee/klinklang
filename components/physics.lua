@@ -227,7 +227,8 @@ function Move:update(dt)
             offset = offset - 1
         end
 
-        attempted.x = -offset
+        -- FIXME ah, this causes a crate to try to push back against you while you're pushing it, because it thinks it's not moving
+        --attempted.x = -offset
     end
 
     -- Collision time!
@@ -413,6 +414,9 @@ local Fall2D = Component:extend{
     -- This is multiplied with the ground's 'grip_multiplier', if any.
     -- Note that the Walk behavior also makes use of this
     grip = 1,
+
+    -- State --
+    grounded = nil,
 }
 
 function Fall2D:init(actor, args)
@@ -444,9 +448,11 @@ local Fall = Fall2D:extend{
 
     -- State --
     -- TODO list them here
+    ground_normal = nil,
     -- Friction multiplier of the ground, or 1 if we're in midair, maybe?
     ground_friction = 1,
     ground_grip = 1,
+    ground_terrain = nil,
 }
 
 function Fall:init(actor, args)
