@@ -3,12 +3,15 @@ local Object = require 'klinklang.object'
 -- TODO expand on this
 local Jukebox = Object:extend{}
 
-function Jukebox:play_sound(sound, pos)
+function Jukebox:_play_sound(sound, once, pos)
     if type(sound) == 'string' then
         sound = game.resource_manager:load(sound)
     end
 
-    sound = sound:clone()
+    if not once then
+        sound = sound:clone()
+    end
+
     if pos and sound:getChannelCount() == 1 then
         sound:setPosition(pos.x, pos.y, 0)
         -- TODO maybe this oughta go in, i dunno, loading code
@@ -17,6 +20,14 @@ function Jukebox:play_sound(sound, pos)
     end
 
     sound:play()
+end
+
+function Jukebox:play_sound(sound, pos)
+    return self:_play_sound(sound, false, pos)
+end
+
+function Jukebox:play_sound_once(sound, pos)
+    return self:_play_sound(sound, true, pos)
 end
 
 
