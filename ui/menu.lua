@@ -46,6 +46,9 @@ function Menu:init(args)
     self.default_draw = args.default_draw or self.draw_item
     self.default_hover = args.default_hover or self.hover_item
     self.default_action = args.default_action or function() error("No action configured") end
+    -- Separate callbacks that are unconditionally called (first!), useful for cursor sounds
+    self.on_cursor_move = args.on_cursor_move or function() end
+    self.on_cursor_accept = args.on_cursor_accept or function() end
 
     self.font = ElasticFont:coerce(args.font)
     self.cursor_indent = args.cursor_indent or 0
@@ -174,6 +177,7 @@ function Menu:up()
     end
 
     if prev ~= self.cursor then
+        self.on_cursor_move(self)
         self:_hover()
     end
 end
@@ -187,13 +191,15 @@ function Menu:down()
     end
 
     if prev ~= self.cursor then
+        self.on_cursor_move(self)
         self:_hover()
     end
 end
 
 function Menu:accept()
     local item = self.items[self.cursor]
-    ;(item.action or self.default_action)(self, item)
+    self.on_cursor_accept(self, item)
+    return (item.action or self.default_action)(self, item)
 end
 
 
