@@ -8,6 +8,7 @@ local BaseScene = require 'klinklang.scenes.base'
 local Object = require 'klinklang.object'
 local BorderImage = require 'klinklang.ui.borderimage'
 local ElasticFont = require 'klinklang.ui.elasticfont'
+local Menu = require 'klinklang.ui.menu'
 local TextScroller = require 'klinklang.ui.textscroller'
 
 
@@ -151,192 +152,8 @@ function StackedSprite:draw_anchorless(pos)
 end
 
 
--- TODO i already have ui.menu, which you might think would be useful here,
-local DialogueMenu = Object:extend{
-    -- FIXME cursor width interaction with text_box and wrapping
-    cursor_width = 0,
-    cursor_indent = 0,
-
-    -- State
-    -- List of items in the menu
-    items = nil,
-    -- Current cursor position
-    cursor = nil,
-    top = nil,
-    top_line = nil,
-}
-
-function DialogueMenu:init(kwargs)
-    self.items = kwargs.items
-    self.box = kwargs.box
-    self.text_box = kwargs.text_box
-    self.font = ElasticFont:coerce(kwargs.font)
-    -- FIXME i am real inconsistent about what text/shadow colors are called
-    self.shadow_color = kwargs.shadow
-    self.text_color = kwargs.color
-    -- FIXME also this, though it would break stuff
-    self.background = kwargs.background
-    self.selected_background = {1, 1, 1, 0.25}
-
-    self.max_lines = math.floor(self.text_box.height / self.font.full_height)
-    self.margin_y = math.floor((self.text_box.height - self.max_lines * self.font.full_height) / 2)
-
-    for _, item in ipairs(self.items) do
-        local _textwidth, lines = self.font:wrap(item.text, self.text_box.width)
-        local texts = {}
-        for i, line in ipairs(lines) do
-            texts[i] = self.font:render_elastic(line)
-        end
-        item.texts = texts
-        item.lines = lines
-    end
-
-    self.cursor = 1
-    self.top = 1
-    self.top_line = 1
-end
-
-function DialogueMenu:up()
-    if self.cursor == 1 then
-        return
-    end
-
-    -- Move up just enough to see the entirety of the newly-selected item.
-    -- If it's already visible, we're done; otherwise, just put it at the top
-    if self.top >= self.cursor - 1 then
-        self.top = self.cursor - 1
-        self.top_line = 1
-    end
-
-    self.cursor = self.cursor - 1
-end
-
-function DialogueMenu:down()
-    if self.cursor == #self.items then
-        return
-    end
-
-    -- Move down just enough to see the entirety of the newly-selected item.
-    -- First, figure out where it is relative to the top of the dialogue box
-    local relative_row = #self.items[self.top].lines - self.top_line + 1
-    for l = self.top + 1, self.cursor do
-        relative_row = relative_row + #self.items[l].lines
-    end
-    relative_row = relative_row + math.min(self.max_lines, #self.items[self.cursor + 1].lines)
-
-    for i = 1, relative_row - self.max_lines do
-        self.top_line = self.top_line + 1
-        if self.top_line > #self.items[self.top].lines then
-            self.top = self.top + 1
-            self.top_line = 1
-        end
-    end
-
-    self.cursor = self.cursor + 1
-end
-
-function DialogueMenu:accept()
-    return self.items[self.cursor].value
-end
-
-function DialogueMenu:draw()
-    self.background:fill(self.box)
-
-    local lines = 0
-    local is_bottom = false
-    for m = self.top, #self.items do
-        local item = self.items[m]
-        local start_line = 1
-        if m == self.top then
-            start_line = self.top_line
-        end
-        local end_line = start_line
-        local lineno = lines
-        for l = start_line, #item.lines do
-            end_line = l
-            if m == #self.items and l == #item.lines then
-                is_bottom = true
-            end
-            lines = lines + 1
-            if lines >= self.max_lines then
-                break
-            end
-        end
-        self:draw_item(item, start_line, end_line, lineno, m == self.cursor)
-        if lines >= self.max_lines then
-            break
-        end
-    end
-
-    -- Draw little triangles to indicate scrollability
-    -- FIXME magic numbers here...  should use sprites?  ugh
-    love.graphics.setColor(1, 1, 1)
-    if not (self.top == 1 and self.top_line == 1) then
-        self:draw_up_arrow()
-    end
-    if not is_bottom then
-        self:draw_down_arrow()
-    end
-end
-
-function DialogueMenu:draw_item(item, line0, line1, lineno, is_selected)
-    -- Center the text within the available space
-    local x = self.text_box.x + self.cursor_width
-    local y = self.text_box.y + self.margin_y + self.font.full_height * lineno
-
-    if is_selected then
-        x = x + self.cursor_indent
-
-        if self.selected_background then
-            local numlines = line1 - line0 + 1
-            love.graphics.setColor(self.selected_background)
-            -- FIXME magic numbers; this used to use the text margin, but that
-            -- seems bad too?  maybe should ADD a margin when computing text here
-            -- idk
-            love.graphics.rectangle(
-                'fill',
-                self.text_box.x - 4,
-                y,
-                self.text_box.width + 8,
-                self.font.full_height * numlines)
-        end
-        if self.cursor_sprite then
-            love.graphics.setColor(1, 1, 1)
-            self.cursor_sprite:draw_at(Vector(x - self.cursor_width, y + math.floor(self.font.full_height / 2)))
-        end
-    end
-
-    y = y + self.font.line_offset
-
-    for l = line0, line1 do
-        -- Draw the text, twice: once for a drop shadow, then the text itself
-        love.graphics.setColor(self.shadow_color)
-        item.texts[l]:draw(x, y + 1)
-
-        if is_selected and self.selected_color then
-            love.graphics.setColor(self.selected_color)
-        else
-            love.graphics.setColor(self.text_color)
-        end
-        item.texts[l]:draw(x, y)
-
-        y = y + self.font.full_height
-    end
-end
-
-function DialogueMenu:draw_up_arrow()
-    local x = self.text_box.x
-    local y = self.text_box.y
-    love.graphics.polygon('fill', x, y - 4, x + 2, y, x - 2, y)
-end
-
-function DialogueMenu:draw_down_arrow()
-    local x = self.text_box.x
-    local y = self.text_box.y + self.text_box.height
-    love.graphics.polygon('fill', x, y + 4, x + 2, y, x - 2, y)
-end
-
-
+----------------------------------------------------------------------------------------------------
+-- The main event
 
 local DialogueScene = BaseScene:extend{
     __tostring = function(self) return "dialoguescene" end,
@@ -364,9 +181,6 @@ local DialogueScene = BaseScene:extend{
     default_color = {1, 1, 1},
     default_shadow = {0, 0, 0, 0.5},
     inactive_speaker_color = {0.75, 0.75, 0.75},
-
-    -- Utility types
-    DialogueMenu = DialogueMenu,
 }
 
 -- TODO as with DeadScene, it would be nice if i could formally eat keyboard input
@@ -736,33 +550,28 @@ function DialogueScene:update(dt)
     end
 
     -- Handle regular input
-    if dt > 0 and not self.hesitating then
+    if dt == 0 or self.hesitating then
+        -- Do nothing
+    elseif self.menu then
         if game.input:pressed('accept') then
-            if self.menu then
-                if self.accept_sfx then
-                    self.accept_sfx:clone():play()
-                end
-                local label = self.menu:accept()
-                self.menu = nil
-                self.state = 'waiting'
-                self:run_from(label)
-            elseif not self.hesitating then
-                self:advance()
+            if self.accept_sfx then
+                self.accept_sfx:clone():play()
             end
-        elseif game.input:pressed('up') then
-            if self.menu then
-                if self.cursor_sfx then
-                    self.cursor_sfx:clone():play()
-                end
-                self.menu:up()
+            self.menu:accept()
+        elseif game.input:pressed('menu up') then
+            if self.cursor_sfx then
+                self.cursor_sfx:clone():play()
             end
-        elseif game.input:pressed('down') then
-            if self.menu then
-                if self.cursor_sfx then
-                    self.cursor_sfx:clone():play()
-                end
-                self.menu:down()
+            self.menu:up()
+        elseif game.input:pressed('menu down') then
+            if self.cursor_sfx then
+                self.cursor_sfx:clone():play()
             end
+            self.menu:down()
+        end
+    else
+        if game.input:pressed('accept') then
+            self:advance()
         end
     end
 end
@@ -838,30 +647,42 @@ function DialogueScene:_say_phrase(step, phrase_index)
 end
 
 function DialogueScene:show_menu(step)
+    -- XXX this is not really suitable for use as-is; it was broken by cherry kisses and has been
+    -- revived into barely-functional
     self.state = 'menu'
     self:_hesitate(0.25)
 
-    local items = {}
+    local speaker = self.speakers[step.speaker]
+    local menu_args = {
+        x = (self.text_box.left + self.text_box.right) / 2,
+        y = self.text_box.bottom,
+        xalign = 'center',
+        yalign = 'bottom',
+        minimum_size = Vector(self.text_box.width, self.text_box.height),
+        maximum_size = Vector(self.text_box.width, self.text_box.height),
+
+        font = speaker.font,
+        textcolor = speaker.color,
+        shadowcolor = speaker.shadow_color,
+        --background = speaker.background,
+        cursor_indent = 4,
+
+        default_action = function(menu, item)
+            self.menu = nil
+            self.state = 'waiting'
+            self:run_from(item.jump_to)
+        end,
+    }
     for _, item in ipairs(step.menu) do
         if self:evaluate_condition(item.condition) then
-            table.insert(items, {
-                value = item[1],
-                text = item[2],
+            table.insert(menu_args, {
+                jump_to = item[1],
+                label = item[2],  -- as in, the menu item label, not the dialogue label
             })
         end
     end
 
-    local speaker = self.speakers[step.speaker]
-    self.menu = self.DialogueMenu{
-        items = items,
-        box = self.menu_box,
-        text_box = self.menu_text_box,
-        -- TODO should this just get a speaker?
-        background = speaker.background,
-        shadow = speaker.shadow_color,
-        color = speaker.color,
-        font = speaker.font,
-    }
+    self.menu = Menu(menu_args)
 end
 
 -- Advance the script, including advancing through a current multi-part step
@@ -1015,14 +836,9 @@ function DialogueScene:draw()
     love.graphics.push('all')
     game:transform_viewport()
 
-
     self:_draw_textbox()
 
-    if self.menu then
-        -- FIXME just pop when appropriate dude
-        love.graphics.setColor(1, 1, 1)
-        self.menu:draw()
-    end
+    self:_draw_menu()
 
     -- Draw the speakers
     -- FIXME the draw order differs per run!
@@ -1114,6 +930,14 @@ function DialogueScene:_draw_speaker(speaker)
         love.graphics.setColor(self.inactive_speaker_color)
     end
     sprite:draw_anchorless(pos)
+end
+
+function DialogueScene:_draw_menu()
+    if self.menu then
+        -- FIXME just pop when appropriate dude
+        love.graphics.setColor(1, 1, 1)
+        self.menu:draw()
+    end
 end
 
 function DialogueScene:resize(w, h)
