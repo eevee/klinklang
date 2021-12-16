@@ -618,7 +618,7 @@ function Map:_create_initial_actors()
             -- FIXME i am unsure about template.shape here; atm it's only used for trigger zone, water, and ladder?
             -- FIXME maybe "actor properties" should be a more consistent and well-defined thing in tiled and should include shapes and other special things, whether it comes from a sprite or a tile object or a shape object
             -- FIXME oh hey maybe this should use a different kind of constructor entirely, so the main one doesn't have a goofy-ass signature?
-            local actor = class(position, template.properties, template.shapes, template.tile)
+            local actor = class(position, template.properties, template.shapes, template.tile, template.object)
             if template.id then
                 self._actors_by_id[template.id] = actor
             end
