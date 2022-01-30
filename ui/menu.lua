@@ -6,6 +6,8 @@ local Object = require 'klinklang.object'
 local Edges = require 'klinklang.ui.edges'
 local ElasticFont = require 'klinklang.ui.elasticfont'
 
+local DEBUG_DRAW = false
+
 local Menu = Object:extend{}
 
 function Menu:init(args)
@@ -19,6 +21,13 @@ function Menu:init(args)
     self.minimum_size = args.minimum_size or Vector()
     self.maximum_size = args.maximum_size or Vector(
         game.size.x - self.marginx * 2, game.size.y - self.marginy * 2)
+    if not args.itemspacing then
+        self.itemspacing = Vector()
+    elseif type(args.itemspacing) == 'number' then
+        self.itemspacing = Vector(args.itemspacing, args.itemspacing)
+    else
+        self.itemspacing = args.itemspacing
+    end
     if not args.itempadding then
         self.itempadding = Edges()
     elseif type(args.itempadding) == 'number' then
@@ -37,9 +46,70 @@ function Menu:init(args)
     if args.cursor_sprite then
         self.cursor_sprite = game.sprites['menu cursor']:instantiate()
         self.cursor_width = self.cursor_sprite:getDimensions()
+        self.cursor_indent = args.cursor_indent or 0
     else
         self.cursor_sprite = nil
         self.cursor_width = 0
+        self.cursor_indent = 0
+    end
+
+    -- How to arrange items:
+    local raw_rows = args.rows
+    local raw_columns = args.columns
+    if raw_rows == 0 then
+        raw_rows = nil
+    end
+    if raw_columns == 0 then
+        raw_columns = nil
+    end
+    if args.order == nil then
+        if raw_columns then
+            -- With a column count, OR both counts, assume row layout
+            self.rows_first = true
+        elseif raw_rows then
+            -- With only a row count, assume column layout
+            self.rows_first = false
+        else
+            -- With nothing given at all, assume a single column
+            self.rows_first = false
+            raw_columns = 1
+            raw_rows = #args
+        end
+    elseif args.order == 'rows' then
+        self.rows_first = true
+        if not raw_columns and not raw_rows then
+            raw_rows = 1
+        end
+    elseif args.order == 'columns' then
+        self.rows_first = false
+        if not raw_columns and not raw_rows then
+            raw_columns = 1
+        end
+    else
+        error("'order' must be 'rows', 'columns', or omitted")
+    end
+    -- Fill in missing row or column counts.
+    -- "Physical" rows/columns means how many the entire grid has.  "Visible" means how many are
+    -- actually viewable at a time, taking scrolling into account.  (Only one of these should
+    -- differ, at most, e.g. if the layout is rows-first, only rows can scroll!)
+    -- And this is scroll position along the cross-axis, given as the first visible row/column.
+    self.scroll_position = 1
+    -- TODO might be nice if this could update later, though there's no mechanism for adding items
+    -- TODO ahh, should this take max size into account when calculating number of columns?  but the
+    -- number visible might even be different depending on where in the scroll you are...  and you
+    -- may or may not want like, partial visibility of ones cut off...
+    if self.rows_first then
+        self.physical_columns = raw_columns
+        self.visible_columns = raw_columns
+        self.physical_rows = math.ceil(#args / self.physical_columns)
+        self.visible_rows = raw_rows or self.physical_rows
+        self.scroll_max = self.physical_rows - self.visible_rows + 1
+    else
+        self.physical_rows = raw_rows
+        self.visible_rows = raw_rows
+        self.physical_columns = math.ceil(#args / self.physical_rows)
+        self.visible_columns = raw_columns or self.physical_columns
+        self.scroll_max = self.physical_columns - self.visible_columns + 1
     end
 
     self.default_prerender = args.default_prerender or self.prerender_item
@@ -51,7 +121,6 @@ function Menu:init(args)
     self.on_cursor_accept = args.on_cursor_accept or function() end
 
     self.font = ElasticFont:coerce(args.font)
-    self.cursor_indent = args.cursor_indent or 0
 
     self.items = {}
     -- Prerender each item; they should be as wide as they need to be, but no wider than
@@ -79,38 +148,82 @@ function Menu:update(dt)
     end
 end
 
--- TODO would these args make more sense as constructor args, or
-function Menu:draw(args)
+function Menu:draw()
     local w, h = love.graphics.getDimensions()
     local mw = self.inner_width + self.marginx * 2 + self.cursor_width
     local mh = self.inner_height + self.marginy * 2
-    local x = self.anchorx
+    local x0 = self.anchorx
     if self.xalign == 'center' then
-        x = x - math.ceil(mw / 2)
+        x0 = x0 - math.ceil(mw / 2)
     elseif self.xalign == 'right' then
-        x = x - mw
+        x0 = x0 - mw
     end
-    local y = self.anchory
+    local y0 = self.anchory
     if self.yalign == 'middle' then
-        y = y - math.ceil(mh / 2)
+        y0 = y0 - math.ceil(mh / 2)
     elseif self.yalign == 'bottom' then
-        y = y - mh
+        y0 = y0 - mh
     end
 
     love.graphics.push('all')
 
     if self.background then
-        self.background:fill(AABB(x, y, mw, mh))
+        self.background:fill(AABB(x0, y0, mw, mh))
     elseif self.bgcolor then
         love.graphics.setColor(self.bgcolor)
-        love.graphics.rectangle('fill', x, y, mw, mh)
+        love.graphics.rectangle('fill', x0, y0, mw, mh)
     end
 
-    x = x + self.marginx + self.cursor_width
-    y = y + self.marginy + self.font.line_offset
-    for i, item in ipairs(self.items) do
-        (item.draw or self.default_draw)(self, item, x, y, i == self.cursor)
-        y = y + item.inner_height + self.itempadding:vert()
+    -- FIXME take variable item height/width into account oops (also for cross-axis cursor movement???)
+    -- TODO so, items can be variable /height/, then?  i may need to think about this for a dang second
+    x0 = x0 + self.marginx
+    y0 = y0 + self.marginy
+    local x = x0 + self.cursor_width
+    local y = y0  -- XXX used to do this but it sucks for non-text: + self.font.line_offset
+    local i0 = 1
+    if self.rows_first then
+        i0 = i0 + (self.scroll_position - 1) * self.physical_columns
+    else
+        i0 = i0 + (self.scroll_position - 1) * self.physical_rows
+    end
+    for i = i0, i0 + self.visible_rows * self.visible_columns - 1 do
+        local item = self.items[i]
+        if item == nil then
+            break
+        end
+
+        if DEBUG_DRAW then
+            love.graphics.push('all')
+            if i == self.cursor then
+                love.graphics.setColor(1, 0.5, 0)
+            else
+                love.graphics.setColor(0.5, 0.5, 1)
+            end
+            love.graphics.rectangle('line', x + 0.5, y + 0.5, item.inner_width - 1, item.inner_height - 1)
+            if self.cursor_width > 0 then
+                love.graphics.rectangle('line', x - self.cursor_width + 0.5, y + 0.5, self.cursor_width - 1, item.inner_height - 1)
+            end
+            love.graphics.pop()
+        end
+        ;(item.draw or self.default_draw)(self, item, x, y, i == self.cursor)
+
+        if self.rows_first then
+            if i % self.physical_columns == 0 then
+                x = x0 + self.cursor_width
+                -- TODO need to know the row's height, not just the item's
+                y = y + item.inner_height + self.itempadding:vert() + self.itemspacing.y
+            else
+                x = x + item.inner_width + self.itempadding:horiz() + self.itemspacing.x
+            end
+        else
+            if i % self.physical_rows == 0 then
+                y = y0 -- XXX + self.font.line_offset
+                -- TODO need to know the column's width, not just the item's
+                x = x + item.inner_width + self.itempadding:horiz() + self.itemspacing.x
+            else
+                y = y + item.inner_height + self.itempadding:vert() + self.itemspacing.y
+            end
+        end
     end
     love.graphics.pop()
 end
@@ -151,7 +264,10 @@ function Menu:draw_item(item, x, y, selected)
     if selected then
         love.graphics.setColor(1, 1, 1)
         if self.cursor_sprite then
-            self.cursor_sprite:draw_at(Vector(inner_x - self.cursor_width, inner_y + h / 2 - self.font.line_offset))
+            -- FIXME this, goofily, presumes the cursor's anchor is centered
+            self.cursor_sprite:draw_at(Vector(
+                x + self.itempadding.left - self.cursor_width / 2,
+                inner_y + h / 2 - self.font.line_offset))
         end
     end
 end
@@ -194,6 +310,123 @@ function Menu:down()
         self.on_cursor_move(self)
         self:_hover()
     end
+end
+
+function Menu:move_cursor(dx, dy)
+    local cursor = self.cursor
+    local overflow_behavior = 'wrap'  -- wrap, stop, off
+    local overflow_x, overflow_y = 0, 0
+
+    -- Row/column order have the same logic but with the axes switched, so write the code like this
+    -- is rows-first, and transpose for column-first
+    local row_ct, col_ct = self.physical_rows, self.physical_columns
+    if not self.rows_first then
+        row_ct, col_ct = col_ct, row_ct
+        dx, dy = dy, dx
+    end
+
+    -- Move left/right, one at a time
+    if dx < 0 then
+        if cursor % col_ct == 1 then
+            overflow_x = -1
+            if overflow_behavior == 'wrap' then
+                cursor = cursor + col_ct - 1
+                -- If this is the last row, we might end up beyond the last item
+                cursor = math.min(cursor, #self.items)
+            end
+        else
+            cursor = cursor - 1
+        end
+    elseif dx > 0 then
+        if cursor % col_ct == 0 then
+            overflow_x = 1
+            if overflow_behavior == 'wrap' then
+                cursor = cursor - (col_ct - 1)
+            end
+        else
+            cursor = cursor + 1
+            -- If this is the last row, we might end up beyond the last item
+            if cursor > #self.items then
+                cursor = cursor - cursor % col_ct + 1
+            end
+        end
+    end
+    -- Move up/down, a chunk at a time
+    if dy < 0 then
+        if cursor <= col_ct then
+            -- First row, move up to the bottom row
+            overflow_y = -1
+            if overflow_behavior == 'wrap' then
+                cursor = cursor + (row_ct - 1) * col_ct
+                -- If we move onto the last row, we might end up beyond the last item
+                if cursor > #self.items then
+                    cursor = cursor - col_ct
+                    -- XXX or if you move up into an unfilled cell, should you just snap to the last item?
+                    --cursor = #self.items
+                end
+            end
+        else
+            cursor = cursor - col_ct
+        end
+    elseif dy > 0 then
+        if cursor > col_ct * (row_ct - 1) then
+            -- Last row, wrap around
+            -- FIXME or out of the menu...  how does that work with an unfilled second to last row
+            overflow_y = 1
+            if overflow_behavior == 'wrap' then
+                cursor = (cursor - 1) % col_ct + 1
+            end
+        else
+            -- Move down a row
+            cursor = cursor + col_ct
+            if cursor > #self.items then
+                -- Tried to go down into an unfilled row, so just go to the last item
+                -- XXX is this right
+                cursor = #self.items
+            end
+        end
+    end
+
+    if not self.rows_first then
+        overflow_x, overflow_y = overflow_y, overflow_x
+    end
+    if not (overflow_x == 0 and overflow_y == 0) and overflow_behavior == 'off' then
+        -- FIXME in SpriteMenu this was cursor = nil, but we don't really support that?
+        cursor = 1
+    end
+
+    self:set_cursor(cursor)
+    return overflow_x, overflow_y
+end
+
+function Menu:set_cursor(cursor)
+    local prev = self.cursor
+    self.cursor = cursor
+
+    -- Adjust scroll position if necessary
+    local block_size, viewport
+    if self.rows_first then
+        block_size = self.physical_columns
+        viewport = self.visible_rows
+    else
+        block_size = self.physical_rows
+        viewport = self.visible_columns
+    end
+    local new_scroll = math.floor((cursor - 1) / block_size) + 1
+    if new_scroll < self.scroll_position then
+        self.scroll_position = new_scroll
+    elseif new_scroll >= self.scroll_position + viewport then
+        self.scroll_position = new_scroll - viewport + 1
+    end
+
+    if prev ~= self.cursor then
+        self.on_cursor_move(self)
+        self:_hover()
+    end
+end
+
+function Menu:current()
+    return self.items[self.cursor]
 end
 
 function Menu:accept()
