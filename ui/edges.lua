@@ -4,7 +4,6 @@ local Edges = Object:extend{}
 
 function Edges:init(...)
     local n = select('#', ...)
-    print(n)
     if n == 0 then
         self.top = 0
         self.bottom = 0
