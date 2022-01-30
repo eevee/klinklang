@@ -113,10 +113,11 @@ function Game:getDimensions()
     return self.size:unpack()
 end
 
+-- Note that you should do an 'all' push before calling this, because it also alters the scissor,
+-- which will not be undone by either a clear() or by a regular pop!
 function Game:transform_viewport()
     love.graphics.translate(self.screen.x, self.screen.y)
     love.graphics.scale(self.scale, self.scale)
-    -- FIXME i thought this fucked things up, but i didn't note what exactly, so, ?
     love.graphics.intersectScissor(self.screen:xywh())
 end
 
