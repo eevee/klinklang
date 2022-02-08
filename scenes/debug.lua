@@ -21,6 +21,7 @@ function DebugScene:init(font)
         { _twiddle = 'show_blockmap', text = "Show blockmap" },
         { _twiddle = 'show_collision', text = "Show collisions" },
         { _twiddle = 'show_shapes', text = "Show all shapes" },
+        { _twiddle = 'enable_mouse', text = "Enable mouse inspection" },
     }
 
     self.menu = 'main'

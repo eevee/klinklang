@@ -824,6 +824,12 @@ function World:draw()
     love.graphics.pop()
 end
 
+function World:_client_to_world_coords(x, y)
+    local wx = (x - game.screen.x) / game.scale + self.camera.x
+    local wy = (y - game.screen.y) / game.scale + self.camera.y
+    return wx, wy
+end
+
 
 return {
     Map = Map,

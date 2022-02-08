@@ -411,6 +411,7 @@ end
 return {
     TiledMapLayer = TiledMapLayer,
     TiledMapImage = TiledMapImage,
+    TiledMapTile = TiledMapTile,
     MapEdge = MapEdge,
     MapCollider = MapCollider,
 }

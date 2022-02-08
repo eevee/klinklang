@@ -1,7 +1,9 @@
 local Vector = require 'klinklang.vendor.hump.vector'
 
+local actors_map = require 'klinklang.actors.map'
 local Object = require 'klinklang.object'
 local BaseScene = require 'klinklang.scenes.base'
+local whammo_shapes = require 'klinklang.whammo.shapes'
 
 -- Sets the maximum length of an actor update.
 -- 50~60 fps should only do one update, of course; 30fps should do two.
@@ -22,6 +24,55 @@ local DebugLayer = Object:extend{}
 
 function DebugLayer:init(world)
     self.world = world
+    self.font = love.graphics.newFont(10)
+    self.mouse_actor = nil
+    self.mouse_actor_text = nil
+end
+
+function DebugLayer:get_actor_at_point(x, y)
+    local shape = whammo_shapes.Box(x - 0.5, y - 0.5, 1, 1)
+    local _, hits = self.world.active_map.collider:sweep(shape, Vector.zero)
+    table.sort(hits, function(a, b)
+        -- Tiles don't have 'z' matching their layer, so for simplicity: prefer non-tiles first
+        if a.their_owner:isa(actors_map.TiledMapTile) then
+            return false
+        elseif b.their_owner:isa(actors_map.TiledMapTile) then
+            return true
+        end
+        return (a.their_owner.z or 0) > (b.their_owner.z or 0)
+    end)
+
+    local hit = hits[1]
+    if hit then
+        return hit.their_owner, hit.their_shape
+    end
+end
+
+
+function DebugLayer:dump_mouse_actor()
+    if self.mouse_actor == nil then
+        self.mouse_actor_text = nil
+        return
+    end
+
+    local actor = self.mouse_actor
+    local lines = {}
+    table.insert(lines, ("actor: %s"):format(actor.name or actor._type_name))
+    table.insert(lines, ("position: %s"):format(actor.pos))
+    for i, component in ipairs(actor.component_order) do
+        table.insert(lines, ("%d - %s"):format(i, component.slot))
+        for k, v in pairs(component) do
+            if not (k == 'actor' and v == actor) then
+                if type(v) == 'string' then
+                    v = v:sub(1, 100):gsub("\n", "\\n")
+                end
+                table.insert(lines, ("    %s: %s"):format(k, v))
+            end
+        end
+    end
+    local text = table.concat(lines, "\n")
+    love.system.setClipboardText(text)
+    self.mouse_actor_text = love.graphics.newText(self.font, text)
 end
 
 function DebugLayer:draw()
@@ -110,7 +161,6 @@ function DebugLayer:draw()
         love.graphics.push('all')
         love.graphics.setColor(1, 1, 1, 0.25)
         love.graphics.setColor(1, 0.5, 0.5, 0.75)
-        love.graphics.scale(game.scale, game.scale)
 
         local blockmap = map.collider.blockmap
         local blocksize = blockmap.blocksize
@@ -124,6 +174,7 @@ function DebugLayer:draw()
             love.graphics.line(0, y, w, y)
         end
 
+        love.graphics.setFont(self.font)
         for x = x0, w, blocksize do
             for y = y0, h, blocksize do
                 local a, b = blockmap:to_block_units(camera.x + x, camera.y + y)
@@ -132,6 +183,27 @@ function DebugLayer:draw()
         end
 
         love.graphics.pop()
+    end
+
+    if game.debug and game.debug_twiddles.enable_mouse then
+        love.graphics.push('all')
+        love.graphics.setColor(1, 0, 1, 0.75)
+
+        if self.mouse_actor_text then
+            love.graphics.draw(self.mouse_actor_text, 0, 0)
+        end
+
+        camera:apply()
+        local wx, wy = self.world:_client_to_world_coords(love.mouse.getPosition())
+        local actor, shape = self:get_actor_at_point(wx, wy)
+        self.mouse_actor = actor
+        if actor then
+            shape:draw('fill')
+        end
+
+        love.graphics.pop()
+    else
+        self.mouse_actor = nil
     end
 end
 
@@ -165,7 +237,8 @@ function WorldScene:init(world, ...)
 
     self.layers = {}
     if game.debug then
-        table.insert(self.layers, DebugLayer(world))
+        self._debug_layer = DebugLayer(world)
+        table.insert(self.layers, self._debug_layer)
     end
 
     self.world = world
@@ -322,11 +395,16 @@ function WorldScene:resize(w, h)
 end
 
 function WorldScene:mousepressed(x, y, button, istouch)
-    if game.debug and button == 2 then
-        self.player:move_to(Vector(
-            (x - game.screen.x) / game.scale + self.camera.x,
-            (y - game.screen.y) / game.scale + self.camera.y))
-        self.player:get('move'):set_velocity(Vector())
+    if game.debug then
+        if button == 1 then
+            -- Left-click inspect
+            self._debug_layer:dump_mouse_actor()
+        elseif button == 2 then
+            -- Right-click teleport
+            local wx, wy = self.world:_client_to_world_coords(x, y)
+            self.player:move_to(Vector(wx, wy))
+            self.player:get('move'):set_velocity(Vector())
+        end
     end
 end
 
