@@ -84,7 +84,7 @@ function DebugLayer:draw()
     local map = self.world.active_map
 
     if game.debug_twiddles.show_shapes then
-        love.graphics.push()
+        love.graphics.push('all')
         camera:apply()
         for _, actor in ipairs(map.actors) do
             love.graphics.setColor(1, 1, 0, 0.5)
