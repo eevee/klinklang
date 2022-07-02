@@ -346,8 +346,11 @@ function Move:nudge(movement, pushers, xxx_no_slide)
             break
         end
         local remaining = movement - successful
-        -- FIXME these values are completely arbitrary and i cannot justify them
-        if math.abs(remaining.x) < 1/256 and math.abs(remaining.y) < 1/256 then
+        -- Skip movement that's less than a tiny fraction of a pixel.
+        -- This is somewhat arbitrary, but it should avoid some issues where something moves one
+        -- pixel every few seconds (which looks bad), and it fixes strange behavior like trying to
+        -- walk up a slope into a vertical wall and constantly doing tiny jumps due to sliding
+        if remaining:len2() < 1/64 then
             break
         end
 
