@@ -122,9 +122,12 @@ local Walk = Component:extend{
     use_2d_movement = false,
 
     -- State --
-    -- Normalized vector of the direction the actor is trying to move.  For a 1D actor (as determined by having a Fall rather than a Fall2D), this should be zero in the direction of gravity.
-    -- TODO boy that's hokey and also doesn't play nicely with PlayerThink
+    -- Normalized vector of the direction the actor is trying to move.  For a 1D actor (as
+    -- determined by having a Fall rather than a Fall2D), y should be zero.
     decision = Vector.zero,
+    -- Raw, un-normalized vector of the direction the actor is trying to move.  Use this for
+    -- detecting when, e.g., a 1D actor is trying to "move down" in some other sense.
+    raw_decision = Vector.zero,
 }
 
 -- TODO air acceleration doesn't make sense for 2D, maybe?
@@ -140,12 +143,14 @@ function Walk:init(actor, args)
 end
 
 function Walk:decide(dx, dy)
+    self.raw_decision = Vector(dx, dy)
+
     self.decision = Vector(dx, dy)
-    if self.decision:len2() ~= 1 then
-        self.decision:normalizeInplace()
-    end
     if not self.use_2d_movement then
         self.decision.y = 0
+    end
+    if self.decision:len2() ~= 1 then
+        self.decision:normalizeInplace()
     end
 end
 
