@@ -421,7 +421,10 @@ end
 -- - various fixmes/todos in here
 -- - if you're already holding up/down when you first touch a climbable, you currently ignore it,
 -- but you should totally grab on
--- - two ladders side by side, or support for a big climbable surface?
+-- - two ladders side by side, or support for a big climbable surface?  how do we track that,
+-- remember climbables in the two other directions too?  flag for whether something supports
+-- horizontal climbing?  (but again, two ladders?  what's the transition between the
+-- approach-the-middle behavior for one and whatever would happen with two?)
 local Climb = Component:extend{
     slot = 'climb',
     priority = -1001,  -- needed before basic physics to override one-way collision
@@ -552,15 +555,26 @@ function Climb:update(dt)
     local jump = self:get('jump')
 
     -- TODO does climbing make sense in no-gravity mode?
-    if self.is_climbing and jump and jump.decision == 2 then
+    if not self.on_climbable_up and not self.on_climbable_down then
+        -- Emergency escape hatch: if you're not touching anything climbable, stop climbing!
+        self:_end_climbing()
+    elseif self.decision == nil then
+        -- Decision API says let go
+        self:_end_climbing()
+    elseif self.is_climbing and jump and jump.decision == 2 then
         -- Jump to let go
         self:_end_climbing()
         -- If holding descend, simply drop; otherwise do a jump.  (This is presumed to be a very
         -- short jump, so it doesn't support releasing early like Jump does.)
-        if not self.decision or self.decision <= 0 then
+        if self.decision > 0 then
+            jump:decide(false)
+            -- Start from our downwards climbing speed; it's a bit weird to transition from climbing
+            -- downwards to falling /more slowly/
+            self:get('move'):set_velocity(Vector(0, self.speed))
+        else
             jump:do_special_jump(self.jump_speed)
         end
-    elseif self.decision then
+    else
         if math.abs(self.decision) == 2 or (math.abs(self.decision) == 1 and self.is_climbing) then
             -- Trying to grab a ladder; if we're touching one, do so
             if self.decision < 0 and self.actor.ptrs.climbable_up then
@@ -726,7 +740,7 @@ end
 
 local Think = Component:extend{
     slot = 'think',
-    priority = -100,
+    priority = -9999,  -- needed before anything else, even physics
 }
 
 local PlayerThink = Think:extend{}
@@ -780,7 +794,12 @@ function PlayerThink:update(dt)
 
     local climb = self:get('climb')
     if climb then
-        climb:decide(read_key_axis('ascend', 'descend'))
+        local climb_direction = read_key_axis('ascend', 'descend')
+        if climb_direction then
+            -- read_key_axis can return nil when ambiguous, which Climb treats specially; if it
+            -- does, preserve our previous direction the way Walk does automatically
+            climb:decide(climb_direction)
+        end
     end
 
     -- Jumping is slightly more subtle.  The initial jump is an instant action,
