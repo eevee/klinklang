@@ -268,6 +268,8 @@ local Jump = Component:extend{
     -- Number of consecutive jumps that can be made before hitting the ground:
     -- 1 for regular jumping, 2 for a double jump, Math.huge for flappy bird
     max_jumps = 1,
+    -- How long after walking off a cliff we should still be allowed to jump
+    coyote_duration = 0.1,
 
     -- State --
     -- 2 when initially jumping, 1 when continuing a jump, 0 when abandoning a jump
@@ -278,6 +280,8 @@ local Jump = Component:extend{
     consecutive_jump_count = 0,
     -- Whether we think we're currently in the air due to jumping
     is_jumping = false,
+    -- How long it's been since we were last on the ground
+    coyote_timer = 0,
 }
 
 -- FIXME needs to accept max jumps
@@ -304,7 +308,25 @@ end
 function Jump:update(dt)
     local move = self:get('move')
     local fall = self:get('fall')
+
+    -- Update "coyote time", which allows for jumping within a small window after walking off an
+    -- edge.  This should only count up after we *walked* over the edge; if at any point we jump or
+    -- are launched upwards, coyote time ends.  Unfortunately, the latter condition is a little
+    -- tricky to define; if we walk off the top of a slope, then surely coyote time applies, but
+    -- something like a spring should surely not count.  As a heuristic, coyote time ends if at any
+    -- point we are moving upwards "too fast".
+    local in_coyote_time = false
     if fall.grounded then
+        self.coyote_timer = 0
+    elseif self.is_jumping or move.velocity.y < -64 then
+        -- Disable the timer until we next land, by setting it far beyond the duration
+        self.coyote_timer = self.coyote_duration + 100
+    else
+        self.coyote_timer = self.coyote_timer + dt
+        in_coyote_time = self.coyote_timer <= self.coyote_duration
+    end
+
+    if fall.grounded or in_coyote_time then
         self.consecutive_jump_count = 0
         self.is_jumping = false
     end
@@ -324,7 +346,7 @@ function Jump:update(dt)
             return
         end
 
-        if self.consecutive_jump_count == 0 and not fall.ground_shallow then
+        if self.consecutive_jump_count == 0 and not fall.ground_shallow and not in_coyote_time then
             -- If we're in mid-air for some other reason, act like we jumped to
             -- get here, for double-jump counting purposes
             self.consecutive_jump_count = 1
