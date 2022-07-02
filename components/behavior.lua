@@ -378,7 +378,7 @@ function Jump:update(dt)
 end
 
 function Jump:do_normal_jump()
-    self:get('move').pending_velocity.y = -self.speed
+    self:get('move'):max_out_velocity(Vector(0, -self.speed))
     self.consecutive_jump_count = self.consecutive_jump_count + 1
     self.is_jumping = true
     if self.decision == 2 then
@@ -397,7 +397,7 @@ end
 
 function Jump:do_special_jump(speed, affect_decision)
     local move = self:get('move')
-    move.pending_velocity.y = math.min(-speed, move.pending_velocity.y)
+    self:get('move'):max_out_velocity(Vector(0, -speed))
     self.consecutive_jump_count = self.consecutive_jump_count + 1
     self.is_jumping = true
     if self.decision == 2 and affect_decision ~= false then

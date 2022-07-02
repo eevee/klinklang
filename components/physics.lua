@@ -118,6 +118,16 @@ function Move:add_velocity(dv)
     self.pending_velocity = self.pending_velocity + dv
 end
 
+-- Set velocity in some direction to the given value, unless it's already higher
+function Move:max_out_velocity(v)
+    local aligned = self.pending_velocity:projectOn(v)
+    if aligned * v > 0 and aligned:len2() > v:len2() then
+        -- Already higher, leave it alone
+        return
+    end
+    self.pending_velocity = self.pending_velocity - aligned + v
+end
+
 function Move:set_velocity(v)
     self.pending_velocity = v
     self._pending_velocity_was_reset = true
