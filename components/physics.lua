@@ -791,6 +791,10 @@ function Fall:check_for_ground(hits)
     end
 end
 
+function Fall:is_slope_steep(ground_normal)
+    return false
+end
+
 
 -- Gravity for sentient actors; includes extra behavior for dealing with slopes
 local SentientFall = Fall:extend{
@@ -859,33 +863,9 @@ function SentientFall:check_for_ground(collisions)
     end
 end
 
-function SentientFall:update(dt)
-    if not self.grounded then
-        SentientFall.__super.update(self, dt)
-        return
-    end
-
-    -- Slope resistance: a sentient actor will resist sliding down a slope
+function SentientFall:is_slope_steep(ground_normal)
     local gravity = self:get_base_gravity()
-    -- Slope resistance always pushes upwards along the slope.  It has no
-    -- cap, since it should always exactly oppose gravity, as long as the
-    -- slope is shallow enough.
-    -- Skip it entirely if we're not even moving in the general direction
-    -- of gravity, though, so it doesn't interfere with jumping.
-    -- FIXME this doesn't take into account the gravity multiplier /or/
-    -- fluid resistance, and in general i don't love that it can get out of
-    -- sync like that  :S
-    -- FIXME one wonders if this is really a part of walking and should be included in there, though it'll complicate things since it reacts to the velocity from the previous frame...  if you fall onto a slope you'll never stop under your own power, gravity comes next...
-    local slope = self.ground_normal:perpendicular()
-    if slope * gravity > 0 then
-        slope = -slope
-    end
-    local slope_resistance = -(gravity * slope)
-    local move = self.actor:get('move')
-    move:add_accel(slope_resistance * slope)
-
-    -- Do this BEFORE the super call, so that friction can take it into account
-    SentientFall.__super.update(self, dt)
+    return ground_normal * gravity - self.max_slope * gravity > 1e-8
 end
 
 function SentientFall:after_collisions(movement, collisions)

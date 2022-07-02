@@ -205,10 +205,6 @@ function Walk:update(dt)
     local goal = goal_direction * speed_cap
     local delta = goal - current
     local delta_len = delta:len()
-    -- If we're already moving at the goal velocity, we're done
-    if delta_len < 1e-8 then
-        return
-    end
 
     -- Compute our (maximum) acceleration
     local accel_cap = self.base_acceleration
@@ -240,13 +236,26 @@ function Walk:update(dt)
     local skid = util.lerp((skid_dot + 1) / 2, self.stop_multiplier, 1)
     accel_cap = accel_cap * skid
 
-    -- We're trying to change our velocity by `delta`, and we could do it in
-    -- this single frame if we accelerated by `delta / dt`!  But our
-    -- acceleration has a limit, so take that into account too, and we're done
-    local desired_accel_len = delta_len / dt
-    local allowed_fraction = math.min(1, accel_cap / desired_accel_len)
-    local final_accel = delta * (allowed_fraction / dt)
-    self:get('move'):add_accel(final_accel)
+    -- FIXME this kicks in even if we're above our max speed, is that a problem
+    if not self.use_2d_movement and fall.ground_shallow and self.decision.x == 0 then
+        -- We're trying to stand still on the ground; express this as friction so it opposes any
+        -- slope we're on and is capped correctly.
+        -- Note that having this here and not as a general force means you must have walk
+        -- acceleration that's enough to counteract gravity, or you won't be able to get up slopes.
+        local uphill_direction = fall.ground_normal:perpendicular()
+        if uphill_direction.y > 0 then
+            uphill_direction = -uphill_direction
+        end
+        self:get('move'):add_friction(uphill_direction * accel_cap)
+    else
+        -- We're trying to change our velocity by `delta`, and we could do it in this single frame
+        -- if we accelerated by `delta / dt`!  But our acceleration has a limit, so take that into
+        -- account too, and we're done
+        local desired_accel_len = delta_len / dt
+        local allowed_fraction = math.min(1, accel_cap / desired_accel_len)
+        local final_accel = delta * (allowed_fraction / dt)
+        self:get('move'):add_accel(final_accel)
+    end
 end
 
 
