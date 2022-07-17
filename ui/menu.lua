@@ -113,8 +113,10 @@ function Menu:init(args)
     end
 
     self.default_prerender = args.default_prerender or self.prerender_item
+    self.default_update = args.default_update or self.update_item
     self.default_draw = args.default_draw or self.draw_item
     self.default_hover = args.default_hover or self.hover_item
+    self.default_unhover = args.default_unhover or self.unhover_item
     self.default_action = args.default_action or function() error("No action configured") end
     -- Separate callbacks that are unconditionally called (first!), useful for cursor sounds
     self.on_cursor_move = args.on_cursor_move or function() end
@@ -145,6 +147,9 @@ end
 function Menu:update(dt)
     if self.cursor_sprite then
         self.cursor_sprite:update(dt)
+    end
+    for _, item in ipairs(self.items) do
+        (item.update or self.default_update)(self, item, dt)
     end
 end
 
@@ -237,6 +242,9 @@ function Menu:prerender_item(item)
     item.inner_height = self.font.full_height
 end
 
+function Menu:update_item(item, dt)
+end
+
 function Menu:draw_item(item, x, y, selected)
     local inner_x = x + self.itempadding.left
     if selected then
@@ -276,8 +284,17 @@ function Menu:hover_item(item)
     -- Do nothing
 end
 
+function Menu:unhover_item(item)
+    -- Do nothing
+end
+
 
 -- API
+
+function Menu:_unhover(prev)
+    local item = self.items[prev]
+    ;(item.unhover or self.default_unhover)(self, item)
+end
 
 function Menu:_hover()
     local item = self.items[self.cursor]
@@ -293,6 +310,7 @@ function Menu:up()
     end
 
     if prev ~= self.cursor then
+        self:_unhover(prev)
         self.on_cursor_move(self)
         self:_hover()
     end
@@ -307,6 +325,7 @@ function Menu:down()
     end
 
     if prev ~= self.cursor then
+        self:_unhover(prev)
         self.on_cursor_move(self)
         self:_hover()
     end
@@ -420,6 +439,7 @@ function Menu:set_cursor(cursor)
     end
 
     if prev ~= self.cursor then
+        self:_unhover(prev)
         self.on_cursor_move(self)
         self:_hover()
     end
