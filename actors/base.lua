@@ -700,10 +700,10 @@ function SentientActor:determine_pose()
     elseif self.is_floating then
         return 'fall'
     elseif climb.is_climbing then
-        if climb.decision < 0 then
-            return 'climb'
-        elseif climb.decision > 0 then
+        if climb.decision > 0 then
             return 'descend'
+        elseif climb.decision < 0 or climb.is_moving then
+            return 'climb'
         else
             return 'hold'
         end

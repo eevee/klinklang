@@ -371,9 +371,7 @@ function Jump:update(dt)
         end
 
         -- Perform the actual jump
-        self:do_normal_jump()
-
-        return true
+        return self:do_normal_jump()
     elseif self.decision == 0 then
         -- We released jump at some point, so cut our upwards velocity
         if not fall.grounded and self.is_jumping then
@@ -398,6 +396,8 @@ function Jump:do_normal_jump()
         end
         sfx:play()
     end
+
+    return true
 end
 
 function Jump:do_special_jump(speed, affect_decision)
@@ -413,18 +413,16 @@ function Jump:do_special_jump(speed, affect_decision)
         -- TODO Game needs a Jukebox mixer thing
         self.sound:clone():play()
     end
+
+    return true
 end
 
 
 -- Climb
 -- FIXME remaining issues:
--- - various fixmes/todos in here
 -- - if you're already holding up/down when you first touch a climbable, you currently ignore it,
--- but you should totally grab on
--- - two ladders side by side, or support for a big climbable surface?  how do we track that,
--- remember climbables in the two other directions too?  flag for whether something supports
--- horizontal climbing?  (but again, two ladders?  what's the transition between the
--- approach-the-middle behavior for one and whatever would happen with two?)
+-- but you should totally grab on (but that would break down+jump to fall off)
+-- - normalize v/h movement?  somehow?
 local Climb = Component:extend{
     slot = 'climb',
     priority = -1001,  -- needed before basic physics to override one-way collision
@@ -432,18 +430,25 @@ local Climb = Component:extend{
     -- Configuration --
     -- Speed of movement while climbing
     speed = 128,
+    sideways_speed = 64,
     -- Speed of the jump done off a ladder
     jump_speed = 0,
+    -- How far sideways we can climb to reach an adjacent climbable
+    -- Note that if at any point the actor is not touching any climbables at all, they will stop
+    -- climbing regardless, so be mindful of the gaps between adjacent ladders!
+    sideways_margin = 32,
 
     -- State --
     is_climbing = false,
-    is_aligned = false,  -- whether the actor is centered on us
+    is_moving = false,
+    is_aligned = false,  -- whether the actor is centered
 }
 
 function Climb:init(actor, args)
     Climb.__super.init(self, actor, args)
 
     self.speed = args.speed
+    self.sideways_speed = args.sideways_speed
     self.jump_speed = args.jump_speed
 end
 
@@ -478,41 +483,34 @@ end
 function Climb:is_blocked_by(obstacle)
     -- Ignore collision with one-way platforms when climbing ladders, since they tend to cross (or
     -- themselves be) one-way platforms
-    -- FIXME shouldn't do this at the very bottom of a ladder!
-    if obstacle.one_way_direction and self.is_climbing then
+    if obstacle.one_way_direction and self.is_climbing and self.decision > 0 then
         return false
     end
 end
 
 function Climb:after_collisions(movement, collisions)
-    -- Check for whether we're touching something climbable
-    for _, collision in ipairs(collisions) do
-        local obstacle = collision.their_owner
-        -- TODO i wonder if climbability should be a component, the way interactability is
-        if obstacle and obstacle.is_climbable then
-            -- The reason for the up/down distinction is that if you're standing at
-            -- the top of a ladder, you should be able to climb down, but not up
-            -- FIXME these seem like they should specifically grab the highest and lowest in case of ties...
-            -- FIXME aha, shouldn't this check if we're overlapping /now/?
-            -- FIXME this is super not gonna work for "climbing" sideways
-            -- FIXME why not just do this with a cast when first attempting to climb...?
-            if collision.overlapped or collision:faces(Vector(0, -1)) then
-                self.actor.ptrs.climbable_down = obstacle
-                self.on_climbable_down = collision
+    if self.is_climbing then
+        -- Check for whether we're touching something climbable
+        local touching_climbable = false
+
+        for _, collision in ipairs(collisions) do
+            local obstacle = collision.their_owner
+            -- TODO i wonder if climbability should be a component, the way interactability is
+            if obstacle and obstacle.is_climbable then
+                touching_climbable = true
             end
-            if collision.overlapped or collision:faces(Vector(0, 1)) then
-                self.actor.ptrs.climbable_up = obstacle
-                self.on_climbable_up = collision
+
+            -- If we're climbing downwards and hit something (i.e., the ground), let go.  But only if
+            -- we're actually centered, else it's tricky to climb down through a gap in solid floor
+            -- FIXME gravity hardcoded
+            if self.is_aligned and not collision.passable and collision:faces(Vector(0, -1)) then
+                self:stop_climbing()
             end
         end
 
-        -- If we're climbing downwards and hit something (i.e., the ground), let go.  But only if
-        -- we're actually centered, else it's tricky to climb down through a gap in solid floor
-        if self.is_climbing and self.is_aligned and self.decision and self.decision > 0 and
-            -- FIXME gravity hardcoded
-            not collision.passable and collision:faces(Vector(0, -1))
-        then
-            self:_end_climbing()
+        -- Emergency escape hatch: if you're not touching anything climbable, stop climbing!
+        if not touching_climbable then
+            self:stop_climbing()
         end
     end
 end
@@ -538,7 +536,7 @@ function Climb:_begin_climbing()
     end
 end
 
-function Climb:_end_climbing()
+function Climb:stop_climbing()
     if not self.is_climbing then
         return
     end
@@ -554,16 +552,20 @@ end
 function Climb:update(dt)
     local jump = self:get('jump')
 
+    self.is_moving = false
+
+    local climb_x = 0
+    if self.is_climbing then
+        climb_x = self:get('walk').raw_decision.x
+    end
+
     -- TODO does climbing make sense in no-gravity mode?
-    if not self.on_climbable_up and not self.on_climbable_down then
-        -- Emergency escape hatch: if you're not touching anything climbable, stop climbing!
-        self:_end_climbing()
-    elseif self.decision == nil then
+    if self.decision == nil then
         -- Decision API says let go
-        self:_end_climbing()
+        self:stop_climbing()
     elseif self.is_climbing and jump and jump.decision == 2 then
         -- Jump to let go
-        self:_end_climbing()
+        self:stop_climbing()
         -- If holding descend, simply drop; otherwise do a jump.  (This is presumed to be a very
         -- short jump, so it doesn't support releasing early like Jump does.)
         if self.decision > 0 then
@@ -573,81 +575,183 @@ function Climb:update(dt)
             self:get('move'):set_velocity(Vector(0, self.speed))
         else
             jump:do_special_jump(self.jump_speed)
-        end
-    else
-        if math.abs(self.decision) == 2 or (math.abs(self.decision) == 1 and self.is_climbing) then
-            -- Trying to grab a ladder; if we're touching one, do so
-            if self.decision < 0 and self.actor.ptrs.climbable_up then
-                self.actor.ptrs.climbing = self.actor.ptrs.climbable_up
-                self:_begin_climbing()
-                self.climbing = self.on_climbable_up
-                self.decision = -1
-            elseif self.decision > 0 and self.actor.ptrs.climbable_down then
-                self.actor.ptrs.climbing = self.actor.ptrs.climbable_down
-                self:_begin_climbing()
-                self.climbing = self.on_climbable_down
-                self.decision = 1
-            else
-                -- There's nothing to climb!
-                self:_end_climbing()
+            -- Add a little bit of horizontal speed to get you away from the ladder, in the
+            -- direction you're trying to move
+            if climb_x ~= 0 then
+                self:get('move'):add_velocity(Vector(self.sideways_speed * climb_x, 0))
             end
         end
-        if self.is_climbing then
-            self:do_climb(dt)
+    elseif
+        -- Either climbing, or trying to climb
+        (self.is_climbing or math.abs(self.decision) == 2) and
+        -- And indicating some kind of desire for motion
+        -- (Note that horizontal movement does not ever initiate a climb)
+        (climb_x ~= 0 or self.decision ~= 0 or not self.is_aligned)
+    then
+        local motion_y = util.sign(self.decision) * self.speed * dt
+        local test_motion = Vector(climb_x * self.sideways_margin, motion_y)
+        local actor_x0, actor_y0, actor_x1, actor_y1 = self.actor.shape:bbox()
+        local actor_width = actor_x1 - actor_x0
+        local actor_center = self.actor.pos.x
+        local drawshapes = {}
+        local touching_climbable = false
+        local min_y = math.huge
+        local max_y = -math.huge
+        local sideways_ok = false
+        local check_oneway = false
+        -- Don't care about success, only about what's there
+        local successful, hits = self.actor.map.collider:sweep(self.actor.shape, test_motion)
+        for _, collision in ipairs(hits) do
+            table.insert(drawshapes, collision.their_shape)
+
+            if collision.their_owner.is_climbable then
+                -- ???
+                if collision.overlapped or collision.contact_type > 0 then
+                    touching_climbable = true
+
+                    -- Vertical movement: don't climb so far that we're no longer touching anything, so
+                    -- track the vertical extent of what's climbable
+                    local x0, y0, x1, y1 = collision.their_shape:bbox()
+                    min_y = math.min(min_y, y0)
+                    max_y = math.max(max_y, y1)
+
+                    -- Horizontal movement: if there's something to climb in that direction, allow
+                    -- moving towards it, even if we can't immediately reach it.
+                    -- Remember that we snap to the center of a ladder, so the question here is
+                    -- whether there's a shape in the direction we're moving whose center is still
+                    -- beyond our own position.
+                    if not sideways_ok then
+                        -- If we're on something wider than ourselves, it's a "trellis", and we can
+                        -- always climb horizontally as long as we're touching it
+                        -- (Note this doesn't have the same edge clamping as vertical movement, but
+                        -- if we have Walk then we can move sideways normally anyway.)
+                        if collision.overlapped and x1 - x0 > actor_width then
+                            sideways_ok = true
+                        else
+                            local center = (x0 + x1) / 2
+                            if (center - actor_center) * climb_x > 0 then
+                                sideways_ok = true
+                            end
+                        end
+                    end
+                end
+            end
+        end
+        self._drawshapes = drawshapes
+
+        if not touching_climbable then
+            -- Nothing we can do here!
+            return
+        end
+        if math.abs(self.decision) == 2 then
+            self.decision = self.decision / 2
+        end
+
+        -- If we might hit a one-way platform, we only want to pass through it if there's
+        -- something climbable on the other side.  Now that we know the vertical extent of the
+        -- climbables we'll touch, check if any one-ways are beyond them, and if so, clamp
+        local abandon_climb = false
+        for _, collision in ipairs(hits) do
+            if not collision.overlapped and collision.contact_type >= 0 and
+                collision.their_owner.one_way_direction and
+                collision:faces(collision.their_owner.one_way_direction) and
+                self.actor.map:check_blocking(self.actor, collision.their_owner, collision)
+            then
+                local _, obstacle_y0, _, obstacle_y1 = collision.their_shape:bbox()
+                if motion_y > 0 and obstacle_y0 >= max_y then
+                    motion_y = math.min(motion_y, obstacle_y0 - actor_y1)
+                    -- In this special case, of landing on a one-way platform partway down a ladder,
+                    -- we need to stop climbing here
+                    abandon_climb = true
+                    -- Remember, these are in collided order, so we can stop as soon as we find
+                    -- one that should block us
+                    break
+                end
+            end
+        end
+
+        -- Cap vertical movement
+        local orig_motion_y = motion_y
+        if self.decision > 0 then
+            motion_y = math.min(motion_y, max_y - actor_y0)
+        elseif motion_y < 0 then
+            motion_y = math.max(motion_y, min_y - actor_y1)
+        end
+        -- If we did just cap it, it's because we're going off the edge of what we're climbing, so
+        -- stop climbing after this motion
+        if orig_motion_y ~= motion_y then
+            abandon_climb = true
+        end
+
+        -- Deal with horizontal movement
+        local motion_x = 0
+        local is_centering = false
+        if sideways_ok then
+            motion_x = climb_x * self.sideways_speed * dt
+        -- Stupid problem: if you stand at a ladder on the ground and press down, all this code runs
+        -- and tries to climb downwards for you, including doing a centering nudge, and then you
+        -- immediately hit the ground so you let go.  Solution: don't center on the initial grab
+        elseif self.is_climbing then
+            -- Try to center on whatever we're grabbing
+            local primary_distance = math.huge
+            local primary_center
+            -- FIXME gravity dependant...?  how do ladders work in other directions??
+            for _, collision in ipairs(hits) do
+                if collision.overlapped and collision.their_owner.is_climbable then
+                    local x0, _, x1, _ = collision.their_shape:bbox()
+                    local center = (x0 + x1) / 2
+                    local distance = math.abs(actor_center - center)
+                    if distance < primary_distance then
+                        primary_center = center
+                        primary_distance = distance
+                    end
+                end
+            end
+
+            if primary_center then
+                local dx = primary_center - self.actor.pos.x
+                local max_dx = self.sideways_speed * dt
+                if math.abs(dx) < max_dx then
+                    self.is_aligned = true
+                end
+                is_centering = true
+                motion_x = util.sign(dx) * math.min(math.abs(dx), max_dx)
+            else
+                self.is_aligned = true
+            end
+        end
+
+        -- TODO normalize movement?  how, with different speeds?  oops
+        if motion_x ~= 0 or motion_y ~= 0 then
+            if self:do_climb(motion_x, motion_y, is_centering) then
+                self:_begin_climbing()
+                self.is_moving = true
+            end
+
+            if abandon_climb then
+                self:stop_climbing()
+            end
         end
     end
-
-    -- Clear these pointers so collision detection can repopulate them
-    self.actor.ptrs.climbable_up = nil
-    self.actor.ptrs.climbable_down = nil
-    self.on_climbable_up = nil
-    self.on_climbable_down = nil
 end
 
--- This is split out so fox flux's slime can use it
-function Climb:compute_centering_nudge(dt)
-    -- FIXME gravity dependant...?  how do ladders work in other directions?
-    local x0, _y0, x1, _y1 = self.climbing.shape:bbox()
-    local ladder_center = (x0 + x1) / 2
-    -- FIXME uhh, is this the point that should even be snapped...?
-    local dx = ladder_center - self.actor.pos.x
-    if math.abs(dx) < 1 then
-        self.is_aligned = true
-    end
-    local max_dx = self.speed * dt
-    return util.sign(dx) * math.min(math.abs(dx), max_dx)
-end
-
-function Climb:do_climb(dt)
+-- This is split out so fox flux's slime can override it
+function Climb:do_climb(dx, dy, is_centering)
     local move = self:get('move')
 
-    -- Discard any velocity from last frame
+    -- Discard any velocity from last frame; climbing controls your velocity
     move:set_velocity(Vector())
 
-    if self.decision == 0 then
+    if dx == 0 and dy == 0 then
         return
     end
 
-    -- Slide us gradually towards the center of a ladder
-    local dx = self:compute_centering_nudge(dt)
-
     -- Climbing is done with a nudge, rather than velocity, to avoid building momentum which would
     -- then launch you off the top
-    if self.decision < 0 then
-        local climb_distance = self.speed * dt
+    local successful = move:nudge(Vector(dx, dy))
 
-        -- Figure out how far we are from the top of the ladder
-        local ladder = self.on_climbable_up
-        local separation = ladder.left_separation or ladder.right_separation
-        if separation then
-            local distance_to_top = separation * Vector(0, -1)
-            if distance_to_top > 0 then
-                climb_distance = math.min(distance_to_top, climb_distance)
-            end
-        end
-        move:nudge(Vector(dx, -climb_distance))
-    elseif self.decision > 0 then
-        move:nudge(Vector(dx, self.speed * dt))
+    if successful.x ~= 0 or successful.y ~= 0 then
+        return true
     end
 end
 
