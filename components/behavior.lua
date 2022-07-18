@@ -593,7 +593,6 @@ function Climb:update(dt)
         local actor_x0, actor_y0, actor_x1, actor_y1 = self.actor.shape:bbox()
         local actor_width = actor_x1 - actor_x0
         local actor_center = self.actor.pos.x
-        local drawshapes = {}
         local touching_climbable = false
         local min_y = math.huge
         local max_y = -math.huge
@@ -602,8 +601,6 @@ function Climb:update(dt)
         -- Don't care about success, only about what's there
         local successful, hits = self.actor.map.collider:sweep(self.actor.shape, test_motion)
         for _, collision in ipairs(hits) do
-            table.insert(drawshapes, collision.their_shape)
-
             if collision.their_owner.is_climbable then
                 -- ???
                 if collision.overlapped or collision.contact_type > 0 then
@@ -637,7 +634,6 @@ function Climb:update(dt)
                 end
             end
         end
-        self._drawshapes = drawshapes
 
         if not touching_climbable then
             -- Nothing we can do here!
