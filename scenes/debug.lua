@@ -8,6 +8,11 @@ local DebugScene = BaseScene:extend{
     __tostring = function(self) return "pausescene" end,
 
     current_screen = 'main',
+
+    submenus = {
+        {'WORLD', 'do_world_menu'},
+        {'DIALOGUE', 'do_dialogue_menu'},
+    },
 }
 
 --------------------------------------------------------------------------------
@@ -17,15 +22,15 @@ function DebugScene:init(font)
     DebugScene.__super.init(self)
 
     self.pause_state = { text = 'Stop time', checked = true }
-    self.twiddle_states = {
-        { _twiddle = 'show_blockmap', text = "Show blockmap" },
+    self.world_twiddle_states = {
         { _twiddle = 'show_collision', text = "Show collisions" },
         { _twiddle = 'show_shapes', text = "Show all shapes" },
+        { _twiddle = 'show_blockmap', text = "Show blockmap" },
         { _twiddle = 'enable_mouse', text = "Enable mouse inspection" },
     }
 
     self.menu = 'main'
-    self.main_submenu = 'WORLD'
+    self.selected_submenu = self.submenus[1]
     self.font = font or love.graphics.getFont()
     self.unit = self.font:getHeight() * self.font:getLineHeight()
 
@@ -39,14 +44,6 @@ function DebugScene:init(font)
             sfx = game.resource_manager:load(path),
         })
     end
-
-    self.forms = {
-        'rubber',   'slime',    'glass',    'pooltoy',  'robo',     'micro',
-        'holo',     false,      false,      false,      false,      false,
-        'kobold',   'starcow',  'slither',  'drone',    false,      false,
-        'stone',    'ice',      'balloon',  'bouncy',   false,      false,
-        'bodyless', 'glitch',   'nega',     false,      false,      false,
-    }
 end
 
 local function _suit_scrollable_area(layout, width, height, scrollbar_state, callback)
@@ -102,17 +99,19 @@ function DebugScene:do_main_menu(dt)
     suit.layout:push(suit.layout:row(width, self.unit))
     local buttonct = 4
     local button_width = math.floor((width - padding * (buttonct - 1)) / buttonct)
-    for _, submenu in ipairs{'WORLD', 'DIALOGUE'} do
+    local submenu_method = 'do_world_menu'
+    for _, submenu in ipairs(self.submenus) do
+        local label, method_name = unpack(submenu)
         local opt = {}
-        if submenu == self.main_submenu then
+        if submenu == self.selected_submenu then
             opt.color = {
                 normal = suit.theme.color.hovered,
                 hovered = suit.theme.color.hovered,
                 active = suit.theme.color.hovered,
             }
         end
-        if suit.Button(submenu, opt, suit.layout:col(button_width, self.unit)).hit then
-            self.main_submenu = submenu
+        if suit.Button(label, opt, suit.layout:col(button_width, self.unit)).hit then
+            self.selected_submenu = submenu
             --self.scrollbar_state = {min = 0, value = 0}
         end
     end
@@ -121,11 +120,7 @@ function DebugScene:do_main_menu(dt)
 
     suit.layout:push(suit.layout:row(width, height))
     _suit_scrollable_area(suit.layout, width, height, self.scrollbar_state, function(inner_width)
-        if self.main_submenu == 'WORLD' then
-            self:do_world_menu(inner_width)
-        elseif self.main_submenu == 'DIALOGUE' then
-            self:do_dialogue_menu(inner_width)
-        end
+        self[self.selected_submenu[2]](self, inner_width)
     end)
     suit.layout:pop()
 end
@@ -133,51 +128,12 @@ end
 function DebugScene:do_world_menu(inner_width)
     -- FIXME oughta save these settings somewhere
     -- FIXME and make command-line args for them?
-    for _, state in ipairs(self.twiddle_states) do
+    for _, state in ipairs(self.world_twiddle_states) do
         local checked = game.debug_twiddles[state._twiddle]
         state.checked = checked
         if suit.Checkbox(state, suit.layout:row(inner_width, self.unit)).hit then
             game.debug_twiddles[state._twiddle] = not checked
         end
-    end
-
-    suit.layout:push(suit.layout:row())
-    local padx, pady = suit.layout:padding()
-    local form_columns = 6
-    local bw = math.floor((inner_width - (form_columns - 1) * padx) / form_columns)
-    for n, form in ipairs(self.forms) do
-        if not form then
-            goto continue
-        end
-        if n > 1 and (n - 1) % form_columns == 0 then
-            suit.layout:pop()
-            suit.layout:push(suit.layout:row())
-        end
-        local opt = {}
-        if form == worldscene.player.form then
-            opt.color = {
-                normal = suit.theme.color.hovered,
-                hovered = suit.theme.color.hovered,
-                active = suit.theme.color.hovered,
-            }
-        end
-        if suit.Button(form, opt, suit.layout:col(bw, self.unit)).hit then
-            worldscene.player:transform(form)
-        end
-        ::continue::
-    end
-    suit.layout:pop()
-
-    if suit.Button("Give all discovered hearts", suit.layout:row()).hit then
-        for region, map_hearts in pairs(game.progress.hearts) do
-            for map_path, hearts in pairs(map_hearts) do
-                for heart, collected in pairs(hearts) do
-                    hearts[heart] = true
-                end
-            end
-        end
-        game.is_dirty = true
-        worldscene:update_heart_counts()
     end
 end
 
