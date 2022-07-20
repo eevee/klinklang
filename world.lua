@@ -575,7 +575,8 @@ function Map:_create_initial_actors()
         return
     end
 
-    self._actors_by_id = {}
+    self._actors_by_id = setmetatable({}, { __mode = 'v' })
+    self._actor_ids = setmetatable({}, { __mode = 'k' })
     -- TODO this seems /slightly/ invasive but i'm not sure where else it would
     -- go.  i guess if the "map" parts of the world got split off it would be
     -- more appropriate.  i DO like that it starts to move "submap" out of the
@@ -621,6 +622,7 @@ function Map:_create_initial_actors()
             local actor = class(position, template.properties, template.shapes, template.tile, template.object)
             if template.id then
                 self._actors_by_id[template.id] = actor
+                self._actor_ids[actor] = template.id
             end
             table.insert(pending_actors, actor)
         end

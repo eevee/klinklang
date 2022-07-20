@@ -85,6 +85,10 @@ function Game:assign_controls(mapping)
     self.input = baton.new(mapping)
 end
 
+function Game:update(dt)
+    self.input:update(dt)
+end
+
 
 --------------------------------------------------------------------------------
 -- Game resolution
