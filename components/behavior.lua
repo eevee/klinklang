@@ -441,7 +441,8 @@ local Climb = Component:extend{
     -- State --
     is_climbing = false,
     is_moving = false,
-    is_aligned = false,  -- whether the actor is centered
+    is_aligned = false,  -- whether the actor is centered on a ladder
+    enable_oneway_passthru = false,  -- set only during our own nudging
 }
 
 function Climb:init(actor, args)
@@ -483,7 +484,7 @@ end
 function Climb:is_blocked_by(obstacle)
     -- Ignore collision with one-way platforms when climbing ladders, since they tend to cross (or
     -- themselves be) one-way platforms
-    if obstacle.one_way_direction and self.is_climbing and self.decision > 0 then
+    if self.enable_oneway_passthru and obstacle.one_way_direction then
         return false
     end
 end
@@ -719,10 +720,14 @@ function Climb:update(dt)
 
         -- TODO normalize movement?  how, with different speeds?  oops
         if motion_x ~= 0 or motion_y ~= 0 then
+            if self.is_climbing and self.decision > 0 then
+                self.enable_oneway_passthru = false
+            end
             if self:do_climb(motion_x, motion_y, is_centering) then
                 self:_begin_climbing()
                 self.is_moving = true
             end
+            self.enable_oneway_passthru = false
 
             if abandon_climb then
                 self:stop_climbing()
