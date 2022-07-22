@@ -185,7 +185,8 @@ function TiledMapLayer:_make_shapes_and_actors()
         for _, obj in ipairs(self.layer.objects) do
             -- TODO could maybe generalize this to do other stuff?  actually i
             -- guess we could even spawn actors from here??  ehh, hm
-            if obj.type == 'collision' then
+            local objtype = obj.class or obj.type
+            if objtype == 'collision' then
                 local actor = TiledMapCollision(obj)
                 self.shapes[actor.shape] = actor
             end

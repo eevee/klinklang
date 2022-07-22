@@ -592,7 +592,8 @@ function Map:_create_initial_actors()
             self:_add_image_layer_actor(layer, self.tiled_map)
         elseif layer.type == 'objectgroup' then
             for _, obj in ipairs(layer.objects) do
-                if obj.type == 'collision' then
+                local objtype = obj.class or obj.type
+                if objtype == 'collision' then
                     -- TODO i wonder if the map should create these
                     -- automatically on load so i don't need to call this
                     local shapes = tiledmap.tiled_shape_to_whammo_shapes(obj)

@@ -123,10 +123,11 @@ function TiledTile:init(tileset, id)
     end
     if objects then
         for _, obj in ipairs(objects) do
-            if obj.type == "anchor" then
+            local objtype = obj.class or obj.type
+            if objtype == "anchor" then
                 -- anchor
                 self.anchor = Vector(obj.x, obj.y)
-            elseif obj.type == "" or obj.type == "collision" then
+            elseif objtype == "" or objtype == "collision" then
                 -- collision shape
                 local new_shapes = tiled_shape_to_whammo_shapes(obj)
                 if self.collision_shapes == nil then
@@ -141,10 +142,10 @@ function TiledTile:init(tileset, id)
                 if not self.extra_shapes then
                     self.extra_shapes = {}
                 end
-                local extras = self.extra_shapes[obj.type]
+                local extras = self.extra_shapes[objtype]
                 if not extras then
                     extras = {}
-                    self.extra_shapes[obj.type] = extras
+                    self.extra_shapes[objtype] = extras
                 end
 
                 if obj.point then
@@ -157,7 +158,7 @@ function TiledTile:init(tileset, id)
                     -- implemented it; that's a good use case
                     error(
                         ("Don't know how to handle shape type %s on tile %s")
-                        :format(obj.type, self))
+                        :format(objtype, self))
                 end
             end
         end
@@ -596,6 +597,7 @@ function TiledMap:add_layer(layer)
         end
     elseif layer.type == 'objectgroup' then
         for _, object in ipairs(layer.objects) do
+            local objtype = object.class or object.type
             if object.tile then
                 -- This is a "tile" object
                 -- FIXME this is a mess lol, but i want it so tiles can also
@@ -621,24 +623,24 @@ function TiledMap:add_layer(layer)
                         tile = object.tile,
                     })
                 end
-            elseif object.type == 'player start' then
+            elseif objtype == 'player start' then
                 self.player_start = Vector(object.x, object.y)
-            elseif object.type == 'spot' then
+            elseif objtype == 'spot' then
                 local point = Vector(object.x, object.y)
                 self.named_spots[object.name] = point
                 if not self.player_start then
                     self.player_start = point
                 end
-            elseif object.type == 'music zone' then
+            elseif objtype == 'music zone' then
                 local shapes = tiled_shape_to_whammo_shapes(object)
                 for _, shape in ipairs(shapes) do
                     -- FIXME this is broken, resource_manager isn't down here
                     self.music_zones[shape] = resource_manager:load(object.properties.music)
                 end
-            elseif object.type ~= '' and object.type ~= 'collision' then
+            elseif objtype ~= '' and objtype ~= 'collision' then
                 table.insert(self.actor_templates, {
                     id = object.id,
-                    name = object.type,
+                    name = objtype,
                     submap = layer.submap,
                     position = Vector(object.x, object.y),
                     properties = extract_properties(object, self.path),
