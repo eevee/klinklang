@@ -103,13 +103,13 @@ function Menu:init(args)
         self.visible_columns = raw_columns
         self.physical_rows = math.ceil(#args / self.physical_columns)
         self.visible_rows = raw_rows or self.physical_rows
-        self.scroll_max = self.physical_rows - self.visible_rows + 1
+        self.scroll_max = math.max(1, self.physical_rows - self.visible_rows + 1)
     else
         self.physical_rows = raw_rows
         self.visible_rows = raw_rows
         self.physical_columns = math.ceil(#args / self.physical_rows)
         self.visible_columns = raw_columns or self.physical_columns
-        self.scroll_max = self.physical_columns - self.visible_columns + 1
+        self.scroll_max = math.max(1, self.physical_columns - self.visible_columns + 1)
     end
 
     self.default_prerender = args.default_prerender or self.prerender_item
@@ -268,9 +268,9 @@ function Menu:draw_item(item, x, y, selected)
         love.graphics.setColor(self.textcolor)
     end
     item.text:draw(inner_x, inner_y)
+    love.graphics.setColor(1, 1, 1)
 
     if selected then
-        love.graphics.setColor(1, 1, 1)
         if self.cursor_sprite then
             -- FIXME this, goofily, presumes the cursor's anchor is centered
             self.cursor_sprite:draw_at(Vector(
@@ -293,12 +293,16 @@ end
 
 function Menu:_unhover(prev)
     local item = self.items[prev]
-    ;(item.unhover or self.default_unhover)(self, item)
+    if item then
+        (item.unhover or self.default_unhover)(self, item)
+    end
 end
 
 function Menu:_hover()
     local item = self.items[self.cursor]
-    ;(item.hover or self.default_hover)(self, item)
+    if item then
+        (item.hover or self.default_hover)(self, item)
+    end
 end
 
 function Menu:up()
@@ -443,6 +447,22 @@ function Menu:set_cursor(cursor)
         self.on_cursor_move(self)
         self:_hover()
     end
+end
+
+-- Returns where on "the scrollbar" we are: 0 if at the top (or if no overflow), 1 if at the bottom,
+-- some fraction if in the middle.  If all the items fit (and there should be no scrollbar at all),
+-- returns nil.
+function Menu:scroll_offset()
+    if self.scroll_position > self.scroll_max then
+        -- Can't scroll forward, but should still be able to scroll back!
+        return 1
+    end
+
+    if self.scroll_max == 1 then
+        return nil
+    end
+
+    return (self.scroll_position - 1) / (self.scroll_max - 1)
 end
 
 function Menu:current()
