@@ -750,9 +750,11 @@ function Climb:update(dt)
             if self.is_climbing and self.decision > 0 then
                 self.enable_oneway_passthru = false
             end
+            self:_begin_climbing()
             if self:do_climb(motion_x, motion_y, is_centering) then
-                self:_begin_climbing()
                 self.is_moving = true
+            else
+                self:stop_climbing()
             end
             self.enable_oneway_passthru = false
 
