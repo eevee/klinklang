@@ -284,6 +284,8 @@ local Jump = Component:extend{
     max_jumps = 1,
     -- How long after walking off a cliff we should still be allowed to jump
     coyote_duration = 0.1,
+    -- How early before hitting the ground we can press the jump button
+    buffer_window = 0.1,
 
     -- State --
     -- 2 when initially jumping, 1 when continuing a jump, 0 when abandoning a jump
@@ -296,6 +298,8 @@ local Jump = Component:extend{
     is_jumping = false,
     -- How long it's been since we were last on the ground
     coyote_timer = 0,
+    -- How long it's been since we last attempted to jump (i.e. decision == 2)
+    buffer_timer = 0,
 }
 
 -- FIXME needs to accept max jumps
@@ -349,11 +353,24 @@ function Jump:update(dt)
         self.is_jumping = false
     end
 
-    -- Jumping
+    -- Jump buffering: allow pressing jump just before hitting the ground in order
+    if self.decision == 2 then
+        self.buffer_timer = 0
+    else
+        self.buffer_timer = self.buffer_timer + dt
+    end
+
+    -- Some things cannot be jumped on.  (Originally for the fox flux bouncy shroom, where a
+    -- frame-perfect jump plays a sound and allows jump cancel, neither of which makes sense.)
+    if self.actor.ptrs.ground and self.actor.ptrs.ground.is_unjumpable then
+        return
+    end
+
+    -- Perform the actual jump, if appropriate
     -- This uses the Sonic approach: pressing jump immediately sets (not
     -- increases!) the player's y velocity, and releasing jump lowers the y
     -- velocity to a threshold
-    if self.decision == 2 then
+    if self:attempting_jump() then
         self.decision = 1
         if move.velocity.y <= -self.speed then
             -- Already moving upwards at jump speed, so nothing to do
@@ -377,6 +394,16 @@ function Jump:update(dt)
         if not fall.grounded and self.is_jumping then
             move.pending_velocity.y = math.max(move.pending_velocity.y, -self.speed * self.abort_multiplier)
         end
+    end
+end
+
+function Jump:attempting_jump()
+    if self.decision == 2 then
+        return true
+    elseif self.decision == 1 and self.buffer_timer <= self.buffer_window then
+        return true
+    else
+        return false
     end
 end
 
