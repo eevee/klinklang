@@ -15,6 +15,15 @@ function Menu:init(args)
     self.anchory = math.floor(args.y)
     self.xalign = args.xalign or 'center'
     self.yalign = args.yalign or 'top'
+    if args.textalign == 'left' then
+        self.textalign = 0
+    elseif args.textalign == 'center' then
+        self.textalign = 0.5
+    elseif args.textalign == 'right' then
+        self.textalign = 1
+    else
+        self.textalign = args.textalign or 0
+    end
     self.margin = args.margin or 0
     self.marginx = args.marginx or self.margin
     self.marginy = args.marginy or self.margin
@@ -247,6 +256,9 @@ end
 
 function Menu:draw_item(item, x, y, selected)
     local inner_x = x + self.itempadding.left
+    local inner_width = item.inner_width - self.itempadding.left - self.itempadding.right
+    -- FIXME won't work with different size columns
+    inner_x = inner_x + math.floor((self.inner_width - item.text:get_width()) * self.textalign)
     if selected then
         inner_x = inner_x + self.cursor_indent
     end
@@ -350,7 +362,8 @@ function Menu:move_cursor(dx, dy)
 
     -- Move left/right, one at a time
     if dx < 0 then
-        if cursor % col_ct == 1 then
+        -- cursor == 1 can happen for a single-item menu
+        if cursor % col_ct == 1 or cursor == 1 then
             overflow_x = -1
             if overflow_behavior == 'wrap' then
                 cursor = cursor + col_ct - 1
