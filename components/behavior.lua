@@ -747,8 +747,8 @@ function Climb:update(dt)
 
         -- TODO normalize movement?  how, with different speeds?  oops
         if motion_x ~= 0 or motion_y ~= 0 then
-            if self.is_climbing and self.decision > 0 then
-                self.enable_oneway_passthru = false
+            if self.decision > 0 then
+                self.enable_oneway_passthru = true
             end
             self:_begin_climbing()
             if self:do_climb(motion_x, motion_y, is_centering) then
