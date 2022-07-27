@@ -432,9 +432,13 @@ function Jump:do_normal_jump()
     self:get('move'):max_out_velocity(Vector(0, -self.speed))
     self.consecutive_jump_count = self.consecutive_jump_count + 1
     self.is_jumping = true
+
     if self.decision == 2 then
         self.decision = 1
     end
+    -- Max out the buffer, so that if we somehow hit the ground very soon after attempting to jump
+    -- (e.g. low ceiling), we don't think this same press is a buffered jump and try again
+    self.buffer_timer = self.buffer_window + 1
 
     if self.sound then
         -- FIXME oh boy, this is gonna be a thing that i have to care about in a lot of places huh
