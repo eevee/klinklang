@@ -46,9 +46,17 @@ end
 local React = Component:extend{
     slot = 'react',
 
+    -- The activator must be...
+    -- ...a player
     player_only = false,
+    -- ...very close to us on the y-axis
     -- TODO super unclear what this means if gravity is different between two things
-    ground_aligned = false,
+    y_aligned_only = false,
+    -- ...standing on the ground
+    grounded_only = false,
+    -- ...something custom (which must return false, not nil)
+    extra_constraint = function() end,
+
     -- Not used here, but may be useful for other components
     hidden = false,
 }
@@ -57,7 +65,9 @@ function React:init(actor, args)
     React.__super.init(self, actor)
 
     self.player_only = args.player_only
-    self.ground_aligned = args.ground_aligned
+    self.y_aligned_only = args.y_aligned_only
+    self.grounded_only = args.grounded_only
+    self.extra_constraint = args.extra_constraint
     self.hidden = args.hidden
 end
 
@@ -66,7 +76,7 @@ function React:is_valid_activator(actor)
         return false
     end
 
-    if self.ground_aligned then
+    if self.y_aligned_only then
         local offset = self.actor.pos.y - actor.pos.y
         -- Note that they must be exactly aligned OR ABOVE us; slightly below is no good, it causes
         -- some very bad results when e.g. opening a fox flux treasure chest on a platform, which
@@ -75,6 +85,17 @@ function React:is_valid_activator(actor)
         if offset < -1e-6 or 4 < offset then
             return false
         end
+    end
+
+    if self.grounded_only then
+        local fall = actor:get('fall')
+        if fall and not fall.grounded then
+            return false
+        end
+    end
+
+    if self.extra_constraint and self.extra_constraint(self, actor) == false then
+        return false
     end
 
     return true
