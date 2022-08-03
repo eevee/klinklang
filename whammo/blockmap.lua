@@ -61,6 +61,7 @@ function Blockmap:add(obj)
             block[obj] = true
         end
     end
+    -- XXX why not store as blocks
     self.bboxes[obj] = {x0, y0, x1, y1}
 
     self.min_x = math.min(self.min_x, x0)
@@ -84,6 +85,7 @@ function Blockmap:remove(obj)
 end
 
 function Blockmap:update(obj)
+    -- XXX could be more efficient i guess
     self:remove(obj)
     self:add(obj)
 end
@@ -91,20 +93,21 @@ end
 function Blockmap:neighbors(obj, dx, dy)
     local x0, y0, x1, y1 = obj:extended_bbox(dx, dy)
 
+    -- XXX could put the wiggle margin here and save some effort for grid-aligned objects, though
+    -- raycast behavior would need touching up for when a ray goes along a line or through a corner
     local a0, b0 = self:to_block_units(x0, y0)
     local a1, b1 = self:to_block_units(x1, y1)
     local ret = {}
     for a = a0, a1 do
-        for b = b0, b1 do
-            -- Get the block manually, to avoid creating one if not necessary
-            local column = self.blocks[a]
-            local block
-            if column then
-                block = column[b]
-            end
-            if block then
-                for neighbor in pairs(block) do
-                    ret[neighbor] = true
+        local column = self.blocks[a]
+        if column then
+            for b = b0, b1 do
+                -- Get the block manually, to avoid creating one if not necessary
+                local block = column[b]
+                if block then
+                    for neighbor in pairs(block) do
+                        ret[neighbor] = true
+                    end
                 end
             end
         end
