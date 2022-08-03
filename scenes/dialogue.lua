@@ -746,7 +746,7 @@ function DialogueScene:run_from(script_index)
         if self.script_index > #self.script then
             -- TODO actually not sure what should happen here
             self.state = 'done'
-            self:exit()
+            self:close()
             return
         end
         next_script_index = self.script_index + 1
@@ -807,7 +807,7 @@ function DialogueScene:run_from(script_index)
         -- Late stage: what to do next
         if step.bail then
             self.state = 'done'
-            self:exit()
+            self:close()
             return
         elseif step.pause then
             -- TODO this is kind of hacky, but fixes the problem that an
@@ -827,7 +827,7 @@ function DialogueScene:run_from(script_index)
 end
 
 function DialogueScene:exit()
-    Gamestate.pop()
+    self:close()
 end
 
 function DialogueScene:draw()
@@ -937,6 +937,14 @@ function DialogueScene:_draw_menu()
         -- FIXME just pop when appropriate dude
         love.graphics.setColor(1, 1, 1)
         self.menu:draw()
+    end
+end
+
+function DialogueScene:close()
+    if self.next_scene then
+        Gamestate.switch(self.next_scene)
+    else
+        Gamestate.pop()
     end
 end
 
