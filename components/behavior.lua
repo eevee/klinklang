@@ -457,7 +457,7 @@ function Jump:do_special_jump(speed, affect_decision)
     self:get('move'):max_out_velocity(Vector(0, -speed))
     self.consecutive_jump_count = self.consecutive_jump_count + 1
     self.is_jumping = true
-    if self.decision == 2 and affect_decision ~= false then
+    if affect_decision ~= false then
         self.decision = 1
     end
 
@@ -473,7 +473,8 @@ end
 -- Climb
 -- FIXME remaining issues:
 -- - if you're already holding up/down when you first touch a climbable, you currently ignore it,
--- but you should totally grab on (but that would break down+jump to fall off)
+-- but you should totally grab on (but that would cause some control problems when trying to jump
+-- between adjacent things, since you would immediately grab back onto what you jumped off of)
 -- - normalize v/h movement?  somehow?
 local Climb = Component:extend{
     slot = 'climb',
@@ -489,6 +490,8 @@ local Climb = Component:extend{
     -- Note that if at any point the actor is not touching any climbables at all, they will stop
     -- climbing regardless, so be mindful of the gaps between adjacent ladders!
     sideways_margin = 32,
+    -- Whether you are allowed to ignore one-way collision while climbing
+    allow_oneway_passthru = true,
 
     -- State --
     is_climbing = false,
@@ -650,7 +653,6 @@ function Climb:update(dt)
         local min_y = math.huge
         local max_y = -math.huge
         local sideways_ok = false
-        local check_oneway = false
         -- Don't care about success, only about what's there
         local successful, hits = self.actor.map.collider:sweep(self.actor.shape, test_motion)
         for _, collision in ipairs(hits) do
@@ -700,21 +702,23 @@ function Climb:update(dt)
         -- something climbable on the other side.  Now that we know the vertical extent of the
         -- climbables we'll touch, check if any one-ways are beyond them, and if so, clamp
         local abandon_climb = false
-        for _, collision in ipairs(hits) do
-            if not collision.overlapped and collision.contact_type >= 0 and
-                collision.their_owner.one_way_direction and
-                collision:faces(collision.their_owner.one_way_direction) and
-                self.actor.map:check_blocking(self.actor, collision.their_owner, collision)
-            then
-                local _, obstacle_y0, _, obstacle_y1 = collision.their_shape:bbox()
-                if motion_y > 0 and obstacle_y0 >= max_y then
-                    motion_y = math.min(motion_y, obstacle_y0 - actor_y1)
-                    -- In this special case, of landing on a one-way platform partway down a ladder,
-                    -- we need to stop climbing here
-                    abandon_climb = true
-                    -- Remember, these are in collided order, so we can stop as soon as we find
-                    -- one that should block us
-                    break
+        if motion_y > 0 then
+            for _, collision in ipairs(hits) do
+                if not collision.overlapped and collision.contact_type >= 0 and
+                    collision.their_owner.one_way_direction and
+                    collision:faces(collision.their_owner.one_way_direction) and
+                    self.actor.map:check_blocking(self.actor, collision.their_owner, collision)
+                then
+                    local _, obstacle_y0, _, obstacle_y1 = collision.their_shape:bbox()
+                    if obstacle_y0 >= max_y or not self.allow_oneway_passthru then
+                        motion_y = math.min(motion_y, obstacle_y0 - actor_y1)
+                        -- In this special case, of landing on a one-way platform partway down a ladder,
+                        -- we need to stop climbing here
+                        abandon_climb = true
+                        -- Remember, these are in collided order, so we can stop as soon as we find
+                        -- one that should block us
+                        break
+                    end
                 end
             end
         end
@@ -773,7 +777,7 @@ function Climb:update(dt)
         -- TODO normalize movement?  how, with different speeds?  oops
         if motion_x ~= 0 or motion_y ~= 0 then
             if self.decision > 0 then
-                self.enable_oneway_passthru = true
+                self.enable_oneway_passthru = self.allow_oneway_passthru
             end
             self:_begin_climbing()
             if self:do_climb(motion_x, motion_y, is_centering) then
