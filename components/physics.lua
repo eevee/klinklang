@@ -181,16 +181,18 @@ function Move:update(dt)
         local friction_direction = friction_decel:trimmed(1)
 
         -- FIXME this only counts against intrinsic velocity, when it should really count against floor-relative velocity, urgh
-        local frame_friction = friction_decel:trimmed(frame_velocity * friction_direction * 0.5)
+        local frame_dot = frame_velocity * friction_direction * 0.5
+        local frame_friction = friction_decel:trimmed(frame_dot)
         --print('. frame friction', frame_friction)
-        if frame_velocity * friction_direction > 0 then
+        if frame_dot > 0 then
             frame_velocity = frame_velocity - frame_friction
         else
             frame_velocity = frame_velocity + frame_friction
         end
 
-        local perma_friction = friction_decel:trimmed(self.velocity * friction_direction)
-        if self.velocity * friction_direction > 0 then
+        local perma_dot = self.velocity * friction_direction
+        local perma_friction = friction_decel:trimmed(perma_dot)
+        if perma_dot > 0 then
             self.velocity = self.velocity - perma_friction
         else
             self.velocity = self.velocity + perma_friction
@@ -349,6 +351,7 @@ function Move:nudge(movement, pushers, xxx_no_slide)
         local successful, hits = collider:sweep(shape, movement, pass_callback)
         game:time_pop('sweep')
         table.insert(all_hits, hits)
+        -- XXX save a bit of effort, don't do this if it's zero, or maybe make shape:move do that
         shape:move(successful:unpack())
         total_movement = total_movement + successful
 
@@ -360,7 +363,9 @@ function Move:nudge(movement, pushers, xxx_no_slide)
         -- This is somewhat arbitrary, but it should avoid some issues where something moves one
         -- pixel every few seconds (which looks bad), and it fixes strange behavior like trying to
         -- walk up a slope into a vertical wall and constantly doing tiny jumps due to sliding
-        if remaining:len2() < 1/64 then
+        -- FIXME maybe should be framerate-sensitive?  otherwise this is a bad solution to walking
+        -- up a wall
+        if remaining:len2() < 1/64 then  -- i.e., remaining is less than 1/8
             break
         end
 
@@ -899,6 +904,7 @@ function SentientFall:after_collisions(movement, collisions)
     -- just explicitly slide in a custom direction
     -- FIXME we seem to do rapid drops when walking atop a circle now...  sigh
     -- FIXME the real logic here is: if i'm //walking// (i.e. this is a normal move update) and nothing else had pushed me away from the ground since last frame, then stick to the ground.  it would be lovely to actually implement that
+    -- FIXME ah another problem, this `if` doesn't trigger at all if i walk on a slope into a wall and get slid straight up it
     if prev_ground_normal and not self.ground_normal and
         math.abs(prev_ground_normal * movement) < 1e-6 and
         self.multiplier > 0 and self.multiplier_down > 0
