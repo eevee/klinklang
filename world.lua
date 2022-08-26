@@ -104,6 +104,32 @@ function Camera:aabb()
     return AABB(self.x, self.y, self.width, self.height)
 end
 
+-- This is intended to be used as a quick test against the position of an actor whose size is much
+-- smaller than the size of the screen, hence the vague name.  In practice it returns true if the
+-- point is less than half a screen size outside of the actual camera view
+function Camera:fuzzy_includes_point(x, y)
+    return (
+        self.x - self.width / 2 < x and x < self.x + self.width * 3 / 2 and
+        self.y - self.height / 2 < y and y < self.y + self.height * 3 / 2)
+end
+
+function Camera:overlaps_bounds(x0, y0, x1, y1)
+    if x1 < self.rounded_x or self.rounded_x + self.width < x0 or
+        y1 < self.rounded_y or self.rounded_y + self.height < y0
+    then
+        return false
+    else
+        return true
+    end
+end
+
+-- Fuzzy version of bounds, for things that we want to activate when nearing the camera
+function Camera:fuzzy_overlaps_bounds(x0, y0, x1, y1)
+    return (
+        self.x - self.width / 2 < x1 and x0 < self.x + self.width * 3 / 2 and
+        self.y - self.height / 2 < y1 and y0 < self.y + self.height * 3 / 2)
+end
+
 function Camera:aim_at(focusx, focusy, dt)
     -- Clamp to the panic margin
     local panic_x0 = focusx - self.width * (1 - self.panic_margin_right)
@@ -469,8 +495,8 @@ end
 -- FIXME and now it is definitely not appropriate for anise
 function Map:_update_actors(dt)
     --print()
-    local fmt = "%50s %20s %20s %20s %20s"
     --[[
+    local fmt = "%50s %20s %20s %20s %20s"
     print(fmt:format("Actor move summary:", "velocity", "p velocity", "p accel", "friction"))
     for _, actor in ipairs(self.actors) do
         local move = actor:get('move')
