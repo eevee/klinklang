@@ -188,7 +188,7 @@ describe("A Tote actor", function()
 
         local platform = actors_base.MobileActor(Vector(100, 100))
         platform:set_shape(whammo_shapes.Box(-50, 0, 100, 100))
-        local tote = components_cargo.Tote(platform)
+        local tote = components_cargo.Tote(platform, {})
         platform.can_carry = true
         platform.components['tote'] = tote
 
@@ -319,7 +319,7 @@ describe("A Tote actor", function()
         -- FIXME might be nice to get data from a test map, or otherwise
         -- describe maps in a more readable way
         local player = Player(Vector(50, 100))
-        local tote = components_cargo.Tote(player)
+        local tote = components_cargo.Tote(player, {})
         player.can_push = true
         player.components['tote'] = tote
 
@@ -367,7 +367,7 @@ describe("A Tote actor", function()
         -- describe maps in a more readable way
         -- put player ON TOP of boxes
         local player = Player(Vector(80, 60))
-        local tote = components_cargo.Tote(player)
+        local tote = components_cargo.Tote(player, {})
         player.can_push = true
         player.is_portable = true
         player.components['tote'] = tote
