@@ -187,6 +187,23 @@ function vector:trimmed(maxLen)
 end
 
 
+-- eevee additions
+function vector:addi(v)
+	self.x = self.x + v.x
+	self.y = self.y + v.y
+end
+
+function vector:subi(v)
+	self.x = self.x - v.x
+	self.y = self.y - v.y
+end
+
+function vector:negi()
+	self.x = -self.x
+	self.y = -self.y
+end
+
+
 -- the module
 return setmetatable({new = new, isvector = isvector, zero = zero},
 	{__call = function(_, ...) return new(...) end})

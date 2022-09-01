@@ -270,7 +270,7 @@ function Walk:update(dt)
         -- acceleration that's enough to counteract gravity, or you won't be able to get up slopes.
         local uphill_direction = fall.ground_normal:perpendicular()
         if uphill_direction.y > 0 then
-            uphill_direction = -uphill_direction
+            uphill_direction:negi()
         end
         self:get('move'):add_friction(uphill_direction * accel_cap)
     else

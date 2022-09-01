@@ -31,7 +31,7 @@ end
 -- mostly via collision
 local Move = Component:extend{
     slot = 'move',
-    priority = -1000,
+    priority = -1000,  -- very first thing we do, so our position is sensible for everyone else
 
     -- Note that all values are given in units of pixels and seconds.
 
@@ -115,7 +115,7 @@ function Move:push(dv)
 end
 
 function Move:add_velocity(dv)
-    self.pending_velocity = self.pending_velocity + dv
+    self.pending_velocity:addi(dv)
 end
 
 -- Set velocity in some direction to the given value, unless it's already higher
@@ -126,6 +126,11 @@ function Move:max_out_velocity(v)
         return
     end
     self.pending_velocity = self.pending_velocity - aligned + v
+    -- This is a little dubious since we're /mixing/ previous with current pending velocity, but
+    -- without this we lose the "max" guarantee.  Consider being bounced by a shroom while walking
+    -- up its sloped side: you have upwards velocity from the slope, the shroom bounces you, and
+    -- when all's said and done you have more upwards velocity than the max
+    self._pending_velocity_was_reset = true
 end
 
 function Move:set_velocity(v)
@@ -138,7 +143,7 @@ end
 -- moving, which alters your movement relative to the world, but where your walking speed and the
 -- like should still be considered as relative to the movement of the floor.
 function Move:add_extrinsic_velocity(dv)
-    self.pending_extrinsic_velocity = self.pending_extrinsic_velocity + dv
+    self.pending_extrinsic_velocity:addi(dv)
 end
 
 function Move:get_world_velocity()
@@ -146,11 +151,11 @@ function Move:get_world_velocity()
 end
 
 function Move:add_accel(da)
-    self.pending_accel = self.pending_accel + da
+    self.pending_accel:addi(da)
 end
 
 function Move:add_friction(friction)
-    self.pending_friction = self.pending_friction + friction
+    self.pending_friction:addi(friction)
 end
 
 function Move:update(dt)
@@ -185,17 +190,17 @@ function Move:update(dt)
         local frame_friction = friction_decel:trimmed(frame_dot)
         --print('. frame friction', frame_friction)
         if frame_dot > 0 then
-            frame_velocity = frame_velocity - frame_friction
+            frame_velocity:subi(frame_friction)
         else
-            frame_velocity = frame_velocity + frame_friction
+            frame_velocity:addi(frame_friction)
         end
 
         local perma_dot = self.velocity * friction_direction
         local perma_friction = friction_decel:trimmed(perma_dot)
         if perma_dot > 0 then
-            self.velocity = self.velocity - perma_friction
+            self.velocity:subi(perma_friction)
         else
-            self.velocity = self.velocity + perma_friction
+            self.velocity:addi(perma_friction)
         end
     end
     local reference_frame = self.pending_extrinsic_velocity
@@ -263,7 +268,7 @@ function Move:update(dt)
     -- Add the final slid velocity to next frame's velocity, /unless/
     -- set_velocity was called during nudge()
     if not self._pending_velocity_was_reset then
-        self.pending_velocity = self.pending_velocity + self.velocity
+        self.pending_velocity:addi(self.velocity)
     end
 end
 
@@ -343,7 +348,7 @@ function Move:nudge(movement, pushers, xxx_no_slide)
     -- Main movement loop!  Try to slide in the direction of movement; if that
     -- fails, then try to project our movement along a surface we hit and
     -- continue, until we hit something head-on or run out of movement.
-    local total_movement = Vector.zero
+    local total_movement = Vector()
     local all_hits = {}
     local stuck_counter = 0
     while true do
@@ -353,7 +358,7 @@ function Move:nudge(movement, pushers, xxx_no_slide)
         table.insert(all_hits, hits)
         -- XXX save a bit of effort, don't do this if it's zero, or maybe make shape:move do that
         shape:move(successful:unpack())
-        total_movement = total_movement + successful
+        total_movement:addi(successful)
 
         if xxx_no_slide then
             break
@@ -400,7 +405,7 @@ function Move:nudge(movement, pushers, xxx_no_slide)
         end
     end
 
-    self.actor.pos = self.actor.pos + total_movement
+    self.actor.pos:addi(total_movement)
 
     game:time_pop('nudge')
     --print('> end nudge', total_movement)
@@ -632,7 +637,7 @@ function Fall:update(dt)
             --if (manifest.state == CARGO_PUSHING or manifest.state == CARGO_COULD_PUSH) and manifest.normal * pending_velocity < -1e-8 and not (manifest.left_normal and manifest.right_normal) then
                 local cargo_friction_force = cargum:get('fall'):_get_total_friction(-manifest.normal)
                 -- XXX this doesn't work against a corner because it thinks we're moving downwards into it fuckin hell
-                friction_force = friction_force + cargo_friction_force -- FIXME * tote.push_resistance_multiplier
+                friction_force:addi(cargo_friction_force)  -- FIXME * tote.push_resistance_multiplier
                 -- TODO maybe friction should come last, when we know exactly what the state of the world is?
             end
         end
