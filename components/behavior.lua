@@ -908,36 +908,6 @@ local Think = Component:extend{
 
 local PlayerThink = Think:extend{}
 
--- Given two baton inputs, returns -1 if the left is held, 1 if the right is
--- held, and 0 if neither is held.  If BOTH are held, returns either the most
--- recently-pressed, or nil to indicate no change from the previous frame.
-local function read_key_axis(a, b)
-    local a_down = game.input:down(a)
-    local b_down = game.input:down(b)
-    if a_down and b_down then
-        local a_pressed = game.input:pressed(a)
-        local b_pressed = game.input:pressed(b)
-        if a_pressed and b_pressed then
-            -- Miraculously, both were pressed simultaneously, so stop
-            return 0
-        elseif a_pressed then
-            return -1
-        elseif b_pressed then
-            return 1
-        else
-            -- Neither was pressed this frame, so we don't know!  Preserve the
-            -- previous frame's behavior
-            return nil
-        end
-    elseif a_down then
-        return -1
-    elseif b_down then
-        return 1
-    else
-        return 0
-    end
-end
-
 function PlayerThink:update(dt)
     local ail = self:get('ail')
     if ail and ail.is_dead then
@@ -952,12 +922,12 @@ function PlayerThink:update(dt)
     -- it considers holding left+right to be no movement at all, which is bogus
     local walk = self:get('walk')
     if walk then
-        walk:decide(read_key_axis('left', 'right'), read_key_axis('up', 'down'))
+        walk:decide(util.read_key_axis('left', 'right'), util.read_key_axis('up', 'down'))
     end
 
     local climb = self:get('climb')
     if climb then
-        local climb_direction = read_key_axis('ascend', 'descend')
+        local climb_direction = util.read_key_axis('ascend', 'descend')
         if climb_direction then
             -- read_key_axis can return nil when ambiguous, which Climb treats specially; if it
             -- does, preserve our previous direction the way Walk does automatically
