@@ -53,7 +53,13 @@ function BorderImage.from_sprite(class, sprite, center)
     self.image = sprite.spriteset.image
     self.region = AABB(sprite.anim.frames[1]:getViewport())
 
-    self.center = center
+    if center then
+        self.center = center
+    elseif sprite.shape then
+        self.center = AABB:from_bounds(sprite.shape:bbox())
+    else
+        error("BorderImage:from_sprite() requires a center region")
+    end
 
     return self
 end
