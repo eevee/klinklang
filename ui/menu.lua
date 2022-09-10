@@ -1,4 +1,3 @@
--- FIXME this would be pretty handy if it were finished and fleshed out!
 local Vector = require 'klinklang.vendor.hump.vector'
 
 local AABB = require 'klinklang.aabb'
@@ -8,13 +7,50 @@ local ElasticFont = require 'klinklang.ui.elasticfont'
 
 local DEBUG_DRAW = false
 
-local Menu = Object:extend{}
+local Menu = Object:extend{
+    is_focused = true,
+}
 
+-- XXX api changes:
+-- - xalign now defaults to left
+
+--[[
+
+
+Note that the menu's layout is computed upfront and changing it later is currently not well
+supported; if you intend to have e.g. dynamic text, you should make the item large enough to contain
+all possible variants.
+
+Arguments:
+
+items (tables): List of items that go in the menu.  By default, a "label" key will be drawn as a
+  text label and an "action" key will be called in response to `accept()`, but these are technically
+  optional.
+
+  Items may also be provided positionally, directly within the arguments table.
+  TODO inner_width, underscored bits
+
+x, y (numbers): Single point from which the menu draws.  If you use this, the menu will have no maximum size (though it may still overflow if you specify both 'rows' and 'columns').  As an alternative, consider 'area'.
+area (AABB): Space within which the menu will draw.
+xalign, yalign (numbers or keywords): Alignment for the menu.
+]]
 function Menu:init(args)
-    self.anchorx = math.floor(args.x)
-    self.anchory = math.floor(args.y)
-    self.xalign = args.xalign or 'center'
+    -- Layout for the menu itself, updated after we 
+    self.area = args.area or nil
+    -- TODO 'area' not implemented...
+    self.anchorx = math.floor(args.x or self.area.x)
+    self.anchory = math.floor(args.y or self.area.y)
+    self.xalign = args.xalign or 'left'  -- FIXME this doesn't seem to work for a grid anyway
     self.yalign = args.yalign or 'top'
+
+    self.margin = args.margin or 0
+    -- TODO drop this, just do a Vector or Edges
+    self.marginx = args.marginx or self.margin
+    self.marginy = args.marginy or self.margin
+
+
+
+
     if args.textalign == 'left' then
         self.textalign = 0
     elseif args.textalign == 'center' then
@@ -24,12 +60,13 @@ function Menu:init(args)
     else
         self.textalign = args.textalign or 0
     end
-    self.margin = args.margin or 0
-    self.marginx = args.marginx or self.margin
-    self.marginy = args.marginy or self.margin
+
+    -- XXX this sounds like the minimum size of the menu, but it's actually for items?  and maximum size isn't used at all??
     self.minimum_size = args.minimum_size or Vector()
     self.maximum_size = args.maximum_size or Vector(
         game.size.x - self.marginx * 2, game.size.y - self.marginy * 2)
+
+    self.itemsize = args.itemsize or nil
     if not args.itemspacing then
         self.itemspacing = Vector()
     elseif type(args.itemspacing) == 'number' then
@@ -41,6 +78,8 @@ function Menu:init(args)
         self.itempadding = Edges()
     elseif type(args.itempadding) == 'number' then
         self.itempadding = Edges(args.itempadding)
+    elseif Vector.isvector(args.itempadding) then
+        self.itempadding = Edges(args.itempadding.y, args.itempadding.x)
     else
         self.itempadding = args.itempadding
     end
@@ -62,6 +101,8 @@ function Menu:init(args)
         self.cursor_indent = 0
     end
 
+    local items = args.items or args
+
     -- How to arrange items:
     local raw_rows = args.rows
     local raw_columns = args.columns
@@ -82,16 +123,18 @@ function Menu:init(args)
             -- With nothing given at all, assume a single column
             self.rows_first = false
             raw_columns = 1
-            raw_rows = #args
+            raw_rows = #items
         end
     elseif args.order == 'rows' then
         self.rows_first = true
         if not raw_columns and not raw_rows then
             raw_rows = 1
+            raw_columns = #items
         end
     elseif args.order == 'columns' then
         self.rows_first = false
         if not raw_columns and not raw_rows then
+            raw_rows = #items
             raw_columns = 1
         end
     else
@@ -110,13 +153,13 @@ function Menu:init(args)
     if self.rows_first then
         self.physical_columns = raw_columns
         self.visible_columns = raw_columns
-        self.physical_rows = math.ceil(#args / self.physical_columns)
+        self.physical_rows = math.ceil(#items / self.physical_columns)
         self.visible_rows = raw_rows or self.physical_rows
         self.scroll_max = math.max(1, self.physical_rows - self.visible_rows + 1)
     else
         self.physical_rows = raw_rows
         self.visible_rows = raw_rows
-        self.physical_columns = math.ceil(#args / self.physical_rows)
+        self.physical_columns = math.ceil(#items / self.physical_rows)
         self.visible_columns = raw_columns or self.physical_columns
         self.scroll_max = math.max(1, self.physical_columns - self.visible_columns + 1)
     end
@@ -133,6 +176,20 @@ function Menu:init(args)
 
     self.font = ElasticFont:coerce(args.font)
 
+    ------------------------------------------------------------------------------------------------
+
+    -- Resolve some automatic behaviors
+    if self.itemsize and self.itemsize.x == 0 then
+        -- Auto width: divide the available area
+        -- TODO deal with fractional pixels
+        -- TODO gripe if no area, no columns
+        -- TODO do this for height too
+        self.itemsize.x = math.floor(
+            (self.area.width - self.marginx * 2 - self.itemspacing.x * (self.physical_columns - 1))
+            / self.physical_columns)
+            - self.itempadding:horiz()
+    end
+
     self.items = {}
     -- Prerender each item; they should be as wide as they need to be, but no wider than
     -- self.maximum_size.x.  They should also assign their own .inner_width and .inner_height, based
@@ -140,14 +197,76 @@ function Menu:init(args)
     -- or the menu's margin.
     self.inner_width = math.max(0, self.minimum_size.x - self.marginx * 2)
     self.inner_height = 0
-    for i, item in ipairs(args) do
+    for i, item in ipairs(items) do
         self.items[i] = item
         ;(item.prerender or self.default_prerender)(self, item)
+
         self.inner_width = math.max(self.inner_width, item.inner_width + self.itempadding:horiz())
         self.inner_height = self.inner_height + item.inner_height + self.itempadding:vert()
     end
     self.inner_width = self.inner_width + self.cursor_indent
     self.inner_height = math.max(self.inner_height, self.minimum_size.y)
+
+    self.row_metrics = {}
+    self.column_metrics = {}
+    for r = 1, self.physical_rows do
+        self.row_metrics[r] = {
+            size = 0,
+            leading = self.itemspacing.y,
+            start = nil,
+        }
+        if r == 1 then
+            self.row_metrics[r].leading = self.marginy
+        end
+    end
+    for c = 1, self.physical_columns do
+        self.column_metrics[c] = {
+            size = 0,
+            leading = self.itemspacing.x,
+            start = nil,
+        }
+        if r == 1 then
+            self.column_metrics[c].leading = self.marginx
+        end
+    end
+    local row = 1
+    local col = 1
+    for i, item in ipairs(items) do
+        item._row = row
+        item._column = col
+        self.row_metrics[row].size = math.max(self.row_metrics[row].size, item.inner_height)
+        self.column_metrics[col].size = math.max(self.column_metrics[col].size, item.inner_width)
+
+        if self.rows_first then
+            col = col + 1
+            if col > self.physical_columns then
+                col = 1
+                row = row + 1
+            end
+        else
+            row = row + 1
+            if row > self.physical_rows then
+                row = 1
+                col = col + 1
+            end
+        end
+    end
+
+    -- Compute the x/y position where each row or column begins
+    local running = 0
+    for _, metric in ipairs(self.row_metrics) do
+        running = running + metric.leading
+        metric.start = running
+        running = running + metric.size
+    end
+    running = 0
+    for _, metric in ipairs(self.column_metrics) do
+        running = running + metric.leading
+        metric.start = running
+        running = running + metric.size
+    end
+
+    -- TODO deal with item stretch behavior...
 
     self.cursor = 1
     self:_hover()
@@ -163,6 +282,9 @@ function Menu:update(dt)
 end
 
 function Menu:draw()
+    -- FIXME:
+    -- - allow specifying the area the menu is allowed to occupy, give alignment relative to /that/?  (api change...)
+    -- - remember x0, y0 persistently
     local w, h = love.graphics.getDimensions()
     local mw = self.inner_width + self.marginx * 2 + self.cursor_width
     local mh = self.inner_height + self.marginy * 2
@@ -180,16 +302,15 @@ function Menu:draw()
     end
 
     love.graphics.push('all')
+    love.graphics.translate(x0, y0)
 
     if self.background then
-        self.background:fill(AABB(x0, y0, mw, mh))
+        self.background:fill(AABB(0, 0, mw, mh))
     elseif self.bgcolor then
         love.graphics.setColor(self.bgcolor)
-        love.graphics.rectangle('fill', x0, y0, mw, mh)
+        love.graphics.rectangle('fill', 0, 0, mw, mh)
     end
 
-    -- FIXME take variable item height/width into account oops (also for cross-axis cursor movement???)
-    -- TODO so, items can be variable /height/, then?  i may need to think about this for a dang second
     x0 = x0 + self.marginx
     y0 = y0 + self.marginy
     local x = x0 + self.cursor_width
@@ -206,6 +327,8 @@ function Menu:draw()
             break
         end
 
+        local x = self.column_metrics[item._column].start
+        local y = self.row_metrics[item._row].start
         if DEBUG_DRAW then
             love.graphics.push('all')
             if i == self.cursor then
@@ -219,8 +342,9 @@ function Menu:draw()
             end
             love.graphics.pop()
         end
-        ;(item.draw or self.default_draw)(self, item, x, y, i == self.cursor)
+        ;(item.draw or self.default_draw)(self, item, x, y, self.is_focused and i == self.cursor)
 
+        --[[
         if self.rows_first then
             if i % self.physical_columns == 0 then
                 x = x0 + self.cursor_width
@@ -238,6 +362,7 @@ function Menu:draw()
                 y = y + item.inner_height + self.itempadding:vert() + self.itemspacing.y
             end
         end
+        ]]
     end
     love.graphics.pop()
 end
@@ -246,9 +371,19 @@ end
 
 function Menu:prerender_item(item)
     -- FIXME wrapping support?  would require this to be different
-    item.text = self.font:render_elastic(item.label)
-    item.inner_width = self.font:get_width(item.label)
-    item.inner_height = self.font.full_height
+    if item.label then
+        item.text = self.font:render_elastic(item.label)
+    end
+
+    if self.itemsize then
+        item.inner_width = self.itemsize.x
+        item.inner_height = self.itemsize.y
+    elseif item.label then
+        item.inner_width = self.font:get_width(item.label)
+        item.inner_height = self.font.full_height
+    else
+        error("Could not compute item size; no 'itemsize' given and it has no 'label'")
+    end
 end
 
 function Menu:update_item(item, dt)
@@ -347,9 +482,12 @@ function Menu:down()
     end
 end
 
-function Menu:move_cursor(dx, dy)
+function Menu:move_cursor(dx, dy, overflow_behavior)
     local cursor = self.cursor
-    local overflow_behavior = 'wrap'  -- wrap, stop, off
+    local cursor0 = cursor
+    if overflow_behavior ~= 'stop' and overflow_behavior ~= 'off' then
+        overflow_behavior = 'wrap'
+    end
     local overflow_x, overflow_y = 0, 0
 
     -- Row/column order have the same logic but with the axes switched, so write the code like this
@@ -428,7 +566,7 @@ function Menu:move_cursor(dx, dy)
     end
     if not (overflow_x == 0 and overflow_y == 0) and overflow_behavior == 'off' then
         -- FIXME in SpriteMenu this was cursor = nil, but we don't really support that?
-        cursor = 1
+        --cursor = 1
     end
 
     self:set_cursor(cursor)
@@ -462,6 +600,14 @@ function Menu:set_cursor(cursor)
     end
 end
 
+function Menu:focus()
+    self.is_focused = true
+end
+
+function Menu:blur()
+    self.is_focused = false
+end
+
 -- Returns where on "the scrollbar" we are: 0 if at the top (or if no overflow), 1 if at the bottom,
 -- some fraction if in the middle.  If all the items fit (and there should be no scrollbar at all),
 -- returns nil.
@@ -478,6 +624,13 @@ function Menu:scroll_offset()
     return (self.scroll_position - 1) / (self.scroll_max - 1)
 end
 
+-- XXX don't love this api; currently used in drone dungeon a bit, mostly for drawing a selection box around an item, which could be its own callback
+function Menu:current_coords()
+    -- TODO factor in menu position, scroll offset
+    local current = self.items[self.cursor]
+    return self.column_metrics[current._column].start, self.row_metrics[current._row].start
+end
+
 function Menu:current()
     return self.items[self.cursor]
 end
@@ -487,6 +640,9 @@ function Menu:accept()
     self.on_cursor_accept(self, item)
     return (item.action or self.default_action)(self, item)
 end
+
+
+-- FIXME this mainly exists for the sake of 
 
 
 return Menu
