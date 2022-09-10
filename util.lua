@@ -206,6 +206,40 @@ local function strict_read_file(path)
     return blob
 end
 
+-- Given two baton inputs, returns -1 if the left is held, 1 if the right is
+-- held, and 0 if neither is held.  If BOTH are held, returns either the most
+-- recently-pressed, or nil to indicate no change from the previous frame.
+local function read_key_axis(a, b)
+    -- FIXME we don't want to move every frame it's held down for something
+    -- discrete like a menu, but some kinda repeat would be nice
+    --local a_down = game.input:down(a)
+    --local b_down = game.input:down(b)
+    local a_down = game.input:pressed(a)
+    local b_down = game.input:pressed(b)
+    if a_down and b_down then
+        local a_pressed = game.input:pressed(a)
+        local b_pressed = game.input:pressed(b)
+        if a_pressed and b_pressed then
+            -- Miraculously, both were pressed simultaneously, so stop
+            return 0
+        elseif a_pressed then
+            return -1
+        elseif b_pressed then
+            return 1
+        else
+            -- Neither was pressed this frame, so we don't know!  Preserve the
+            -- previous frame's behavior
+            return nil
+        end
+    elseif a_down then
+        return -1
+    elseif b_down then
+        return 1
+    else
+        return 0
+    end
+end
+
 
 return {
     strict_json_decode = strict_json_decode,
@@ -224,4 +258,5 @@ return {
     any_modifier_keys = any_modifier_keys,
     find_files = find_files,
     strict_read_file = strict_read_file,
+    read_key_axis = read_key_axis,
 }
