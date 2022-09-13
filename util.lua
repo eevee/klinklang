@@ -206,9 +206,7 @@ local function strict_read_file(path)
     return blob
 end
 
--- Given two baton inputs, returns -1 if the left was just pressed, 1 if the right was just pressed,
--- 0 if they were pressed simultaneously, and nil if neither was just pressed.
-local function read_key_axis_pressed(a, b)
+local function _read_key_axis_pressed(a, b)
     local a_pressed = game.input:pressed(a)
     local b_pressed = game.input:pressed(b)
     if a_pressed and b_pressed then
@@ -235,7 +233,7 @@ local function read_key_axis(a, b)
     local a_down = game.input:pressed(a)
     local b_down = game.input:pressed(b)
     if a_down and b_down then
-        return read_key_axis_pressed(a, b)
+        return _read_key_axis_pressed(a, b)
     elseif a_down then
         return -1
     elseif b_down then
@@ -243,6 +241,11 @@ local function read_key_axis(a, b)
     else
         return 0
     end
+end
+-- Given two baton inputs, returns -1 if the left was just pressed, 1 if the right was just pressed,
+-- 0 if they were pressed simultaneously, and nil if neither was just pressed.
+local function read_key_axis_pressed(a, b)
+    return _read_key_axis_pressed(a, b) or 0
 end
 
 
