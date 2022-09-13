@@ -225,7 +225,7 @@ function Menu:init(args)
             leading = self.itemspacing.x,
             start = nil,
         }
-        if r == 1 then
+        if c == 1 then
             self.column_metrics[c].leading = self.marginx
         end
     end
