@@ -43,10 +43,13 @@ function OutlinedText:set_string(string)
 end
 
 function OutlinedText:draw(x, y, align, scale)
+    if not scale then
+        scale = 1
+    end
     if align == 'right' then
-        x = x - self.text:getWidth()
+        x = x - self.text:getWidth() * scale
     elseif align == 'center' then
-        x = x - math.ceil(self.text:getWidth() / 2)
+        x = x - math.ceil(self.text:getWidth() * scale / 2)
     end
     love.graphics.draw(self.text, x, y, 0, scale)
 end
