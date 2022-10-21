@@ -226,12 +226,8 @@ end
 -- is held.  If BOTH are held, returns either the most recently-pressed, or nil to indicate no
 -- change from the previous frame.
 local function read_key_axis(a, b)
-    -- FIXME we don't want to move every frame it's held down for something
-    -- discrete like a menu, but some kinda repeat would be nice
-    --local a_down = game.input:down(a)
-    --local b_down = game.input:down(b)
-    local a_down = game.input:pressed(a)
-    local b_down = game.input:pressed(b)
+    local a_down = game.input:down(a)
+    local b_down = game.input:down(b)
     if a_down and b_down then
         return _read_key_axis_pressed(a, b)
     elseif a_down then
@@ -244,6 +240,8 @@ local function read_key_axis(a, b)
 end
 -- Given two baton inputs, returns -1 if the left was just pressed, 1 if the right was just pressed,
 -- 0 if they were pressed simultaneously, and nil if neither was just pressed.
+-- FIXME we don't want to move every frame it's held down for something
+-- discrete like a menu, but some kinda repeat would be nice
 local function read_key_axis_pressed(a, b)
     return _read_key_axis_pressed(a, b) or 0
 end
