@@ -221,9 +221,9 @@ function Menu:init(args)
     end
     for c = 1, self.physical_columns do
         self.column_metrics[c] = {
-            size = 0,
-            leading = self.itemspacing.x,
-            start = nil,
+            size = 0,  -- max item size, plus item padding
+            leading = self.itemspacing.x,  -- distance from end of last item to start of this one
+            start = nil,  -- distance from start of menu to this item
         }
         if c == 1 then
             self.column_metrics[c].leading = self.marginx
@@ -253,14 +253,17 @@ function Menu:init(args)
     end
 
     -- Compute the x/y position where each row or column begins
+    -- (Also expand row/column sizes to include padding)
     local running = 0
     for _, metric in ipairs(self.row_metrics) do
+        metric.size = metric.size + self.itempadding:vert()
         running = running + metric.leading
         metric.start = running
         running = running + metric.size
     end
     running = 0
     for _, metric in ipairs(self.column_metrics) do
+        metric.size = metric.size + self.itempadding:horiz()
         running = running + metric.leading
         metric.start = running
         running = running + metric.size
@@ -289,16 +292,26 @@ function Menu:draw()
     local mw = self.inner_width + self.marginx * 2 + self.cursor_width
     local mh = self.inner_height + self.marginy * 2
     local x0 = self.anchorx
+    local area_width = 0
+    if self.area then
+        area_width = self.area.width
+    end
     if self.xalign == 'center' then
-        x0 = x0 - math.ceil(mw / 2)
+        x0 = x0 + math.ceil((area_width - mw) / 2)
     elseif self.xalign == 'right' then
-        x0 = x0 - mw
+        x0 = x0 + area_width - mw
     end
     local y0 = self.anchory
     if self.yalign == 'middle' then
         y0 = y0 - math.ceil(mh / 2)
     elseif self.yalign == 'bottom' then
         y0 = y0 - mh
+    end
+
+    if self.rows_first then
+        y0 = y0 - self.row_metrics[self.scroll_position].start + self.marginy
+    else
+        x0 = x0 - self.column_metrics[self.scroll_position].start + self.marginx
     end
 
     love.graphics.push('all')
