@@ -308,7 +308,9 @@ function Menu:draw()
         y0 = y0 - mh
     end
 
-    if self.rows_first then
+    if #self.items == 0 then
+        return
+    elseif self.rows_first then
         y0 = y0 - self.row_metrics[self.scroll_position].start + self.marginy
     else
         x0 = x0 - self.column_metrics[self.scroll_position].start + self.marginx
@@ -498,6 +500,7 @@ end
 function Menu:move_cursor(dx, dy, overflow_behavior)
     local cursor = self.cursor
     local cursor0 = cursor
+    -- FIXME these two are mostly not implemented
     if overflow_behavior ~= 'stop' and overflow_behavior ~= 'off' then
         overflow_behavior = 'wrap'
     end
@@ -534,7 +537,7 @@ function Menu:move_cursor(dx, dy, overflow_behavior)
             cursor = cursor + 1
             -- If this is the last row, we might end up beyond the last item
             if cursor > #self.items then
-                cursor = cursor - cursor % col_ct + 1
+                cursor = #self.items - #self.items % col_ct + 1
             end
         end
     end
