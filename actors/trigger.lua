@@ -84,19 +84,6 @@ function TriggerZone:execute_trigger(activator)
                 actor[self.props.message](actor, activator, self.props)
             end
         end
-    elseif self.action == 'conversation' then
-        local actors_npcs = require 'foxflux.actors.npcs'
-        local Gamestate = require 'klinklang.vendor.hump.gamestate'
-        local DialogueScene = require 'klinklang.scenes.dialogue'
-        local conversations = require 'foxflux.conversations'
-        local convo = conversations.pick_conversation(self.props.conversation, activator.form)
-        Gamestate.push(DialogueScene({
-            lexy = activator,
-            cerise = actors_npcs.Cerise,
-            narrator = {
-                background = game.resource_manager:load('assets/images/dialoguebox-narrator.png'),
-            },
-        }, convo))
     end
 
     if self.props.once then
