@@ -452,6 +452,34 @@ function Map:is_blocked(shape, predicate)
 end
 
 
+-- Find actor(s) by name, assuming exactly one exists in the map
+function Map:find_singletons(...)
+    local names = {...}
+    local actors = {}
+    local found = 0
+
+    for i = 1, #names do
+        actors[i] = false
+    end
+
+    for _, actor in ipairs(self.actors) do
+        for i, name in ipairs(names) do
+            if actor.name == name then
+                actors[i] = actor
+                found = found + 1
+                break
+            end
+        end
+
+        if found >= #names then
+            break
+        end
+    end
+
+    return unpack(actors)
+end
+
+
 -- TODO this isn't really the right name for this operation, nor for the
 -- callback.  it's just being suspended; the actors aren't actually being
 -- removed from the map they're on.  and i'm only doing this in the first place
