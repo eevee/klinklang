@@ -203,6 +203,11 @@ function vector:negi()
 	self.y = -self.y
 end
 
+function vector:muli(n)
+	self.x = self.x * n
+	self.y = self.y * n
+end
+
 
 -- the module
 return setmetatable({new = new, isvector = isvector, zero = zero},
