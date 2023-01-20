@@ -145,21 +145,24 @@ function Sprite:init(spriteset, pose_name, facing)
     self.facing = facing or 'right'
     self.changed_this_frame = false
     self.anim = nil
+    self.loop_callback = nil
     -- TODO this doesn't check that the given pose exists
     self:_set_pose(pose_name or spriteset.default_pose)
 end
 
 -- Change to the given pose.
--- If given, the callback will be called when the animation loops.
+-- If given, the callback will be called the next time the animation reaches its end, /or/ the next
+-- time the pose is changed.  It will be passed an argument that's true if the pose was changed.
 function Sprite:set_pose(pose, callback)
     if pose == self.pose then
         -- "Changing" to the same pose shouldn't restart it
         if callback then
-            self:_add_loop_callback(callback)
             if self.anim.status == 'paused' and self.anim.timer == self.anim.totalDuration then
                 -- Special case: if we're already at this pose, and it's stopped at the end, run the
                 -- new callback now; otherwise it will likely never run!
                 callback()
+            else
+                self:_add_loop_callback(callback)
             end
         end
     elseif self.spriteset.poses[pose] then
@@ -173,17 +176,36 @@ function Sprite:set_pose(pose, callback)
             table.insert(all_poses, pose_name)
         end
         table.sort(all_poses)
-        error(("No such pose '%s' for %s (available: %s)"):format(pose, self.spriteset.name, table.concat(all_poses, ", ")))
+        error(("No such pose '%s' for %s (available: %s)"):format(
+            pose, self.spriteset.name, table.concat(all_poses, ", ")))
     end
 end
 
 -- Internal method that actually changes the pose.
--- Doesn't check whether the pose exists, and changing to the current pose
--- will restart it.
+-- Doesn't check whether the pose exists, and changing to the current pose will restart it.
 function Sprite:_set_pose(pose)
+    -- If we still have a pending callback, run it now
+    if self.loop_callback then
+        self.loop_callback(true)
+        self.loop_callback = nil
+    end
+
     self.pose = pose
     local data = self.spriteset.poses[pose][self.facing]
+    -- TODO we could avoid cloning so much if we just kept the timer on ourselves?
     self.anim = data.animation:clone()
+    self.anim.onLoop = function(anim, loops)
+        if self.loop_callback then
+            self.loop_callback(false)
+            self.loop_callback = nil
+        end
+        local f = data.animation.onLoop
+        if type(f) == 'function' then
+            f(anim, loops)
+        elseif f then
+            anim[f](anim, loops)
+        end
+    end
     self.anchor = data.anchor
     self.shape = data.shape
 
@@ -196,16 +218,16 @@ end
 
 -- Set a function to be called whenever the current pose reaches its end.
 -- If the pose is changed before that happens, the callback is abandoned.
+-- TODO this could probably be neater?
 function Sprite:_add_loop_callback(callback)
-    local oldonloop = self.anim.onLoop
-    self.anim.onLoop = function(anim, ...)
-        callback(anim, ...)
-
-        if type(oldonloop) == 'function' then
-            oldonloop(anim, ...)
-        elseif oldonloop then
-            anim[oldonloop](anim, ...)
+    if self.loop_callback then
+        local old = self.loop_callback
+        self.loop_callback = function(interrupted)
+            callback(interrupted)
+            old(interrupted)
         end
+    else
+        self.loop_callback = callback
     end
 end
 
