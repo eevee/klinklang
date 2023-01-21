@@ -51,10 +51,11 @@ local Shape = Object:extend{
     -- and they don't need to be normalized either
     has_vertical_normal = false,
     has_horizontal_normal = false,
+
+    blockmap = nil,
 }
 
 function Shape:init()
-    self.blockmaps = setmetatable({}, {__mode = 'k'})
 end
 
 function Shape:__tostring()
@@ -80,18 +81,21 @@ end
 
 -- Remember that I'm part of the given Blockmap.
 function Shape:remember_blockmap(blockmap)
-    self.blockmaps[blockmap] = true
+    if self.blockmap then
+        self.blockmap:remove(self)
+    end
+    self.blockmap = blockmap
 end
 
 -- Forget that I'm part of the given Blockmap.
 function Shape:forget_blockmap(blockmap)
-    self.blockmaps[blockmap] = nil
+    self.blockmap = nil
 end
 
 -- Update my position in each Blockmap I'm part of.
 function Shape:update_blockmaps()
-    for blockmap in pairs(self.blockmaps) do
-        blockmap:update(self)
+    if self.blockmap then
+        self.blockmap:update(self)
     end
 end
 
