@@ -116,7 +116,7 @@ function Tote:on_collide_with(collision, passable, pushers)
         -- This is pretty simple: move it along the rest of our movement, which is the fraction left
         -- after we first touched, then retry the move.  We don't care about normals or anything!
         local nudge = collision.attempted * (1 - math.max(0, collision.contact_start))
-        obstacle:get('move'):nudge(nudge, pushers)
+        obstacle:get('move'):nudge(nudge, false, pushers)
         pushers[obstacle] = true
         self:attach(obstacle, 'carrying', collision.left_normal or collision.right_normal)
         return 'retry'
@@ -202,7 +202,7 @@ function Tote:on_collide_with(collision, passable, pushers)
             -- Actually push the object!
             print(". nudging pushable", obstacle, collision.attempted, nudge, obstacle.is_pushable, obstacle.is_portable)
             local actual, hits = obstacle:get('move'):nudge(
-                nudge, pushers, not obstacle.is_pushable_uphill)
+                nudge, not obstacle.is_pushable_uphill, pushers)
             print(". and it moved", actual, direction)
             if not _is_vector_almost_zero(actual) then
                 passable = 'retry'
@@ -238,7 +238,7 @@ function Tote:after_collisions(movement, collisions, pushers)
         for cargum, manifest in pairs(self.cargo) do
             if manifest.state == 'carrying' and self.actor.can_carry and not pushers[cargum] then
                 print('. nudging to move cargo at end of parent nudge')
-                cargum:get('move'):nudge(movement, pushers)
+                cargum:get('move'):nudge(movement, false, pushers)
             end
         end
     end

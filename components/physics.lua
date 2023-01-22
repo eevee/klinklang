@@ -50,6 +50,8 @@ local Move = Component:extend{
     -- TODO this used to be is_blockable = false, but i don't remember why i want it, and anyway i could just extend this component a bit?
     -- TODO this means they won't be blocked by the map edges, either...  is that a problem
     is_juggernaut = false,
+    -- If we hit a slope, stop there; never try to finish moving along the slope
+    never_slide = false,
     -- Scale applied to all movement this object does; its velocity will be
     -- computed the same, but its actual distance traveled will be multiplied
     -- by this.  Obvious use is to set it < 1 for underwater.
@@ -83,6 +85,7 @@ function Move:init(actor, args)
     self.max_speed = args.max_speed
     self.skip_zero_nudge = args.skip_zero_nudge
     self.is_juggernaut = args.is_juggernaut
+    self.never_slide = args.never_slide
     self.multiplier = args.multiplier
 
     -- Intrinsic velocity as of the last time we moved.  Please don't modify!
@@ -125,7 +128,8 @@ function Move:max_out_velocity(v)
         -- Already higher, leave it alone
         return
     end
-    self.pending_velocity = self.pending_velocity - aligned + v
+    self.pending_velocity:subi(aligned)
+    self.pending_velocity:addi(v)
     -- This is a little dubious since we're /mixing/ previous with current pending velocity, but
     -- without this we lose the "max" guarantee.  Consider being bounced by a shroom while walking
     -- up its sloped side: you have upwards velocity from the slope, the shroom bounces you, and
@@ -263,7 +267,7 @@ function Move:update(dt)
     -- XXX pending_velocity isn't read-reliable in this window, but i don't know how it could be since this is where we calculate it anyway
     --print('. resolved new velocity as', self.velocity, 'and frame velocity as', frame_velocity)
     --print('. performing main nudge', attempted)
-    local movement, all_hits = self:nudge(attempted, nil, false, 1)
+    local movement, all_hits = self:nudge(attempted)
     --print('. finished main nudge', movement)
 
     -- Trim velocity as necessary, based on our slides
@@ -334,7 +338,7 @@ end
 -- - player briefly falls when standing on a crate moving downwards -- one frame?
 -- - what's the difference between carry and push, if a carrier can push?
 -- FIXME i do feel like more of this should be back in whammo; i don't think the below loop is especially necessary to have here, for example
-function Move:nudge(movement, pushers, xxx_no_slide)
+function Move:nudge(movement, no_slide, pushers)
     if self.actor.shape == nil then
         error(("Can't nudge actor %s without a collision shape"):format(self.actor))
     end
@@ -371,7 +375,7 @@ function Move:nudge(movement, pushers, xxx_no_slide)
         shape:move(successful:unpack())
         total_movement:addi(successful)
 
-        if xxx_no_slide then
+        if no_slide or self.never_slide then
             break
         end
         local remaining = movement - successful
@@ -955,7 +959,7 @@ function SentientFall:after_collisions(movement, collisions)
         if prelim_movement:len2() <= drop:len2() then
             local move = self.actor:get('move')
             -- We hit the ground!  Do that again, but for real this time.
-            local _, all_hits = move:nudge(drop, nil, true)
+            local _, all_hits = move:nudge(drop, true)
             self:check_for_ground(all_hits[#all_hits])
             -- FIXME update outer movement + hits??
 
