@@ -133,6 +133,17 @@ function Move:max_out_velocity(v)
     self._pending_velocity_was_reset = true
 end
 
+-- Same as above, but for minimizing
+function Move:clamp_velocity(v)
+    local aligned = self.pending_velocity:projectOn(v)
+    if aligned * v > 0 and aligned:len2() < v:len2() then
+        return
+    end
+    self.pending_velocity:subi(aligned)
+    self.pending_velocity:addi(v)
+    self._pending_velocity_was_reset = true
+end
+
 function Move:set_velocity(v)
     self.pending_velocity = v
     self._pending_velocity_was_reset = true

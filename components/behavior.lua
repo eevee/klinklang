@@ -161,15 +161,23 @@ function Walk:init(actor, args)
     self.air_multiplier = args.air_multiplier
     self.stop_multiplier = args.stop_multiplier
     self.use_2d_movement = args.use_2d_movement
+
+    -- Persistent vectors we just hold onto and mutate
+    self.decision = Vector(0, 0)
+    self.raw_decision = Vector(0, 0)
 end
 
 function Walk:decide(dx, dy)
-    self.raw_decision = Vector(dx, dy)
+    self.raw_decision.x = dx or 0
+    self.raw_decision.y = dy or 0
 
-    self.decision = Vector(dx, dy)
-    if not self.use_2d_movement then
+    self.decision.x = dx or 0
+    if self.use_2d_movement then
+        self.decision.y = dy or 0
+    else
         self.decision.y = 0
     end
+
     if self.decision:len2() ~= 1 then
         self.decision:normalizeInplace()
     end
@@ -282,6 +290,12 @@ function Walk:update(dt)
         local final_accel = delta * (allowed_fraction / dt)
         self:get('move'):add_accel(final_accel)
     end
+end
+
+function Walk:stop()
+    -- Note that this doesn't actually change our velocity, since that might be affected by
+    -- something other than walking
+    self:decide(0, 0)
 end
 
 
@@ -412,9 +426,7 @@ function Jump:update(dt)
         return self:do_normal_jump()
     elseif self.decision == 0 then
         -- We released jump at some point, so cut our upwards velocity
-        if not fall.grounded and self.is_jumping then
-            move.pending_velocity.y = math.max(move.pending_velocity.y, -self.speed * self.abort_multiplier)
-        end
+        self:abort_jump()
     end
 end
 
@@ -469,6 +481,19 @@ function Jump:do_special_jump(speed, affect_decision)
     return true
 end
 
+function Jump:abort_jump()
+    -- nb: this used to check whether we were off the ground, but that prevents aborting a jump on
+    -- the same frame it's started
+    if self.is_jumping then
+        self:get('move'):clamp_velocity(Vector(0, -self.speed * self.abort_multiplier))
+    end
+end
+
+function Jump:stop()
+    self.decision = 0
+
+    self:abort_jump()
+end
 
 -- Climb
 -- FIXME remaining issues:
@@ -573,7 +598,7 @@ end
 
 function Climb:_begin_climbing()
     if self.is_climbing then
-        return
+        return true
     end
 
     self.is_climbing = true
@@ -590,6 +615,8 @@ function Climb:_begin_climbing()
     if jump then
         jump.consecutive_jump_count = 0
     end
+
+    return true
 end
 
 function Climb:stop_climbing()
@@ -779,8 +806,10 @@ function Climb:update(dt)
             if self.decision > 0 then
                 self.enable_oneway_passthru = self.allow_oneway_passthru
             end
-            self:_begin_climbing()
-            if self:do_climb(motion_x, motion_y, is_centering) then
+
+            if self:_begin_climbing() and
+                self:do_climb(motion_x, motion_y, is_centering)
+            then
                 self.is_moving = true
             else
                 self:stop_climbing()
@@ -812,6 +841,12 @@ function Climb:do_climb(dx, dy, is_centering)
     if successful.x ~= 0 or successful.y ~= 0 then
         return true
     end
+end
+
+function Climb:stop()
+    self.decision = nil
+
+    self:stop_climbing()
 end
 
 
@@ -848,6 +883,10 @@ function Interact:update(dt)
             react:on_interact(self.actor)
         end
     end
+end
+
+function Interact:stop()
+    self:decide(false)
 end
 
 
@@ -905,6 +944,8 @@ local Think = Component:extend{
     slot = 'think',
     priority = -9999,  -- needed before anything else, even physics
 }
+
+-- XXX should Think:stop() be responsible for cancelling decisions??  that seems...  complicated
 
 local PlayerThink = Think:extend{}
 
