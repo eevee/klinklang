@@ -19,7 +19,7 @@ function Jukebox:_play_sound(sound, once, pos)
         sound:setAttenuationDistances(32 * 12, 32 * 32)
     end
 
-    sound:play()
+    return sound, sound:play()
 end
 
 function Jukebox:play_sound(sound, pos)
