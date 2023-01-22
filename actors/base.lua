@@ -508,6 +508,8 @@ function Actor:set_shape(new_shape)
 end
 
 function Actor:set_sprite(sprite_name)
+    self.sprite:run_loop_callback(true)
+
     local facing = self.sprite.facing
     self.sprite_name = sprite_name
     self.sprite = game.sprites[self.sprite_name]:instantiate(nil, facing)

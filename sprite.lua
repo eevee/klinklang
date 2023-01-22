@@ -185,20 +185,14 @@ end
 -- Doesn't check whether the pose exists, and changing to the current pose will restart it.
 function Sprite:_set_pose(pose)
     -- If we still have a pending callback, run it now
-    if self.loop_callback then
-        self.loop_callback(true)
-        self.loop_callback = nil
-    end
+    self:run_loop_callback(true)
 
     self.pose = pose
     local data = self.spriteset.poses[pose][self.facing]
     -- TODO we could avoid cloning so much if we just kept the timer on ourselves?
     self.anim = data.animation:clone()
     self.anim.onLoop = function(anim, loops)
-        if self.loop_callback then
-            self.loop_callback(false)
-            self.loop_callback = nil
-        end
+        self:run_loop_callback(false)
         local f = data.animation.onLoop
         if type(f) == 'function' then
             f(anim, loops)
@@ -228,6 +222,16 @@ function Sprite:_add_loop_callback(callback)
         end
     else
         self.loop_callback = callback
+    end
+end
+
+function Sprite:run_loop_callback(interrupted)
+    if self.loop_callback then
+        -- Delete it FIRST, since it could try to set the pose itself, which would then recurse!
+        -- TODO what on earth should happen in that case?  should the callback win and we abort the current set_pose?
+        local cb = self.loop_callback
+        self.loop_callback = nil
+        cb(interrupted)
     end
 end
 
