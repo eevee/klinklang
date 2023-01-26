@@ -236,7 +236,9 @@ function Tote:after_collisions(movement, collisions, pushers)
     -- FIXME this crashes if the cargo has disappeared  :I  try putting a cardboard box on a spring and taking it
     if not _is_vector_almost_zero(movement) then
         for cargum, manifest in pairs(self.cargo) do
-            if manifest.state == 'carrying' and self.actor.can_carry and not pushers[cargum] then
+            if manifest.state == 'carrying' and self.actor.can_carry and
+                cargum.map == self.actor.map and not pushers[cargum]
+            then
                 print('. nudging to move cargo at end of parent nudge')
                 cargum:get('move'):nudge(movement, false, pushers)
             end
