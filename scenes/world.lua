@@ -250,12 +250,16 @@ function WorldScene:init(world, ...)
     --self.music:setLooping(true)
 end
 
-function WorldScene:enter()
+function WorldScene:enter(...)
+    WorldScene.__super.enter(self, ...)
+
     --self.music:play()
     self:_refresh_canvas()
 end
 
 function WorldScene:resume()
+    WorldScene.__super.resume(self)
+
     -- Just in case, whenever we become the current scene, double-check the
     -- canvas size
     self:_refresh_canvas()

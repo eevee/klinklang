@@ -204,7 +204,6 @@ function DialogueScene:init(...)
 
     self.callback_args = args.callback_args or {}
 
-    self.wrapped = nil
     self.tick = tick.group()
 
     self.font = ElasticFont:coerce(args.font)
@@ -494,14 +493,8 @@ function DialogueScene:recompute_layout()
     end
 end
 
-function DialogueScene:enter(previous_scene, is_bottom)
-    -- FIXME this is such a stupid fucking hack but gamestate doesn't distinguish between being pushed on top of something vs being "pushed" on top of their dummy state that's fucking broken!!
-    if previous_scene and not previous_scene.xxx_eevee_fuck_ass then
-        self.wrapped = previous_scene
-        -- This is so if we're faded out by SceneFader, it'll fade the music from
-        -- the scene below us
-        self.music = self.wrapped.music
-    end
+function DialogueScene:enter(old_scene)
+    DialogueScene.__super.enter(self, old_scene)
 
     -- Recalculate stuff that depends on screen size first
     self:recompute_layout()
@@ -746,7 +739,7 @@ function DialogueScene:run_from(script_index)
         if self.script_index > #self.script then
             -- TODO actually not sure what should happen here
             self.state = 'done'
-            self:close()
+            self:exit()
             return
         end
         next_script_index = self.script_index + 1
@@ -807,7 +800,7 @@ function DialogueScene:run_from(script_index)
         -- Late stage: what to do next
         if step.bail then
             self.state = 'done'
-            self:close()
+            self:exit()
             return
         elseif step.pause then
             -- TODO this is kind of hacky, but fixes the problem that an
@@ -853,8 +846,8 @@ function DialogueScene:draw()
 end
 
 function DialogueScene:draw_backdrop()
-    if self.wrapped then
-        self.wrapped:draw()
+    if self.wrapped_scene then
+        self.wrapped_scene:draw()
     end
 
     love.graphics.setColor(0, 0, 0, self.background_opacity)
@@ -940,22 +933,12 @@ function DialogueScene:_draw_menu()
     end
 end
 
-function DialogueScene:close()
-    if self.next_scene then
-        Gamestate.switch(self.next_scene)
-    else
-        Gamestate.pop()
-    end
-end
-
 function DialogueScene:resize(w, h)
     -- FIXME adjust wrap width, reflow current text, etc.
     self:recompute_layout()
 
-    -- FIXME maybe should have a wrapperscene base class that automatically
-    -- passes resize events along?
-    if self.wrapped and self.wrapped.resize then
-        self.wrapped:resize(w, h)
+    if self.wrapped_scene then
+        self.wrapped_scene:resize(w, h)
     end
 end
 
