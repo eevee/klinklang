@@ -146,7 +146,10 @@ function Sprite:init(spriteset, pose_name, facing)
     self.changed_this_frame = false
     self.anim = nil
     self.loop_callback = nil
-    -- TODO this doesn't check that the given pose exists
+
+    if pose_name and spriteset.poses[pose_name] == nil then
+        self:_gripe_no_such_pose(pose_name)
+    end
     self:_set_pose(pose_name or spriteset.default_pose)
 end
 
@@ -171,14 +174,18 @@ function Sprite:set_pose(pose, callback)
             self:_add_loop_callback(callback)
         end
     else
-        local all_poses = {}
-        for pose_name in pairs(self.spriteset.poses) do
-            table.insert(all_poses, pose_name)
-        end
-        table.sort(all_poses)
-        error(("No such pose '%s' for %s (available: %s)"):format(
-            pose, self.spriteset.name, table.concat(all_poses, ", ")))
+        self:_gripe_no_such_pose(pose)
     end
+end
+
+function Sprite:_gripe_no_such_pose(pose)
+    local all_poses = {}
+    for pose_name in pairs(self.spriteset.poses) do
+        table.insert(all_poses, pose_name)
+    end
+    table.sort(all_poses)
+    error(("No such pose '%s' for %s (available: %s)"):format(
+        pose, self.spriteset.name, table.concat(all_poses, ", ")))
 end
 
 -- Internal method that actually changes the pose.
