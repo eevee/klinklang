@@ -584,11 +584,11 @@ function TiledMap:add_layer(layer)
                     local anchor = tile.anchor or Vector.zero
                     table.insert(self.actor_templates, {
                         name = class,
-                        submap = layer.submap,
                         position = anchor + Vector(
                             tx * self.tilewidth,
                             (ty + 1) * self.tileheight - tile.tileset.tileheight),
                         properties = tile.tileset.tileprops[tile.id] or {},
+                        layer = layer,
                         tile = tile,
                     })
                     layer.tilegrid[t] = false
@@ -617,9 +617,9 @@ function TiledMap:add_layer(layer)
                     table.insert(self.actor_templates, {
                         id = object.id,
                         name = class,
-                        submap = layer.submap,
                         position = anchor + Vector(object.x, object.y - object.tile.tileset.tileheight),
                         properties = props,
+                        layer = layer,
                         tile = object.tile,
                     })
                 end
@@ -641,10 +641,10 @@ function TiledMap:add_layer(layer)
                 table.insert(self.actor_templates, {
                     id = object.id,
                     name = objtype,
-                    submap = layer.submap,
                     position = Vector(object.x, object.y),
                     properties = extract_properties(object, self.path),
                     shapes = tiled_shape_to_whammo_shapes(object),
+                    layer = layer,
                     tile = nil,
                     object = object,
                 })

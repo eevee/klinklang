@@ -514,6 +514,12 @@ function Map:update(dt)
     -- their controls end up as a component on themselves
     self:_update_actors(dt)
 
+    self:post_update()
+end
+
+-- If you twiddle with the map outside of a normal update, you MUST call this when you're done to
+-- ensure consistency.
+function Map:post_update()
     self:_remove_actors()
 end
 
@@ -608,6 +614,15 @@ function Map:draw_actors(sorted_actors)
     end
 end
 
+-- Return true if the layer (and everything on it) should be omitted from actor creation
+function Map:_tiled_layer_filter(layer)
+    if (layer.submap or '') ~= self.submap then
+        return true
+    end
+
+    return false
+end
+
 function Map:_create_initial_actors()
     -- Add borders around the map itself, so nothing can leave it
     local margin = 64
@@ -637,9 +652,13 @@ function Map:_create_initial_actors()
     -- map parsing, where it 100% does not belong
     -- TODO imo the collision should be attached to the tile layers too
     self._last_parallax_z = self.initial_parallax_z
+    self.skip_layer = {}
     for _, layer in ipairs(self.tiled_map.layers) do
-        if layer.submap ~= self.submap then
-            -- Not relevant to us; skip it
+        local skip = self:_tiled_layer_filter(layer)
+        self.skip_layer[layer] = skip
+
+        if skip then
+            -- Do nothing
         elseif layer.type == 'tilelayer' then
             self:_add_tile_layer_actor(layer, self.tiled_map)
         elseif layer.type == 'imagelayer' then
@@ -668,7 +687,7 @@ function Map:_create_initial_actors()
     -- then add them all to the map in a separate pass
     local pending_actors = {}
     for _, template in ipairs(self.tiled_map.actor_templates) do
-        if (template.submap or '') == self.submap then
+        if not self.skip_layer[template.layer] then
             local class = actors_base.Actor:get_named_type(template.name)
             local position = template.position:clone()
             -- FIXME i am unsure about template.shape here; atm it's only used for trigger zone, water, and ladder?
