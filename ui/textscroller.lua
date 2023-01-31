@@ -103,8 +103,13 @@ function TextScroller:update(dt)
 
             self.byte_offset = second_char_offset - 1
 
-            -- Count a non-whitespace character against the timer
-            if not char:match('%s') then
+            if char:match('%s') then
+                -- Whitespace doesn't advance time
+            elseif char:match('%p') then
+                -- Punctuation ticks more slowly, to add a slight delay between clauses etc
+                self.clock = self.clock - 3
+            else
+                -- Everything else (letters, mostly) is a full tick
                 self.clock = self.clock - 1
             end
 
