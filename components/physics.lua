@@ -123,6 +123,11 @@ end
 
 -- Set velocity in some direction to the given value, unless it's already higher
 function Move:max_out_velocity(v)
+    if v:len2() < 1e-6 then
+        -- Avoid a division by zero
+        return
+    end
+
     local aligned = self.pending_velocity:projectOn(v)
     if aligned * v > 0 and aligned:len2() > v:len2() then
         -- Already higher, leave it alone
@@ -139,12 +144,18 @@ end
 
 -- Same as above, but for minimizing
 function Move:clamp_velocity(v)
-    local aligned = self.pending_velocity:projectOn(v)
-    if aligned * v > 0 and aligned:len2() < v:len2() then
-        return
+    if v:len2() < 1e-6 then
+        -- Avoid a division by zero
+        self.pending_velocity.x = 0
+        self.pending_velocity.y = 0
+    else
+        local aligned = self.pending_velocity:projectOn(v)
+        if aligned * v > 0 and aligned:len2() < v:len2() then
+            return
+        end
+        self.pending_velocity:subi(aligned)
+        self.pending_velocity:addi(v)
     end
-    self.pending_velocity:subi(aligned)
-    self.pending_velocity:addi(v)
     self._pending_velocity_was_reset = true
 end
 
