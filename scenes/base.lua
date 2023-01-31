@@ -13,6 +13,14 @@ local BaseScene = Object:extend{
     wrapped_scene = nil,
 }
 
+function BaseScene.extend(cls, args)
+    if args and not args._name then
+        args._name = 'unnamed'
+    end
+
+    return BaseScene.__super.extend(cls, args)
+end
+
 function BaseScene:init()
     -- Avoid conflict with Gamestate's 'init' hook
     self.init = self.scene_init
@@ -32,8 +40,6 @@ function BaseScene:enter(old_scene)
     -- Called from a push() or a switch().
     if self.in_stack then
         util.warn(("same scene seems to be in the stack twice: %s"):format(self))
-        Gamestate._dump()
-        print(debug.traceback())
     end
     self.in_stack = true
 
