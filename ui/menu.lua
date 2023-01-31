@@ -14,8 +14,21 @@ local Menu = Object:extend{
 -- XXX api changes:
 -- - xalign now defaults to left
 
---[[
 
+-- XXX things i need to do
+-- - better define layout within an item, AND item layout within its available space
+--   - relatedly, the menu's alignment within its own available area, i guess?
+-- - handle the intersection of variable column size and scrolling (also, overflow?)
+-- - better handle 'area'?  which is like a combination of anchor + fixed size
+-- - explicit column layout
+--   - specific widths for each column
+--   - specific width for every column
+--   - auto
+-- - note
+-- - dynamically add/remove items (!)
+
+--[[
+A somewhat flexible interactive menu, laid out as a grid, which is somewhat inspired by CSS grid.
 
 Note that the menu's layout is computed upfront and changing it later is currently not well
 supported; if you intend to have e.g. dynamic text, you should make the item large enough to contain
@@ -92,12 +105,20 @@ function Menu:init(args)
     self.selectedbgcolor = args.selectedbgcolor or nil
     self.selectedradius = args.selectedradius or 0
     if args.cursor_sprite then
-        self.cursor_sprite = game.sprites['menu cursor']:instantiate()
-        self.cursor_width = self.cursor_sprite:getDimensions()
+        self.cursor_sprite = args.cursor_sprite
+        local cw = self.cursor_sprite:getDimensions()
+        local gap = args.cursor_gap or 0
+        self.cursor_gutter = cw + gap
+        if args.cursor_outset then
+            self.cursor_outset = args.cursor_outset
+        else
+            self.cursor_outset = gap + (cw - self.cursor_sprite.anchor.x)
+        end
         self.cursor_indent = args.cursor_indent or 0
     else
         self.cursor_sprite = nil
-        self.cursor_width = 0
+        self.cursor_gutter = 0
+        self.cursor_outset = 0
         self.cursor_indent = 0
     end
 
@@ -252,6 +273,9 @@ function Menu:init(args)
         end
     end
 
+    self.inner_width = self.inner_width + self.itemspacing.x * (self.physical_columns - 1)
+    self.inner_height = self.inner_height + self.itemspacing.y * (self.physical_rows - 1)
+
     -- Compute the x/y position where each row or column begins
     -- (Also expand row/column sizes to include padding)
     local running = 0
@@ -289,7 +313,7 @@ function Menu:draw()
     -- - allow specifying the area the menu is allowed to occupy, give alignment relative to /that/?  (api change...)
     -- - remember x0, y0 persistently
     local w, h = love.graphics.getDimensions()
-    local mw = self.inner_width + self.marginx * 2 + self.cursor_width
+    local mw = self.inner_width + self.marginx * 2 + self.cursor_gutter
     local mh = self.inner_height + self.marginy * 2
     local x0 = self.anchorx
     local area_width = 0
@@ -328,8 +352,10 @@ function Menu:draw()
 
     x0 = x0 + self.marginx
     y0 = y0 + self.marginy
-    local x = x0 + self.cursor_width
+    -- XXX now unused, margin was rolled into metrics
+    local x = x0 + self.cursor_gutter
     local y = y0  -- XXX used to do this but it sucks for non-text: + self.font.line_offset
+    love.graphics.translate(self.cursor_gutter, 0)
     local i0 = 1
     if self.rows_first then
         i0 = i0 + (self.scroll_position - 1) * self.physical_columns
@@ -352,8 +378,8 @@ function Menu:draw()
                 love.graphics.setColor(0.5, 0.5, 1)
             end
             love.graphics.rectangle('line', x + 0.5, y + 0.5, item.inner_width - 1, item.inner_height - 1)
-            if self.cursor_width > 0 then
-                love.graphics.rectangle('line', x - self.cursor_width + 0.5, y + 0.5, self.cursor_width - 1, item.inner_height - 1)
+            if self.cursor_gutter > 0 then
+                love.graphics.rectangle('line', x - self.cursor_gutter + 0.5, y + 0.5, self.cursor_gutter - 1, item.inner_height - 1)
             end
             love.graphics.pop()
         end
@@ -362,7 +388,7 @@ function Menu:draw()
         --[[
         if self.rows_first then
             if i % self.physical_columns == 0 then
-                x = x0 + self.cursor_width
+                x = x0 + self.cursor_gutter
                 -- TODO need to know the row's height, not just the item's
                 y = y + item.inner_height + self.itempadding:vert() + self.itemspacing.y
             else
@@ -434,9 +460,8 @@ function Menu:draw_item(item, x, y, selected)
 
     if selected then
         if self.cursor_sprite then
-            -- FIXME this, goofily, presumes the cursor's anchor is centered
             self.cursor_sprite:draw_at(Vector(
-                x + self.itempadding.left - self.cursor_width / 2,
+                x + self.itempadding.left - self.cursor_outset,
                 inner_y + h / 2 - self.font.line_offset))
         end
     end
