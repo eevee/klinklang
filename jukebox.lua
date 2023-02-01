@@ -42,7 +42,7 @@ end
 
 function JukeboxMusicHandle:pause(fadeout)
     self.playing = false
-    self:_pause()
+    self:_pause(fadeout)
 end
 
 function JukeboxMusicHandle:pop()
@@ -56,9 +56,9 @@ function JukeboxMusicHandle:_play()
     end
 end
 
-function JukeboxMusicHandle:_pause()
+function JukeboxMusicHandle:_pause(fadeout)
     if self.track then
-        self.jukebox:_fadeout_music(self.track, self.channel)
+        self.jukebox:_fadeout_music(self.track, self.channel, fadeout)
     end
 end
 
