@@ -87,6 +87,7 @@ end
 
 function Game:update(dt)
     self.input:update(dt)
+    self.jukebox:update(dt)
 end
 
 
