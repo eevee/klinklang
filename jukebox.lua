@@ -36,7 +36,7 @@ end
 function JukeboxMusicHandle:play()
     if self.in_stack and self.track then
         self.playing = true
-        self.track:play()
+        self:_play()
     end
 end
 
@@ -45,20 +45,57 @@ function JukeboxMusicHandle:pause(fadeout)
     self:_pause(fadeout)
 end
 
-function JukeboxMusicHandle:pop()
-    self:_pause()
-    self.jukebox:_pop_handle(self)
+function JukeboxMusicHandle:pop(fadeout)
+    self:_pause(fadeout)
+    self.jukebox:_pop_handle(self, fadeout)
 end
 
 function JukeboxMusicHandle:_play()
+    self:_cancel_fade()
     if self.track and self.playing then
         self.track:play()
     end
 end
 
 function JukeboxMusicHandle:_pause(fadeout)
-    if self.track then
-        self.jukebox:_fadeout_music(self.track, self.channel, fadeout)
+    self:_fade(1, 0, fadeout or self.jukebox.fade_duration)
+end
+
+function JukeboxMusicHandle:_fade(from, to, ttl)
+    self:_cancel_fade()
+
+    if not self.track then
+        return
+    end
+
+    if ttl == 0 then
+        if to == 0 then
+            self.track:pause()
+        end
+        return
+    end
+
+    local tbl = { volume = from }
+    self.volume_tween = self.jukebox.flux:to(tbl, ttl, { volume = to })
+        :onupdate(function()
+            self.jukebox:_update_volume(self.track, self.channel, tbl.volume)
+        end)
+        :oncomplete(function()
+            if to == 0 then
+                self.track:pause()
+                self.jukebox:_update_volume(self.track, self.channel)
+            end
+            self.volume_tween = nil
+        end)
+end
+
+function JukeboxMusicHandle:_cancel_fade()
+    if self.volume_tween then
+        self.volume_tween:stop()
+        self.volume_tween = nil
+        if self.track then
+            self.jukebox:_update_volume(self.track, self.channel)
+        end
     end
 end
 
@@ -90,9 +127,9 @@ end
 
 -- Music
 
-function Jukebox:push_music(path, channel)
+function Jukebox:push_music(path, channel, fadeout)
     if self.current_music then
-        self.current_music:_pause()
+        self.current_music:_pause(fadeout)
     end
 
     local handle = JukeboxMusicHandle(self, path, channel or 'music')
@@ -112,29 +149,12 @@ function Jukebox:_load_music(path, channel)
     return source
 end
 
-function Jukebox:_fadeout_music(source, channel, fadeout)
-    if fadeout == 0 then
-        source:pause()
-        return
-    end
-
-    local tbl = { volume = 1 }
-    self.flux:to(tbl, fadeout or self.fade_duration, { volume = 0 })
-        :onupdate(function()
-            self:_update_volume(source, channel, tbl.volume)
-        end)
-        :oncomplete(function()
-            source:pause()
-            self:_update_volume(source, channel)
-        end)
-end
-
-function Jukebox:_pop_handle(handle)
+function Jukebox:_pop_handle(handle, fadeout, fadein)
     if self.current_music == handle then
         self.music_stack[#self.music_stack] = nil
         self.current_music = self.music_stack[#self.music_stack]
         if self.current_music then
-            self.current_music:_play()
+            self.current_music:_play(fadein)
         end
     else
         util.warn("Trying to pop a music track that's not on top of the stack" .. "\n" .. debug.traceback())
