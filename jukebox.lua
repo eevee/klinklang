@@ -25,6 +25,8 @@ function JukeboxMusicHandle:change(path)
 
     self:_pause()
     self.track = nil
+    -- Cut the tween loose, too
+    self.volume_tween = nil
 
     self.path = path
     if path then
@@ -75,18 +77,24 @@ function JukeboxMusicHandle:_fade(from, to, ttl)
         return
     end
 
+    -- We might change tracks while this is running, so hold a ref to the current one
+    local source = self.track
+    local channel = self.channel
     local tbl = { volume = from }
-    self.volume_tween = self.jukebox.flux:to(tbl, ttl, { volume = to })
+    local tween = self.jukebox.flux:to(tbl, ttl, { volume = to })
         :onupdate(function()
-            self.jukebox:_update_volume(self.track, self.channel, tbl.volume)
+            self.jukebox:_update_volume(source, channel, tbl.volume)
         end)
         :oncomplete(function()
             if to == 0 then
-                self.track:pause()
-                self.jukebox:_update_volume(self.track, self.channel)
+                source:pause()
+                self.jukebox:_update_volume(source, channel)
             end
-            self.volume_tween = nil
+            if self.volume_tween == tween then
+                self.volume_tween = nil
+            end
         end)
+    self.volume_tween = tween
 end
 
 function JukeboxMusicHandle:_cancel_fade()
@@ -161,6 +169,20 @@ function Jukebox:_pop_handle(handle, fadeout, fadein)
     end
 end
 
+function Jukebox:set_volume(volume, channel)
+    if channel == nil then
+        self.overall_volume = volume
+    else
+        self.channel_volumes[channel] = volume
+    end
+
+    for _, handle in ipairs(self.music_stack) do
+        if handle.track then
+            self:_update_volume(handle.track, handle.channel)
+        end
+    end
+end
+
 -- One-time sounds
 
 function Jukebox:_play_sound(sound, once, pos)
@@ -171,6 +193,8 @@ function Jukebox:_play_sound(sound, once, pos)
     if not once then
         sound = sound:clone()
     end
+
+    sound:setVolume(self.overall_volume)
 
     if pos and sound:getChannelCount() == 1 then
         sound:setPosition(pos.x, pos.y, 0)
