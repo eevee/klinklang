@@ -897,30 +897,35 @@ local TouchInteract = Interact:extend{
 }
 
 function TouchInteract:after_collisions(movement, collisions)
-    -- Persistently track the mechanism we're touching, if any.  This avoids
-    -- consulting collision on interaction (which isn't a big deal), but more
-    -- importantly, if we're touching two things simultaneously, we can
-    -- remember and stick with the one we touched first.
+    -- Persistently track the mechanism we're touching, if any.
+    -- Whatever is most in front (highest .z) wins.  In case of ties, prefer whatever we hit last
+    -- (i.e., most recently).  In case of still ties, prefer what we were already touching.
 
-    -- The first mechanism we touched, and how far away it was
     local mechanism = nil
-    local mechanism_contact = math.huge
+    local mechanism_collision = nil
 
     for _, collision in pairs(collisions) do
         local actor = collision.their_owner
         local react = actor:get('react')
         if collision.success_state <= 0 and react and react:is_valid_activator(self.actor) then
-            if actor == self.touched_mechanism then
-                -- We're still touching the same mechanism, so don't let
-                -- anything else replace it!
-                return
+            local switch = false
+            if mechanism == nil then
+                switch = true
+            elseif (actor.z or 0) > (mechanism.z or 0) then
+                switch = true
+            elseif (actor.z or 0) == (mechanism.z or 0) then
+                if collision.contact_start > mechanism_collision.contact_start then
+                    switch = true
+                elseif collision.contact_start == mechanism_collision.contact_start then
+                    if actor == self.touched_mechanism then
+                        switch = true
+                    end
+                end
             end
 
-            -- Pick the mechanism we hit first
-            -- TODO perhaps this should handle ties, and zero 'attempted', with a tiebreaker!
-            if collision.contact_start < mechanism_contact then
+            if switch then
                 mechanism = actor
-                mechanism_contact = collision.contact_start
+                mechanism_collision = collision
             end
         end
     end
