@@ -241,8 +241,14 @@ function Collision:is_moving_away()
     return self.contact_type < 0
 end
 
+-- Are we specifically stopped by this collision?
 function Collision:is_blocked()
     return self.passable == false
+end
+
+-- Is this obstacle solid, regardles of whether we're actually hitting it?
+function Collision:is_solid()
+    return self.passable ~= true
 end
 
 --------------------------------------------------------------------------------
