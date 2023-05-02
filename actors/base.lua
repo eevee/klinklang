@@ -401,6 +401,9 @@ local Actor = BareActor:extend{
     shape = nil,
     -- Visuals (should maybe be wrapped in another object?)
     sprite_name = nil,
+    -- If true, then an actor created from a Tiled tile object will use a 'sprite name' defined on
+    -- the same tile, allowing the same actor to have different appearances.
+    use_tiled_sprite = false,
     -- FIXME the default facing for top-down mode should be /down/...
     facing = 'right',
 
@@ -425,7 +428,7 @@ local Actor = BareActor:extend{
     terrain_type = nil,
 }
 
-function Actor:init(position)
+function Actor:init(position, args)
     Actor.__super.init(self)
 
     self.pos = position
@@ -433,8 +436,11 @@ function Actor:init(position)
     -- Table of weak references to other actors
     self.ptrs = setmetatable({}, { __mode = 'v' })
 
-    -- TODO arrgh, this global.  sometimes i just need access to the game.
-    -- should this be done on enter, maybe?
+    local pose = nil
+    if self.use_tiled_sprite and args and args['sprite name'] then
+        self.sprite_name, pose = args['sprite name']:match("(.+)/(.+)")
+    end
+
     -- FIXME making the sprite optional feels very much like it should be a
     -- component, but there's the slight weirdness of also getting the physics
     -- shape from the sprite because it's convenient (and often informed by the
@@ -443,7 +449,7 @@ function Actor:init(position)
         if not game.sprites[self.sprite_name] then
             error(("No such sprite named %s"):format(self.sprite_name))
         end
-        self.sprite = game.sprites[self.sprite_name]:instantiate()
+        self.sprite = game.sprites[self.sprite_name]:instantiate(pose)
 
         -- FIXME progress!  but this should update when the sprite changes, argh!
         if self.sprite.shape then
