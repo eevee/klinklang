@@ -374,10 +374,11 @@ function TiledMapImage:draw()
     local x1 = x0 + math.floor((camera.rounded_x - x0) / iw) * iw
     -- TODO this ignores the layer's own offsets?  do they make sense here?
     for x = x1, x1 + camera.width + iw, iw do
-        -- Draw this ignoring any camera shake
         love.graphics.draw(self.image,
-            math.floor(x - world.camera_offset.x + 0.5),
-            math.floor(y - world.camera_offset.y + 0.5),
+            -- Counteract any camera shake.  (It's not rounded when the world does it, so don't
+            -- round it here, either, and it should exactly cancel out.)
+            math.floor(x + 0.5) - math.floor(world.camera_offset.x),
+            math.floor(y + 0.5) - math.floor(world.camera_offset.y),
             0, self.scale)
     end
 end
