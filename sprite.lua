@@ -298,5 +298,16 @@ function Sprite:draw_anchorless(x, y)
         0, self.scale, self.scale)
 end
 
+function Sprite:draw_transformed(x, y, r, sx, sy)
+    self.changed_this_frame = false
+    sy = (sy or sx or 1) * self.scale
+    sx = (sx or 1) * self.scale
+    self.anim:draw(
+        self.spriteset.image,
+        math.floor(x - self.anchor.x * sx + 0.5),
+        math.floor(y - self.anchor.y * sy + 0.5),
+        r, sx, sy)
+end
+
 
 return SpriteSet
