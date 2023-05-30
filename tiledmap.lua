@@ -25,9 +25,24 @@ local function relative_path(a, b)
 end
 
 
--- Given a Tiled /thing/ (map, layer, object...), extract its properties as a
--- regular table.  Works with both the "old" and "new" formats.  If there are
--- no properties, returns an empty table.
+-- Given a Tiled /thing/ (map, layer, object...), extract its properties as a regular table.  Works
+-- with both the "old" and "new" formats.  If there are no properties, returns an empty table.
+-- (This way of identifying an object reference sucks but I don't have any better ideas)
+local object_ref_meta = { is_object_reference = true }
+local function resolve_property(type, value, source_path)
+    if type == 'file' and source_path then
+        return util.resolve_path(value, source_path, false)
+    elseif type == 'object' then
+        if value == 0 then
+            -- This means nothing
+            return nil
+        else
+            return setmetatable({ id = value }, object_ref_meta)
+        end
+    else
+        return value
+    end
+end
 local function extract_properties(thing, source_path)
     if thing.properties == nil then
         return {}
@@ -35,16 +50,16 @@ local function extract_properties(thing, source_path)
         -- New format: properties is a list of name/type/value
         local props = {}
         for _, prop in ipairs(thing.properties) do
-            local value = prop.value
-            if prop.type == 'file' and source_path then
-                value = util.resolve_path(value, source_path, false)
-            end
-            props[prop.name] = value
+            props[prop.name] = resolve_property(prop.type, prop.value, source_path)
         end
         return props
     else
-        -- Old format: properties is a table, so it's usable directly
-        return thing.properties
+        -- Old format: properties is a table, and types are separate
+        local props = {}
+        for name, value in pairs(thing.properties) do
+            props[name] = resolve_property(thing.propertytypes[name], value, source_path)
+        end
+        return props
     end
 end
 
@@ -251,7 +266,7 @@ function TiledTileset:init(path, data, resource_manager)
                 local props = {}
                 self.tileprops[tiledata.id] = props
                 for _, prop in ipairs(tiledata.properties) do
-                    props[prop.name] = prop.value
+                    props[prop.name] = resolve_property(prop.type, prop.value, self.path)
                 end
             end
         end
@@ -262,8 +277,15 @@ function TiledTileset:init(path, data, resource_manager)
             self.rawtiledata[tileid + 0] = tiledata
         end
 
-        for t, props in pairs(data.tileproperties or {}) do
+        local proptypes = data.tilepropertytypes or {}
+        for t, rawprops in pairs(data.tileproperties or {}) do
+            local props = {}
             self.tileprops[t + 0] = props
+            for name, value in pairs(rawprops) do
+                props[name] = resolve_property(
+                    proptypes[t] and proptypes[t][name] or nil,
+                    value, self.path)
+            end
         end
     end
 

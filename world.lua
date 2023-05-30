@@ -683,26 +683,87 @@ function Map:_create_initial_actors()
     end
 
     -- Tile actors can hold references to other actors (via Tiled object id), but the other actors
-    -- may or may not exist yet, so to avoid dependency resolution hell, create the actors first and
-    -- then add them all to the map in a separate pass
-    local pending_actors = {}
-    for _, template in ipairs(self.tiled_map.actor_templates) do
-        if not self.skip_layer[template.layer] then
+    -- may or may not exist yet!  Let's guarantee that they already exist by on_enter time with a
+    -- topological sort.  TIL that's what this is called.
+    local pending_templates = self.tiled_map.actor_templates
+    while true do
+        local did_anything = false
+        local next_pending_templates = {}
+        for _, template in ipairs(pending_templates) do
+            -- Respect skipped layers
+            if self.skip_layer[template.layer] then
+                goto continue
+            end
+
+            -- Check for, and attempt to resolve, any 'object' type properties.
+            -- (We really shouldn't modify the template itself, but we don't want to clone the
+            -- properties table in the very common case that there are no object references, so this
+            -- does it lazily, and a bit clumsily.  Map load is a bit of a churn anyway, so I'm not
+            -- too worried about excess garbage.)
+            local have_any_object_refs = false
+            local skip = false
+            local props = {}
+            for name, value in pairs(template.properties) do
+                local meta = getmetatable(value)
+                if meta and meta.is_object_reference then
+                    have_any_object_refs = true
+                    local resolved = self._actors_by_id[value.id]
+                    if resolved then
+                        props[name] = resolved
+                    else
+                        skip = true
+                        break
+                    end
+                end
+            end
+            if skip then
+                table.insert(next_pending_templates, template)
+                goto continue
+            end
+
+            -- All our dependencies exist, create the thing
             local class = actors_base.Actor:get_named_type(template.name)
             local position = template.position:clone()
+            -- If we have any object refs, we need to clone the rest of the props into this new
+            -- table; otherwise we can use the properties table directly
+            if have_any_object_refs then
+                for name, value in pairs(template.properties) do
+                    if props[name] == nil then
+                        props[name] = value
+                    end
+                end
+            else
+                props = template.properties
+            end
             -- FIXME i am unsure about template.shape here; atm it's only used for trigger zone, water, and ladder?
             -- FIXME maybe "actor properties" should be a more consistent and well-defined thing in tiled and should include shapes and other special things, whether it comes from a sprite or a tile object or a shape object
             -- FIXME oh hey maybe this should use a different kind of constructor entirely, so the main one doesn't have a goofy-ass signature?
-            local actor = class(position, template.properties, template.shapes, template.tile, template.object)
+            local actor = class(position, props, template.shapes, template.tile, template.object)
             if template.id then
                 self._actors_by_id[template.id] = actor
                 self._actor_ids[actor] = template.id
             end
-            table.insert(pending_actors, actor)
+            self:add_actor(actor)
+
+            did_anything = true
+
+            ::continue::
         end
-    end
-    for _, actor in ipairs(pending_actors) do
-        self:add_actor(actor)
+
+        if not did_anything then
+            local bad_ids = {}
+            for _, template in ipairs(pending_templates) do
+                if template.id then
+                    table.insert(bad_ids, tostring(template.id))
+                end
+            end
+            error(("Couldn't load map at %s due to circular dependencies between objects: %s"):format(
+                self.tiled_map.path, table.concat(bad_ids, ", ")))
+        elseif #next_pending_templates == 0 then
+            break
+        else
+            pending_templates = next_pending_templates
+        end
     end
 end
 
